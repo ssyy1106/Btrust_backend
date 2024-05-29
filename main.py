@@ -11,7 +11,7 @@ configFile = 'config.ini'
 config = configparser.ConfigParser()
 config.read(configFile, encoding="utf-8")
 
-directory = '.\\logs\\'
+directory = '.\\'
 file = datetime.datetime.now(datetime.timezone.utc).isoformat()[:10]
 logging.basicConfig(filename=directory + file + '.log', encoding='utf-8', level=logging.DEBUG)
 logging.info('Start......')
