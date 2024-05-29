@@ -3,6 +3,13 @@ pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org fastap
 pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org pydantic -vvv
 pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org hdbcli -vvv
 
+程序结构：
+main是主程序
+classes存储数据类型
+html存储返回访问主页的html信息，用于在浏览器访问主页，测试websocket返回的信息是否正确
+hana存储查询hana数据库的函数
+config文件存储配置信息，包括hana数据库的连接信息，websocket的返回前端信息的时间间隔，各个查询时间段距离当前的天数
+
 测试时运行下面的命令，可以在文件修改后自动重启
 uvicorn main:app --reload
 
