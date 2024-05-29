@@ -82,7 +82,7 @@ async def monitor() -> Response | None:
         password=config['Hana']['password']
     )
     cursor = conn.cursor()
-    schema = "UPDATEROW_TEST_BTRUST"
+    schema = config['Hana']['schema']
     try:
         logging.info(f"visit enpoint monitor")
         # get sales orders
