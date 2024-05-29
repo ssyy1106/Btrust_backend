@@ -1,8 +1,20 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from hdbcli import dbapi
+import logging
+import configparser
+import datetime
 
 app = FastAPI()
+
+configFile = 'config.ini'
+config = configparser.ConfigParser()
+config.read(configFile, encoding="utf-8")
+
+directory = '.\\logs\\'
+file = datetime.datetime.now(datetime.timezone.utc).isoformat()[:10]
+logging.basicConfig(filename=directory + file + '.log', encoding='utf-8', level=logging.DEBUG)
+logging.info('Start......')
 
 class SaleItem(BaseModel):
     DocNum: str
@@ -64,18 +76,21 @@ async def root():
 async def monitor() -> Response | None:
     # connect db
     conn = dbapi.connect(
-        address="hanabtrust", 
-        port=30015, 
-        user="SBOADMIN", 
-        password="Btwsx76!"
+        address=config['Hana']['address'],
+        port=config['Hana']['port'],
+        user=config['Hana']['user'],
+        password=config['Hana']['password']
     )
     cursor = conn.cursor()
     schema = "UPDATEROW_TEST_BTRUST"
     try:
+        logging.info(f"visit enpoint monitor")
         # get sales orders
         salesOrders = getSalesOrder(cursor, schema)
+        logging.info(f"sales order: {salesOrders}")
         # get delivery sales orders
         deliveryOrders = getDeliveryOrder(cursor, schema)
+        logging.info(f"delivery order: {deliveryOrders}")
         # get po orders
         # poOrders = getPOOrder()
         #poOrders = getPOOrder(cursor, schema)
@@ -84,6 +99,7 @@ async def monitor() -> Response | None:
         return res
     except Exception as err:
         print(f"Somethin wrong, error is {err}")
+        logging.error(f"visit enpoint monitor error, {err}")
     finally:
         cursor.close()
         conn.close()
