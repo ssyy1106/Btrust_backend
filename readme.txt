@@ -8,3 +8,6 @@ uvicorn main:app --reload
 
 生产环境运行下面的命令，减少资源的占用
 uvicorn main:app
+
+监控的api endpoint 地址： http://127.0.0.1:8000/monitor
+api文档说明的地址：http://127.0.0.1:8000/redoc
