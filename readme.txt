@@ -10,4 +10,4 @@ uvicorn main:app --reload
 uvicorn main:app
 
 监控的api endpoint 地址： http://127.0.0.1:8000/monitor
-api文档说明的地址：http://127.0.0.1:8000/redoc
+api文档说明的地址：http://127.0.0.1:8000/redoc 和 http://127.0.0.1:8000/docs
