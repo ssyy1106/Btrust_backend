@@ -2,6 +2,7 @@ from hdbcli import dbapi
 from fastapi import FastAPI, WebSocket
 from fastapi.responses import HTMLResponse
 from fastapi.encoders import jsonable_encoder
+import pyodbc
 import logging
 import configparser
 import datetime
@@ -9,6 +10,7 @@ import asyncio
 from classes import SaleItem, Summary, SalesOrder, MonitorData, Response
 from html import html
 from hana import getSalesOrder, getDeliveryOrder
+from PO import getPOStoreOrder, getPOWareOrder
 
 app = FastAPI()
 
@@ -30,6 +32,14 @@ async def getResponse() -> Response | None:
     )
     cursor = conn.cursor()
     schema = config['Hana']['schema']
+    # sql server
+    USERNAME = config['POsqlserver']['name']
+    PASSWORD = config['POsqlserver']['password']
+    SERVER = config['POsqlserver']['host']
+    DATABASE = config['POsqlserver']['database']
+    connectionString = f'DRIVER={{SQL Server}};SERVER={SERVER};DATABASE={DATABASE};UID={USERNAME};PWD={PASSWORD}'
+    connSQLServer = pyodbc.connect(connectionString)
+    cursorSQLServer= connSQLServer.cursor()
     try:
         # get sales orders
         salesOrders = getSalesOrder(cursor, schema, config)
@@ -38,9 +48,9 @@ async def getResponse() -> Response | None:
         deliveryOrders = getDeliveryOrder(cursor, schema, config)
         logging.info(f"delivery order: {deliveryOrders}")
         # get po orders
-        # poOrders = getPOOrder()
-        #poOrders = getPOOrder(cursor, schema)
-        data = MonitorData(Sales=salesOrders, Delivery=deliveryOrders, PO= None)
+        poStoreOrders = getPOStoreOrder(cursorSQLServer)
+        poWarehouseOrders = getPOWareOrder(cursorSQLServer)
+        data = MonitorData(Sales=salesOrders, Delivery=deliveryOrders, POStore=poStoreOrders, POWarehouse=poWarehouseOrders)
         res = Response(Data=data, Message="ok")
         return res
     except Exception as err:
@@ -48,7 +58,9 @@ async def getResponse() -> Response | None:
         logging.error(f"visit enpoint monitor error, {err}")
     finally:
         cursor.close()
+        cursorSQLServer.close()
         conn.close()
+        connSQLServer.close()
     return None
 
 @app.get("/")

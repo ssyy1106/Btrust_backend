@@ -20,7 +20,8 @@ class SalesOrder(BaseModel):
 class MonitorData(BaseModel):
     Sales: SalesOrder
     Delivery: SalesOrder
-    PO: SalesOrder | None
+    POStore: SalesOrder | None
+    POWarehouse: SalesOrder | None
 
 class Response(BaseModel):
     Message: str = "ok"
