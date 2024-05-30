@@ -61,10 +61,10 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     try:
         while True:
-            await asyncio.sleep(float(config['duration']['second']))
             res = await getResponse()
             #data = await websocket.receive_text()
             await websocket.send_json(jsonable_encoder(res))
+            await asyncio.sleep(float(config['duration']['second']))
     except:
         print(f"Client disconnect")
 
