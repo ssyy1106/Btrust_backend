@@ -7,7 +7,7 @@ import logging
 import configparser
 import datetime
 import asyncio
-from classes import SaleItem, Summary, SalesOrder, MonitorData, Response
+from classes import SaleItem, Summary, SalesOrder, MonitorData, Response, WeekOrderSummary
 from html import html
 from hana import getSalesOrder, getDeliveryOrder, getPurchaseOrder, getWeekOrderOverview
 from PO import getPOStoreOrder, getPOWareOrder
@@ -23,6 +23,7 @@ file = datetime.datetime.now(datetime.timezone.utc).isoformat()[:10]
 logging.basicConfig(filename=directory + file + '.log', encoding='utf-8', level=logging.DEBUG)
 logging.info('Start......')
 
+
 async def getResponse() -> Response | None:
     conn = dbapi.connect(
         address=config['Hana']['address'],
@@ -30,6 +31,7 @@ async def getResponse() -> Response | None:
         user=config['Hana']['user'],
         password=config['Hana']['password']
     )
+    print(conn)
     cursor = conn.cursor()
     schema = config['Hana']['schema']
     # sql server
@@ -40,26 +42,28 @@ async def getResponse() -> Response | None:
     connectionString = f'DRIVER={{SQL Server}};SERVER={SERVER};DATABASE={DATABASE};UID={USERNAME};PWD={PASSWORD}'
     connSQLServer = pyodbc.connect(connectionString)
     cursorSQLServer= connSQLServer.cursor()
+
     try:
         # get sales orders
+        
         salesOrders = getSalesOrder(cursor, schema, config)
         logging.info(f"sales order: {salesOrders}")
         # get delivery sales orders
         deliveryOrders = getDeliveryOrder(cursor, schema, config)
         logging.info(f"delivery order: {deliveryOrders}")
-
+        
         #get Purchase orders(SAP Data)
         purchaseOrders = getPurchaseOrder(cursor, schema, config)
         logging.info(f"Purchase order: {purchaseOrders}")
         
-        #get weekorder overview data
+        #get weekOrder overview data
         weekOrderSummary = getWeekOrderOverview(cursor, schema, config)
         logging.info(f"WeekOrderOverview: {weekOrderSummary}")
 
         # get po orders 
         poStoreOrders = getPOStoreOrder(cursorSQLServer)
         poWarehouseOrders = getPOWareOrder(cursorSQLServer)
-        data = MonitorData(Sales=salesOrders, Delivery=deliveryOrders, Purchase= purchaseOrders, POStore=poStoreOrders, POWarehouse=poWarehouseOrders)
+        data = MonitorData(Sales=salesOrders, Delivery=deliveryOrders, Purchase=purchaseOrders, POStore=poStoreOrders, POWarehouse=poWarehouseOrders, WeekOrderSummary=weekOrderSummary)
         res = Response(Data=data, Message="ok")
         return res
     except Exception as err:
