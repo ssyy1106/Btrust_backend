@@ -50,3 +50,20 @@ def getDeliveryOrder(cursor, schema, config):
     danger = getRangeCount(DangerBeginStr, DangerEndStr, schema + '.ODLN', cursor)
     output = SalesOrder(Details=details, Summary=Summary(Total=count, Current=current, Warning=warning, Danger=danger))
     return output 
+
+def getPurchaseOrder(cursor, schema, config):
+    (currentBeginStr, currentEndStr, warningBeginStr, warningEndStr, DangerBeginStr, DangerEndStr) = getConfigDays(config)
+    cursor.execute(f"SELECT \"DocNum\", \"DocDate\", \"CardCode\", \"CardName\", \"Address\" FROM {schema}.OPOR where \"DocStatus\"='O'")
+    res = cursor.fetchall()
+    count = 0
+    details = []
+    for row in res:
+        count += 1
+        sale = SaleItem(DocNum=str(row[0]), DocDate=str(row[1]), CardCode=row[2], CardName=row[3], Address=row[4])
+        details.append(sale)
+    
+    current = getRangeCount(currentBeginStr, currentEndStr, schema + '.OPOR', cursor)
+    warning = getRangeCount(warningBeginStr, warningEndStr, schema + '.OPOR', cursor)
+    danger = getRangeCount(DangerBeginStr, DangerEndStr, schema + '.OPOR', cursor)
+    output = SalesOrder(Details=details, Summary=Summary(Total=count, Current=current, Warning=warning, Danger=danger))
+    return output 
