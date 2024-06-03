@@ -25,6 +25,7 @@ class WeekOrderSummary(BaseModel):
 class MonitorData(BaseModel):
     Sales: SalesOrder
     Delivery: SalesOrder
+    Purchase: SalesOrder
     POStore: SalesOrder | None
     POWarehouse: SalesOrder | None
     WeekOrderSummary: WeekOrderSummary | None
