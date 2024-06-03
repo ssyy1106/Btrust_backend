@@ -20,6 +20,7 @@ class SalesOrder(BaseModel):
 class MonitorData(BaseModel):
     Sales: SalesOrder
     Delivery: SalesOrder
+    Purchase: SalesOrder
     POStore: SalesOrder | None
     POWarehouse: SalesOrder | None
 
