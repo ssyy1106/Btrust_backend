@@ -9,7 +9,7 @@ import datetime
 import asyncio
 from classes import SaleItem, Summary, SalesOrder, MonitorData, Response
 from html import html
-from hana import getSalesOrder, getDeliveryOrder, getPurchaseOrder
+from hana import getSalesOrder, getDeliveryOrder, getPurchaseOrder, getWeekOrderOverview
 from PO import getPOStoreOrder, getPOWareOrder
 
 app = FastAPI()
@@ -51,6 +51,10 @@ async def getResponse() -> Response | None:
         #get Purchase orders(SAP Data)
         purchaseOrders = getPurchaseOrder(cursor, schema, config)
         logging.info(f"Purchase order: {purchaseOrders}")
+        
+        #get weekorder overview data
+        weekOrderSummary = getWeekOrderOverview(cursor, schema, config)
+        logging.info(f"WeekOrderOverview: {weekOrderSummary}")
 
         # get po orders 
         poStoreOrders = getPOStoreOrder(cursorSQLServer)

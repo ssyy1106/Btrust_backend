@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from typing import List
 
 class SaleItem(BaseModel):
     DocNum: str
@@ -17,12 +18,17 @@ class SalesOrder(BaseModel):
     Details: list[SaleItem] | None
     Summary: Summary
 
+class WeekOrderSummary(BaseModel):
+    WeekPurchase: List[int]
+    WeekSales: List[int]
+    WeekDelivery: List[int]
+
 class MonitorData(BaseModel):
     Sales: SalesOrder
     Delivery: SalesOrder
-    Purchase: SalesOrder
     POStore: SalesOrder | None
     POWarehouse: SalesOrder | None
+    WeekOrderSummary: WeekOrderSummary | None
 
 class Response(BaseModel):
     Message: str = "ok"
