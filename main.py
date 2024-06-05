@@ -9,7 +9,7 @@ import datetime
 import asyncio
 from classes import SaleItem, Summary, SalesOrder, MonitorData, Response, WeekOrderSummary
 from html import html
-from hana import getSalesOrder, getDeliveryOrder, getPurchaseOrder, getWeekOrderOverview
+from hana import getSalesOrder, getDeliveryOrder, getPurchaseOrder, getWeekOrderOverview, getPickListStatus
 from PO import getPOStoreOrder, getPOWareOrder
 
 app = FastAPI()
@@ -31,7 +31,6 @@ async def getResponse() -> Response | None:
         user=config['Hana']['user'],
         password=config['Hana']['password']
     )
-    print(conn)
     cursor = conn.cursor()
     schema = config['Hana']['schema']
     # sql server
@@ -45,9 +44,9 @@ async def getResponse() -> Response | None:
 
     try:
         # get sales orders
-        
         salesOrders = getSalesOrder(cursor, schema, config)
         logging.info(f"sales order: {salesOrders}")
+       
         # get delivery sales orders
         deliveryOrders = getDeliveryOrder(cursor, schema, config)
         logging.info(f"delivery order: {deliveryOrders}")
@@ -55,6 +54,10 @@ async def getResponse() -> Response | None:
         #get Purchase orders(SAP Data)
         purchaseOrders = getPurchaseOrder(cursor, schema, config)
         logging.info(f"Purchase order: {purchaseOrders}")
+
+        #get Picking up orders status data
+        PickListStatus = getPickListStatus(cursor, schema, config)
+        logging.info(f"Pick order: {PickListStatus}")
         
         #get weekOrder overview data
         weekOrderSummary = getWeekOrderOverview(cursor, schema, config)
@@ -63,11 +66,13 @@ async def getResponse() -> Response | None:
         # get po orders 
         poStoreOrders = getPOStoreOrder(cursorSQLServer)
         poWarehouseOrders = getPOWareOrder(cursorSQLServer)
-        data = MonitorData(Sales=salesOrders, Delivery=deliveryOrders, Purchase=purchaseOrders, POStore=poStoreOrders, POWarehouse=poWarehouseOrders, WeekOrderSummary=weekOrderSummary)
+        
+        #return data to frontend
+        data = MonitorData(Sales=salesOrders, Delivery=deliveryOrders, Purchase=purchaseOrders, POStore=poStoreOrders, POWarehouse=poWarehouseOrders, WeekOrderSummary=weekOrderSummary, PickListStatus= PickListStatus)
         res = Response(Data=data, Message="ok")
         return res
     except Exception as err:
-        print(f"Somethin wrong, error is {err}")
+        print(f"Something wrong, error is {err}")
         logging.error(f"visit enpoint monitor error, {err}")
     finally:
         cursor.close()

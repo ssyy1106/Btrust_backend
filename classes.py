@@ -7,6 +7,18 @@ class SaleItem(BaseModel):
     CardName: str
     Address: str
 
+class PickDetails(BaseModel):
+    ItemName: str
+    ItemCode: str
+    Open: int
+    Picked: int
+    Total: int
+
+class PickItem(SaleItem):
+    NumberOfItems: int
+    DockLocation: str
+    PickDetails: list[PickDetails]
+
 class Summary(BaseModel):
     Total: int
     Current: int
@@ -22,6 +34,10 @@ class WeekOrderSummary(BaseModel):
     WeekSales: list[int]
     WeekDelivery: list[int]
 
+class PickListStatus(BaseModel):
+    Details: list[PickItem] | None
+    Summary: Summary
+
 class MonitorData(BaseModel):
     Sales: SalesOrder
     Delivery: SalesOrder
@@ -29,6 +45,7 @@ class MonitorData(BaseModel):
     POStore: SalesOrder | None
     POWarehouse: SalesOrder | None
     WeekOrderSummary: WeekOrderSummary | None
+    PickListStatus: PickListStatus| None
 
 class Response(BaseModel):
     Message: str = "ok"

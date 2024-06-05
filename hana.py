@@ -1,5 +1,5 @@
 import datetime
-from classes import SaleItem, Summary, SalesOrder, MonitorData, Response, WeekOrderSummary
+from classes import SaleItem, Summary, SalesOrder, MonitorData, Response, WeekOrderSummary, PickItem, PickDetails, PickListStatus
 
 def getRangeCount(begin: str, end: str, table: str, cursor) -> int:
     cursor.execute(f"SELECT Count(1) FROM {table} where \"DocStatus\"='O' and \"DocDate\" >= '{begin}' and \"DocDate\" <= '{end}'")
@@ -14,6 +14,14 @@ def getRangeCountWithClosed(begin: str, end: str, table: str, cursor) -> int:
     if res:
         return res[0]
     return 0
+
+def getPickRangeCount(begin: str, end: str, table: str, cursor) -> int:
+    cursor.execute(f"SELECT Count(1) FROM {table} where \"DocStatus\"='O' and \"CreateDate\" >= '{begin}' and \"CreateDate\" <= '{end}'")
+    res = cursor.fetchone()
+    if res:
+        return res[0]
+    return 0
+
 
 def getConfigDays(config) -> tuple:
     today = datetime.datetime.now()
@@ -91,4 +99,28 @@ def getWeekOrderOverview(cursor, schema, config):
         weekDelivery.append(getRangeCountWithClosed(weekday[0], weekday[1], schema + '.ODLN', cursor))
 
     output = WeekOrderSummary(WeekPurchase=weekPurchase, WeekSales=weekSales, WeekDelivery=weekDelivery)
+    return output 
+
+def getPickListStatus(cursor, schema, config):
+    (currentBeginStr, currentEndStr, warningBeginStr, warningEndStr, DangerBeginStr, DangerEndStr,_) = getConfigDays(config)
+    cursor.execute(f"SELECT \"DocEntry\", \"CreateDate\", \"CardCode\", \"ShipToCode\", \"ShipToAddress\", \"DestStorLocCode\" FROM {schema}.PMX_PLHE where \"DocStatus\"='O'")
+    res = cursor.fetchall()
+    count = 0
+    details = []
+    for row in res:
+        count += 1
+        pickList = PickItem(DocNum=str(row[0]), DocDate=str(row[1]), CardCode=row[2], CardName=row[3], Address=row[4], DockLocation=row[5], NumberOfItems=0,PickDetails=[])
+        cursor.execute(f"SELECT \"Dscription\", \"ItemCode\", \"OpenQty\", \"QtyPicked\", \"Quantity\" FROM {schema}.PMX_PLLI where \"DocEntry\"={pickList.DocNum}")
+        pickItems = cursor.fetchall()
+        itemCount = 0
+        for item in pickItems:
+            itemCount += 1
+            pickList.PickDetails.append(PickDetails(ItemName=str(item[0]), ItemCode=str(item[1]), Open=int(item[2]), Picked=int(item[3]), Total=int(item[4])))
+        pickList.NumberOfItems = itemCount
+        details.append(pickList)
+    
+    current = getPickRangeCount(currentBeginStr, currentEndStr, schema + '.PMX_PLHE', cursor)
+    warning = getPickRangeCount(warningBeginStr, warningEndStr, schema + '.PMX_PLHE', cursor)
+    danger = getPickRangeCount(DangerBeginStr, DangerEndStr, schema + '.PMX_PLHE', cursor)
+    output = PickListStatus(Details=details, Summary=Summary(Total=count, Current=current, Warning=warning, Danger=danger))
     return output 
