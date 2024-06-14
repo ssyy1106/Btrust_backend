@@ -25,6 +25,16 @@ class Summary(BaseModel):
     Warning: int
     Danger: int
 
+# This class represents a summary of data over a week.
+# Each attribute represents the data for a specific day.
+class WeeklyDataSummary(BaseModel):
+    OpenData: list[int] #The first seven numbers represent data for each day of the week, while the eighth number corresponds to data spanning more than seven days
+    CloseData: list[int]
+
+class SalesOrderWeek(BaseModel):
+    Details: list[SaleItem] | None
+    Summary: WeeklyDataSummary
+
 class SalesOrder(BaseModel):
     Details: list[SaleItem] | None
     Summary: Summary
@@ -39,7 +49,7 @@ class PickListStatus(BaseModel):
     Summary: Summary
 
 class MonitorData(BaseModel):
-    Sales: SalesOrder
+    Sales: SalesOrderWeek
     Delivery: SalesOrder
     Purchase: SalesOrder
     POStore: SalesOrder | None

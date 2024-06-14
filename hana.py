@@ -1,5 +1,5 @@
 import datetime
-from classes import SaleItem, Summary, SalesOrder, MonitorData, Response, WeekOrderSummary, PickItem, PickDetails, PickListStatus
+from classes import SaleItem, Summary, SalesOrder, MonitorData, Response, WeekOrderSummary, PickItem, PickDetails, PickListStatus, SalesOrderWeek, WeeklyDataSummary
 
 def getRangeCount(begin: str, end: str, table: str, cursor) -> int:
     cursor.execute(f"SELECT Count(1) FROM {table} where \"DocStatus\"='O' and \"DocDate\" >= '{begin}' and \"DocDate\" <= '{end}'")
@@ -8,7 +8,14 @@ def getRangeCount(begin: str, end: str, table: str, cursor) -> int:
         return res[0]
     return 0
 
-def getRangeCountWithClosed(begin: str, end: str, table: str, cursor) -> int:
+def getRangeCountClosed(begin: str, end: str, table: str, cursor) -> int:
+    cursor.execute(f"SELECT Count(1) FROM {table} where \"DocStatus\"='C' and \"DocDate\" >= '{begin}' and \"DocDate\" <= '{end}'")
+    res = cursor.fetchone()
+    if res:
+        return res[0]
+    return 0
+
+def getRangeCountAll(begin: str, end: str, table: str, cursor) -> int:
     cursor.execute(f"SELECT Count(1) FROM {table} where \"DocDate\" >= '{begin}' and \"DocDate\" <= '{end}'")
     res = cursor.fetchone()
     if res:
@@ -38,19 +45,25 @@ def getConfigDays(config) -> tuple:
     return (currentBeginStr, currentEndStr, warningBeginStr, warningEndStr, DangerBeginStr, DangerEndStr, weekList)
 
 def getSalesOrder(cursor, schema, config):
-    (currentBeginStr, currentEndStr, warningBeginStr, warningEndStr, DangerBeginStr, DangerEndStr,_) = getConfigDays(config)
+    _,_,_,_,DangerBeginStr, DangerEndStr, weekList = getConfigDays(config)
     cursor.execute(f"SELECT \"DocNum\", \"DocDate\", \"CardCode\", \"CardName\", \"Address\" FROM {schema}.ORDR where \"DocStatus\"='O'")
     res = cursor.fetchall()
     count = 0
     details = []
+
     for row in res:
         count += 1
         sale = SaleItem(DocNum=str(row[0]), DocDate=str(row[1]), CardCode=row[2], CardName=row[3], Address=row[4])
         details.append(sale)
-    current = getRangeCount(currentBeginStr, currentEndStr, schema + '.ORDR', cursor)
-    warning = getRangeCount(warningBeginStr, warningEndStr, schema + '.ORDR', cursor)
-    danger = getRangeCount(DangerBeginStr, DangerEndStr, schema + '.ORDR', cursor)
-    output = SalesOrder(Details=details, Summary=Summary(Total=count, Current=current, Warning=warning, Danger=danger))
+    
+    salesOpenList = [getRangeCount(DangerBeginStr, DangerEndStr, schema + '.ORDR', cursor)]
+    salesCloseList = [0]
+
+    for weekday in weekList: 
+        salesOpenList.append(getRangeCount(weekday[0], weekday[1], schema + '.ORDR', cursor))
+        salesCloseList.append(getRangeCountClosed(weekday[0], weekday[1], schema + '.ORDR', cursor))
+    
+    output = SalesOrderWeek(Details=details, Summary=WeeklyDataSummary(OpenData=salesOpenList, CloseData=salesCloseList))
     return output 
 
 def getDeliveryOrder(cursor, schema, config):
@@ -94,9 +107,9 @@ def getWeekOrderOverview(cursor, schema, config):
     weekDelivery = []    
     # getting purchase, Sales, Delivery weekday orders total
     for weekday in weekList:
-        weekPurchase.append(getRangeCountWithClosed(weekday[0], weekday[1], schema + '.OPOR', cursor))
-        weekSales.append(getRangeCountWithClosed(weekday[0], weekday[1], schema + '.ORDR', cursor))
-        weekDelivery.append(getRangeCountWithClosed(weekday[0], weekday[1], schema + '.ODLN', cursor))
+        weekPurchase.append(getRangeCountAll(weekday[0], weekday[1], schema + '.OPOR', cursor))
+        weekSales.append(getRangeCountAll(weekday[0], weekday[1], schema + '.ORDR', cursor))
+        weekDelivery.append(getRangeCountAll(weekday[0], weekday[1], schema + '.ODLN', cursor))
 
     output = WeekOrderSummary(WeekPurchase=weekPurchase, WeekSales=weekSales, WeekDelivery=weekDelivery)
     return output 
