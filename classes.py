@@ -50,8 +50,8 @@ class PickListStatus(BaseModel):
 
 class MonitorData(BaseModel):
     Sales: SalesOrderWeek
-    Delivery: SalesOrder
-    Purchase: SalesOrder
+    Delivery: SalesOrderWeek
+    Purchase: SalesOrderWeek
     POStore: SalesOrder | None
     POWarehouse: SalesOrder | None
     WeekOrderSummary: WeekOrderSummary | None

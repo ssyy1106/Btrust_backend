@@ -67,37 +67,47 @@ def getSalesOrder(cursor, schema, config):
     return output 
 
 def getDeliveryOrder(cursor, schema, config):
-    (currentBeginStr, currentEndStr, warningBeginStr, warningEndStr, DangerBeginStr, DangerEndStr,_) = getConfigDays(config)
+    _,_,_,_,DangerBeginStr, DangerEndStr, weekList = getConfigDays(config)
     cursor.execute(f"SELECT \"DocNum\", \"DocDate\", \"CardCode\", \"CardName\", \"Address\" FROM {schema}.ODLN where \"DocStatus\"='O'")
     res = cursor.fetchall()
     count = 0
     details = []
+
     for row in res:
         count += 1
         sale = SaleItem(DocNum=str(row[0]), DocDate=str(row[1]), CardCode=row[2], CardName=row[3], Address=row[4])
         details.append(sale)
     
-    current = getRangeCount(currentBeginStr, currentEndStr, schema + '.ODLN', cursor)
-    warning = getRangeCount(warningBeginStr, warningEndStr, schema + '.ODLN', cursor)
-    danger = getRangeCount(DangerBeginStr, DangerEndStr, schema + '.ODLN', cursor)
-    output = SalesOrder(Details=details, Summary=Summary(Total=count, Current=current, Warning=warning, Danger=danger))
+    deliveryOpenList = [getRangeCount(DangerBeginStr, DangerEndStr, schema + '.ODLN', cursor)]
+    deliveryCloseList = [0]
+
+    for weekday in weekList: 
+        deliveryOpenList.append(getRangeCount(weekday[0], weekday[1], schema + '.ODLN', cursor))
+        deliveryCloseList.append(getRangeCountClosed(weekday[0], weekday[1], schema + '.ODLN', cursor))
+    
+    output = SalesOrderWeek(Details=details, Summary=WeeklyDataSummary(OpenData=deliveryOpenList, CloseData=deliveryCloseList))
     return output 
 
 def getPurchaseOrder(cursor, schema, config):
-    (currentBeginStr, currentEndStr, warningBeginStr, warningEndStr, DangerBeginStr, DangerEndStr,_) = getConfigDays(config)
+    _,_,_,_,DangerBeginStr, DangerEndStr, weekList = getConfigDays(config)
     cursor.execute(f"SELECT \"DocNum\", \"DocDate\", \"CardCode\", \"CardName\", \"Address\" FROM {schema}.OPOR where \"DocStatus\"='O'")
     res = cursor.fetchall()
     count = 0
     details = []
+
     for row in res:
         count += 1
         sale = SaleItem(DocNum=str(row[0]), DocDate=str(row[1]), CardCode=row[2], CardName=row[3], Address=row[4])
         details.append(sale)
     
-    current = getRangeCount(currentBeginStr, currentEndStr, schema + '.OPOR', cursor)
-    warning = getRangeCount(warningBeginStr, warningEndStr, schema + '.OPOR', cursor)
-    danger = getRangeCount(DangerBeginStr, DangerEndStr, schema + '.OPOR', cursor)
-    output = SalesOrder(Details=details, Summary=Summary(Total=count, Current=current, Warning=warning, Danger=danger))
+    purchaseOpenList = [getRangeCount(DangerBeginStr, DangerEndStr, schema + '.OPOR', cursor)]
+    purchaseCloseList = [0]
+
+    for weekday in weekList: 
+        purchaseOpenList.append(getRangeCount(weekday[0], weekday[1], schema + '.OPOR', cursor))
+        purchaseCloseList.append(getRangeCountClosed(weekday[0], weekday[1], schema + '.OPOR', cursor))
+    
+    output = SalesOrderWeek(Details=details, Summary=WeeklyDataSummary(OpenData=purchaseOpenList, CloseData=purchaseCloseList))
     return output 
 
 def getWeekOrderOverview(cursor, schema, config):
