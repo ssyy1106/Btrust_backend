@@ -1,5 +1,5 @@
 import datetime
-from classes import SaleItem, Summary, SalesOrder, MonitorData, Response, WeekOrderSummary, PickItem, PickDetails, PickListStatus, SalesOrderWeek, WeeklyDataSummary
+from classes import SaleItem, Summary, SalesOrder, MonitorData, Response, WeekOrderSummary, PickItem, PickDetails, PickListStatus, SalesOrderWeek, WeeklyDataSummary, PickItemDetail, FrozenPickItem, GroceryPickItem, OtherPickItem
 
 def getRangeCount(begin: str, end: str, table: str, cursor) -> int:
     cursor.execute(f"SELECT Count(1) FROM {table} where \"DocStatus\"='O' and \"DocDate\" >= '{begin}' and \"DocDate\" <= '{end}'")
@@ -28,6 +28,53 @@ def getPickRangeCount(begin: str, end: str, table: str, cursor) -> int:
     if res:
         return res[0]
     return 0
+
+def getStartChar(string):
+    res = ""
+    for char in string:
+        if not char.isalpha():
+            return res
+        res += char
+    return res
+
+
+def getPickRangeCountByDepartment(begin: str, end: str, schema, cursor, department: str, isDanger):
+
+    GroceryCondition = """Detail."ItemCode" LIKE 'SUP%' OR Detail."ItemCode" LIKE 'NFD%' OR Detail."ItemCode" LIKE 'G%'"""
+    FrozenCondition = """Detail."ItemCode" LIKE 'FRZ%'"""
+
+
+    if (not isDanger):
+        cursor.execute(f"""
+            SELECT
+            COUNT(DISTINCT Header."DocEntry")   
+            
+            FROM
+                    
+            {schema}.PMX_PLHE AS Header
+            JOIN {schema}.PMX_PLLI AS Detail on Header."DocEntry" = Detail."DocEntry"
+
+            where ({FrozenCondition if department == "Frozen" else GroceryCondition}) and  "DocStatus"='C' and "CreateDate" >= '{begin}' and "CreateDate" <= '{end}'""")
+    
+        closedRes = cursor.fetchone()
+    else:
+        closedRes = [0]
+
+    cursor.execute(f"""
+        SELECT
+        COUNT(DISTINCT Header."DocEntry")   
+        
+        FROM
+                   
+        {schema}.PMX_PLHE AS Header
+        JOIN {schema}.PMX_PLLI AS Detail on Header."DocEntry" = Detail."DocEntry"
+
+        where ({FrozenCondition if department == "Frozen" else GroceryCondition}) and  "DocStatus"='O' and "CreateDate" >= '{begin}' and "CreateDate" <= '{end}'""")
+    
+    openRes = cursor.fetchone()
+
+    res = {"Open": openRes[0] if openRes else 0, "Close": closedRes[0] if closedRes else 0}
+    return res
 
 
 def getConfigDays(config) -> tuple:
@@ -146,4 +193,76 @@ def getPickListStatus(cursor, schema, config):
     warning = getPickRangeCount(warningBeginStr, warningEndStr, schema + '.PMX_PLHE', cursor)
     danger = getPickRangeCount(DangerBeginStr, DangerEndStr, schema + '.PMX_PLHE', cursor)
     output = PickListStatus(Details=details, Summary=Summary(Total=count, Current=current, Warning=warning, Danger=danger))
+    return output 
+
+def getPickListByDepartment(cursor, schema, config):
+    _,_,_,_,DangerBeginStr, DangerEndStr, weekList = getConfigDays(config)
+    cursor.execute(f"""
+        SELECT
+        Header."DocEntry",
+        Header."CreateDate",
+        Header."DestStorLocCode",
+        Header."PickPackRemarks",
+        Header."CardCode",
+        Detail."ItemCode"
+                   
+        FROM
+                   
+        {schema}.PMX_PLHE AS Header
+        JOIN {schema}.PMX_PLLI AS Detail on Header."DocEntry" = Detail."DocEntry"
+
+        WhERE Header."DocStatus" = 'O'
+            """)
+    
+    res = cursor.fetchall()
+    count = 0
+
+    FrozenDetails = []
+    FrozenOpenList = [getPickRangeCountByDepartment(DangerBeginStr, DangerEndStr, schema, cursor, "Frozen", True)["Open"]]
+    FrozenCloseList = [0]
+
+    GroceryDetails = []
+    GroceryOpenList = [getPickRangeCountByDepartment(DangerBeginStr, DangerEndStr, schema, cursor, "Grocery", True)["Open"]]
+    GroceryCloseList = [0]
+
+    OtherDetails = []
+
+    FrozenSeenPickListNumber = set()
+    GrocerySeenPickListNumber = set()
+    OtherSeenPickListNumber = set()
+
+    for row in res:
+
+        PickListNumber = row[0]
+        itemCode = row[5]
+        count += 1
+
+        pickListDepartment = PickItemDetail(PickListNumber=str(row[0]), CreateDate=str(row[1]), DockNumber=str(row[2]), PickPackRemarks=str(row[3]), CardCode=str(row[4]))
+
+        if (getStartChar(itemCode) == "FRZ"):
+            if (PickListNumber not in FrozenSeenPickListNumber):
+                FrozenSeenPickListNumber.add(PickListNumber)
+                FrozenDetails.append(pickListDepartment)
+
+        elif (getStartChar(itemCode) in ["G", "SUP", "NFD"]):
+            if (PickListNumber not in GrocerySeenPickListNumber):
+                GrocerySeenPickListNumber.add(PickListNumber)
+                GroceryDetails.append(pickListDepartment)
+        
+        else:
+            if (PickListNumber not in OtherSeenPickListNumber):
+                OtherSeenPickListNumber.add(PickListNumber)
+                OtherDetails.append(pickListDepartment)
+
+    for weekday in weekList: 
+        res = getPickRangeCountByDepartment(weekday[0], weekday[1], schema, cursor, "Frozen", False)
+        FrozenOpenList.append(res["Open"])
+        FrozenCloseList.append(res["Close"])
+
+        res = getPickRangeCountByDepartment(weekday[0], weekday[1], schema, cursor, "Grocery", False)
+        GroceryOpenList.append(res["Open"])
+        GroceryCloseList.append(res["Close"])
+
+    output = {"Grocery": GroceryPickItem(Details=GroceryDetails, Summary=WeeklyDataSummary(OpenData=GroceryOpenList, CloseData=GroceryCloseList)), "Frozen": FrozenPickItem(Details=FrozenDetails, Summary=WeeklyDataSummary(OpenData=FrozenOpenList, CloseData=FrozenCloseList))}
+
     return output 
