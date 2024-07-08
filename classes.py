@@ -25,6 +25,17 @@ class Summary(BaseModel):
     Warning: int
     Danger: int
 
+# This class represents a summary of data over a week.
+# Each attribute represents the data for a specific day.
+class WeeklyDataSummary(BaseModel):
+    OpenData: list[int] #The first number corresponds to the longer days, and the rest 7 numbers correspond to the most recent week summary
+    CloseData: list[int]
+
+# this shows the sales, delivery, purchase order week view summary
+class SalesOrderWeek(BaseModel):
+    Details: list[SaleItem] | None
+    Summary: WeeklyDataSummary
+
 class SalesOrder(BaseModel):
     Details: list[SaleItem] | None
     Summary: Summary
@@ -34,18 +45,41 @@ class WeekOrderSummary(BaseModel):
     WeekSales: list[int]
     WeekDelivery: list[int]
 
+class PickItemDetail(BaseModel):
+    PickListNumber: str
+    CreateDate: str
+    DockNumber: str
+    PickPackRemarks: str
+    CardCode: str
+
+class FrozenPickItem(BaseModel):
+    Details: list[PickItemDetail]
+    Summary: WeeklyDataSummary | None
+
+class GroceryPickItem(BaseModel):
+    Details: list[PickItemDetail]
+    Summary: WeeklyDataSummary | None
+
+class OtherPickItem(BaseModel):
+    Details: list[PickItemDetail]
+    Summary: WeeklyDataSummary | None
+
 class PickListStatus(BaseModel):
     Details: list[PickItem] | None
     Summary: Summary
 
+
+
 class MonitorData(BaseModel):
-    Sales: SalesOrder
-    Delivery: SalesOrder
-    Purchase: SalesOrder
+    Sales: SalesOrderWeek
+    Delivery: SalesOrderWeek
+    Purchase: SalesOrderWeek
     POStore: SalesOrder | None
     POWarehouse: SalesOrder | None
     WeekOrderSummary: WeekOrderSummary | None
     PickListStatus: PickListStatus| None
+    FrozenPickItem:FrozenPickItem
+    GroceryPickItem:GroceryPickItem
 
 class Response(BaseModel):
     Message: str = "ok"
