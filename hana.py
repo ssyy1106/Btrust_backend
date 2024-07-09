@@ -1,5 +1,5 @@
 import datetime
-from classes import SaleItem, Summary, SalesOrder, MonitorData, Response, WeekOrderSummary, PickItem, PickDetails, PickListStatus, SalesOrderWeek, WeeklyDataSummary, PickItemDetail, FrozenPickItem, GroceryPickItem, OtherPickItem
+from classes import ExpirationItem, ExpirationItemSummary, ExpirationItemDetail, SaleItem, Summary, WeekOrderSummary, PickItem, PickDetails, PickListStatus, SalesOrderWeek, WeeklyDataSummary, PickItemDetail, FrozenPickItem, GroceryPickItem
 
 def getRangeCount(begin: str, end: str, table: str, cursor) -> int:
     cursor.execute(f"SELECT Count(1) FROM {table} where \"DocStatus\"='O' and \"DocDate\" >= '{begin}' and \"DocDate\" <= '{end}'")
@@ -76,6 +76,29 @@ def getPickRangeCountByDepartment(begin: str, end: str, schema, cursor, departme
     res = {"Open": openRes[0] if openRes else 0, "Close": closedRes[0] if closedRes else 0}
     return res
 
+def getConfigExpiredIntervals(config) -> list:
+    res = []
+    if 'ExpiredInterval' in config :
+        intervals = config['ExpiredInterval']['intervals']
+        for interval in intervals.split(','):
+            res.append(interval)
+    return res
+
+def getConfigExpiredKinds(config) -> list:
+    res = []
+    if 'ExpiredKinds' in config :
+        kinds = config['ExpiredKinds']['kinds']
+        for kind in kinds.split(','):
+            res.append(kind)
+    return res
+
+def getConfigExpiredKindCode(config, kind: str) -> list:
+    res = []
+    if 'ExpiredKind' in config :
+        groups = config['ExpiredKind'][kind]
+        for group in groups.split(','):
+            res.append(group)
+    return res
 
 def getConfigDays(config) -> tuple:
     today = datetime.datetime.now()
@@ -265,4 +288,60 @@ def getPickListByDepartment(cursor, schema, config):
 
     output = {"Grocery": GroceryPickItem(Details=GroceryDetails, Summary=WeeklyDataSummary(OpenData=GroceryOpenList, CloseData=GroceryCloseList)), "Frozen": FrozenPickItem(Details=FrozenDetails, Summary=WeeklyDataSummary(OpenData=FrozenOpenList, CloseData=FrozenCloseList))}
 
-    return output 
+    return output
+
+def getExpiredSQL(groups: str, month: str, schema: str) -> str:
+    group = "".join(groups)
+    sql = f"""
+            SELECT
+            {schema}.OITM."ItemCode",
+            {schema}.oitm."ItemName",
+            {schema}.oitm."ItmsGrpCod",
+            PMX_INVT."Quantity" / {schema}.oitm."NumInBuy" as "Quantity",
+            {schema}.oitm."BuyUnitMsr",
+            PMX_INVT."SSCC",
+            PMX_INVT."StorLocCode",
+            {schema}.PMX_OSEL."PmxWhsCode",
+            {schema}.PMX_ITRI."BatchNumber",
+            {schema}.PMX_ITRI."BestBeforeDate",
+            DAYS_BETWEEN(CURRENT_TIMESTAMP ,{schema}.PMX_ITRI."BestBeforeDate" ) "Days Until Expired",
+            DAYS_BETWEEN(CURRENT_TIMESTAMP,{schema}.PMX_ITRI."BestBeforeDate" )/30 "Months Until Expired",
+            PMX_INVT."ActualFreeQuantity" / {schema}.oitm."NumInBuy" as "FreeQuantity",
+            PMX_INVT."QualityStatusCode",
+            {schema}.OITM."U_PMX_HSER",
+            {schema}.oitm."FrgnName"
+                    
+            from {schema}.OITM
+            inner join {schema}."PMX_FREE_STOCK" PMX_INVT on OITM."ItemCode" = PMX_INVT."ItemCode"
+            inner join {schema}.PMX_ITRI on {schema}.PMX_ITRI."InternalKey" = PMX_INVT."ItemTransactionalInfoKey"
+            inner join {schema}.PMX_OSEL on PMX_INVT."StorLocCode" = {schema}.PMX_OSEL."Code" 
+            where  "BestBeforeDate" <= ADD_MONTHS(CURRENT_TIMESTAMP,{month}) and {schema}.oitm."ItmsGrpCod" in ({group})
+            order by case when PMX_INVT."ActualFreeQuantity" = 0 then 1 else 0 end
+            , DAYS_BETWEEN(CURRENT_TIMESTAMP,{schema}.PMX_ITRI."BestBeforeDate" ) 
+            , "BestBeforeDate"
+            """
+    return sql
+
+def getExpiredItems(cursor, schema, config):
+    months = getConfigExpiredIntervals(config)
+    kinds = getConfigExpiredKinds(config)
+    res = []
+    for kind in kinds:
+        groups = getConfigExpiredKindCode(config, kind)
+        for month in months:
+            details = []
+            sql = getExpiredSQL(groups, month, schema)
+            cursor.execute(sql)
+            items = cursor.fetchall()
+            quantity = 0
+            for row in items:
+                #print(row)
+                expirationItemDetail = ExpirationItemDetail(ItemCode=row[0], ItemName=row[1], ItemGrpCode=str(row[2]), Quantity=row[3], BuyUnitMsr=row[4],
+                                                            SSCC=str(row[5]), StoreLocCode=row[6],PmxWhsCode=row[7],BatchNumber=row[8],BestBeforeDate=str(row[9]),
+                                                            DaysUntilExpired=row[10],MonthsUntilExpired=row[11],FreeQuantity=row[12],FrgnName=row[15])
+                details.append(expirationItemDetail)
+                quantity += row[12]
+            summary = ExpirationItemSummary(Interval = month, Kind = kind, Items = len(items), Quantity=quantity)
+            expirationItem = ExpirationItem(Summary = summary, Details = details)
+            res.append(expirationItem)
+    return res

@@ -9,7 +9,7 @@ import datetime
 import asyncio
 from classes import SaleItem, Summary, SalesOrder, MonitorData, Response, WeekOrderSummary
 from html import html
-from hana import getSalesOrder, getDeliveryOrder, getPurchaseOrder, getWeekOrderOverview, getPickListStatus, getPickListByDepartment
+from hana import getSalesOrder, getDeliveryOrder, getPurchaseOrder, getWeekOrderOverview, getPickListStatus, getPickListByDepartment, getExpiredItems
 from PO import getPOStoreOrder, getPOWareOrder
 
 app = FastAPI()
@@ -62,7 +62,6 @@ async def getResponse() -> Response | None:
         #get PickItem by department
         PickListByDepartment = getPickListByDepartment(cursor, schema, config)
 
-
         #get weekOrder overview data
         weekOrderSummary = getWeekOrderOverview(cursor, schema, config)
         logging.info(f"WeekOrderOverview: {weekOrderSummary}")
@@ -70,9 +69,14 @@ async def getResponse() -> Response | None:
         # get po orders 
         poStoreOrders = getPOStoreOrder(cursorSQLServer)
         poWarehouseOrders = getPOWareOrder(cursorSQLServer)
+
+        expirationItem = getExpiredItems(cursor, schema, config)
         
         #return data to frontend
-        data = MonitorData(Sales=salesOrders, Delivery=deliveryOrders, Purchase=purchaseOrders, POStore=poStoreOrders, POWarehouse=poWarehouseOrders, WeekOrderSummary=weekOrderSummary, PickListStatus= PickListStatus, FrozenPickItem=PickListByDepartment["Frozen"], GroceryPickItem=PickListByDepartment["Grocery"])
+        data = MonitorData(Sales=salesOrders, Delivery=deliveryOrders, Purchase=purchaseOrders, POStore=poStoreOrders, 
+                           POWarehouse=poWarehouseOrders, WeekOrderSummary=weekOrderSummary, PickListStatus= PickListStatus, 
+                           FrozenPickItem=PickListByDepartment["Frozen"], GroceryPickItem=PickListByDepartment["Grocery"],
+                           ExpirationItem = expirationItem)
         
         res = Response(Data=data, Message="ok")
         return res

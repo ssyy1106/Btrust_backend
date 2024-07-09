@@ -68,7 +68,31 @@ class PickListStatus(BaseModel):
     Details: list[PickItem] | None
     Summary: Summary
 
+class ExpirationItemDetail(BaseModel):
+    ItemCode: str
+    ItemName: str
+    FrgnName: str
+    ItemGrpCode: str
+    Quantity: int
+    FreeQuantity: int
+    BuyUnitMsr: str
+    SSCC: str
+    StoreLocCode: str
+    PmxWhsCode: str
+    BatchNumber: str
+    BestBeforeDate: str
+    DaysUntilExpired: int
+    MonthsUntilExpired: float
 
+class ExpirationItemSummary(BaseModel):
+    Interval: int
+    Kind: str
+    Items: int
+    Quantity: int
+
+class ExpirationItem(BaseModel):
+    Details: list[ExpirationItemDetail] | None
+    Summary: ExpirationItemSummary
 
 class MonitorData(BaseModel):
     Sales: SalesOrderWeek
@@ -78,8 +102,9 @@ class MonitorData(BaseModel):
     POWarehouse: SalesOrder | None
     WeekOrderSummary: WeekOrderSummary | None
     PickListStatus: PickListStatus| None
-    FrozenPickItem:FrozenPickItem
-    GroceryPickItem:GroceryPickItem
+    FrozenPickItem: FrozenPickItem
+    GroceryPickItem: GroceryPickItem
+    ExpirationItem: list[ExpirationItem] | None
 
 class Response(BaseModel):
     Message: str = "ok"
