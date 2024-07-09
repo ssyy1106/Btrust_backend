@@ -290,8 +290,8 @@ def getPickListByDepartment(cursor, schema, config):
 
     return output
 
-def getExpiredSQL(groups: str, month: str, schema: str) -> str:
-    group = "".join(groups)
+def getExpiredSQL(groups: str, month: str, schema: str, lastMonth: str) -> str:
+    group = ",".join(groups)
     sql = f"""
             SELECT
             {schema}.OITM."ItemCode",
@@ -315,7 +315,7 @@ def getExpiredSQL(groups: str, month: str, schema: str) -> str:
             inner join {schema}."PMX_FREE_STOCK" PMX_INVT on OITM."ItemCode" = PMX_INVT."ItemCode"
             inner join {schema}.PMX_ITRI on {schema}.PMX_ITRI."InternalKey" = PMX_INVT."ItemTransactionalInfoKey"
             inner join {schema}.PMX_OSEL on PMX_INVT."StorLocCode" = {schema}.PMX_OSEL."Code" 
-            where  "BestBeforeDate" <= ADD_MONTHS(CURRENT_TIMESTAMP,{month}) and {schema}.oitm."ItmsGrpCod" in ({group})
+            where  "BestBeforeDate" <= ADD_MONTHS(CURRENT_TIMESTAMP,{month}) and "BestBeforeDate" >= ADD_MONTHS(CURRENT_TIMESTAMP,{lastMonth}) and {schema}.oitm."ItmsGrpCod" in ({group})
             order by case when PMX_INVT."ActualFreeQuantity" = 0 then 1 else 0 end
             , DAYS_BETWEEN(CURRENT_TIMESTAMP,{schema}.PMX_ITRI."BestBeforeDate" ) 
             , "BestBeforeDate"
@@ -328,9 +328,11 @@ def getExpiredItems(cursor, schema, config):
     res = []
     for kind in kinds:
         groups = getConfigExpiredKindCode(config, kind)
+        lastMonth = '-100'
         for month in months:
             details = []
-            sql = getExpiredSQL(groups, month, schema)
+            sql = getExpiredSQL(groups, month, schema, lastMonth)
+            lastMonth = month
             cursor.execute(sql)
             items = cursor.fetchall()
             quantity = 0

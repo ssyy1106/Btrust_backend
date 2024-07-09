@@ -95,15 +95,15 @@ class ExpirationItem(BaseModel):
     Summary: ExpirationItemSummary
 
 class MonitorData(BaseModel):
-    Sales: SalesOrderWeek
-    Delivery: SalesOrderWeek
-    Purchase: SalesOrderWeek
+    Sales: SalesOrderWeek | None
+    Delivery: SalesOrderWeek | None
+    Purchase: SalesOrderWeek | None
     POStore: SalesOrder | None
     POWarehouse: SalesOrder | None
     WeekOrderSummary: WeekOrderSummary | None
     PickListStatus: PickListStatus| None
-    FrozenPickItem: FrozenPickItem
-    GroceryPickItem: GroceryPickItem
+    FrozenPickItem: FrozenPickItem | None
+    GroceryPickItem: GroceryPickItem | None
     ExpirationItem: list[ExpirationItem] | None
 
 class Response(BaseModel):
