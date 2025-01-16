@@ -2,6 +2,7 @@
 pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org fastapi -vvv
 pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org pydantic -vvv
 pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org hdbcli -vvv
+pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org pyodbc -vvv
 pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org strawberry-graphql[fastapi] -vvv
 pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org psycopg2 -vvv
 
