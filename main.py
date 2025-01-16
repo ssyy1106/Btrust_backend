@@ -11,9 +11,10 @@ from classes import SaleItem, Summary, SalesOrder, MonitorData, Response, WeekOr
 from html import html
 from hana import getSalesOrder, getDeliveryOrder, getPurchaseOrder, getWeekOrderOverview, getPickListStatus, getPickListByDepartment, getExpiredItems
 from PO import getPOStoreOrder, getPOWareOrder
+from mygraphql import graphql_app
 
 app = FastAPI()
-
+app.include_router(graphql_app, prefix="/graphql")
 configFile = 'config.ini'
 config = configparser.ConfigParser()
 config.read(configFile, encoding="utf-8")

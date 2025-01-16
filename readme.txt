@@ -2,6 +2,8 @@
 pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org fastapi -vvv
 pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org pydantic -vvv
 pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org hdbcli -vvv
+pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org strawberry-graphql[fastapi] -vvv
+pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org psycopg2 -vvv
 
 程序结构：
 main是主程序
@@ -19,3 +21,5 @@ uvicorn main:app
 监控的api endpoint 地址： http://localhost:8000/monitor
 websocket endpoint: ws://localhost:8000/ws
 api文档说明的地址：http://localhost:8000/redoc 和 http://localhost:8000/docs
+
+2025-01-16 增加graphql格式的查询接口 地址：http://localhost:8000/graphql
