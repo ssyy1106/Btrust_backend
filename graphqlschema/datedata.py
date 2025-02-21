@@ -7,7 +7,7 @@ def check_date(param: DateSearchParameter) -> bool:
     store, kind, id = param.Store, param.SearchKind, param.SearchID
     if from_date > to_date:
         return False
-    if store not in ['NY', 'MS', 'MT', 'ALL', 'NY']:
+    if store not in ['NY', 'MS', 'MT', 'ALL', 'TE']:
         return False
     if kind not in ['Department', 'SubDepartment', 'UPC', 'Store']:
         return False

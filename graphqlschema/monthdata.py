@@ -7,7 +7,7 @@ def check_month(param: MonthSearchParameter) -> bool:
     store, kind, id = param.Store, param.SearchKind, param.SearchID
     if from_month > to_month:
         return False
-    if store not in ['NY', 'MS', 'MT', 'ALL', 'NY']:
+    if store not in ['NY', 'MS', 'MT', 'ALL', 'TE']:
         return False
     if kind not in ['Department', 'SubDepartment', 'UPC', 'Store']:
         return False
