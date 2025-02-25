@@ -1,5 +1,5 @@
 import datetime
-from helper import getDB
+from helper import getDB, getDepartmentName
 from graphqlschema.schema import MonthData, MonthSummary, MonthDetail, MonthSearchParameter
 
 def check_month(param: MonthSearchParameter) -> bool:
@@ -46,7 +46,9 @@ def getMonthData(param: MonthSearchParameter) -> MonthData:
             total_amount = 0
             details = []
             for row in rows:
-                detail = MonthDetail(amount = row[2], month = row[0], store=row[1], idkind=kind, id=row[3] )
+                detail = MonthDetail(amount = row[2], month = row[0], store=row[1], idkind=kind, id=row[3], name = '')
+                if (kind == 'Department' or kind == 'SubDepartment') and row[3].isdigit():
+                    detail.name = getDepartmentName(int(row[3]))
                 total_amount += row[2]
                 details.append(detail)
             return MonthData(summary = MonthSummary(items=items, totalamount=total_amount), details=details)

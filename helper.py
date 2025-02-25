@@ -6,6 +6,7 @@ import functools
 import psycopg2
 import os
 import configparser
+import pyodbc
 from enum import Enum
 
 CONFIG = None
@@ -52,7 +53,17 @@ def getPostgresConfig():
         DATABASE = CONFIG['postgresql']['database']
         PORT = CONFIG['postgresql']['port']
         return (USERNAME, PASSWORD, HOST, DATABASE, PORT)
-    raise Exception("Sorry, no DB config")
+    raise Exception("Sorry, no postgresql DB config")
+
+@functools.cache
+def getHOConfig():
+    if 'HOsqlserver' in CONFIG:
+        USERNAME = CONFIG['HOsqlserver']['name']
+        PASSWORD = CONFIG['HOsqlserver']['password']
+        HOST = CONFIG['HOsqlserver']['host']
+        DATABASE = CONFIG['HOsqlserver']['database']
+        return (USERNAME, PASSWORD, HOST, DATABASE)
+    raise Exception("Sorry, no HO DB config")
 
 def setLogging(type: str):
     file = type + datetime.datetime.now(datetime.timezone.utc).isoformat()[:10]
@@ -76,3 +87,32 @@ def getDB():
         return conn
     except Exception as e:
         return None
+
+def getHODB():
+    try:
+        (USERNAME, PASSWORD, HOST, DATABASE) = getHOConfig()
+        connectionString = f'DRIVER={{SQL Server}};SERVER={HOST};DATABASE={DATABASE};UID={USERNAME};PWD={PASSWORD}'
+        conn = pyodbc.connect(connectionString)
+        return conn
+    except Exception as e:
+        return None
+
+@functools.cache
+def getDepartmentName(id: str) -> str:
+    with getHODB() as conn:
+        cursor = conn.cursor()
+        # search from [DEPT_TAB] firstly then from [SDP_TAB]
+        try:
+            sql = f"select F238 from DEPT_TAB where F03={id}"
+            cursor.execute(sql)
+            row = cursor.fetchone()
+            if not row:
+                sql = f"select F1022 from SDP_TAB where F04={id}"
+                cursor.execute(sql)
+                row = cursor.fetchone()
+            if row:
+                return row[0]
+            return ""
+        except Exception as e:
+            print(e)
+            return ""

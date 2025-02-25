@@ -40,6 +40,7 @@ class DateDetail:
     store: str
     id: str
     idkind: str
+    name: str
 
 @strawberry.type
 class DateData:
@@ -58,6 +59,7 @@ class MonthDetail:
     store: str
     id: str
     idkind: str
+    name: str
 
 @strawberry.type
 class MonthData:

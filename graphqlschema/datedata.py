@@ -1,5 +1,5 @@
 import datetime
-from helper import getDB
+from helper import getDB, getDepartmentName
 from graphqlschema.schema import DateData, DateSummary, DateDetail, DateSearchParameter
 
 def check_date(param: DateSearchParameter) -> bool:
@@ -47,7 +47,9 @@ def getDateData(param: DateSearchParameter) -> DateData:
             total_amount = 0
             details = []
             for row in rows:
-                detail = DateDetail(amount = row[2], date = datetime.datetime.strptime(row[0], '%Y-%m-%d'), store=row[1], idkind=kind, id=row[3] )
+                detail = DateDetail(amount = row[2], date = datetime.datetime.strptime(row[0], '%Y-%m-%d'), store=row[1], idkind=kind, id=row[3], name = '')
+                if (kind == 'Department' or kind == 'SubDepartment') and row[3].isdigit():
+                    detail.name = getDepartmentName(int(row[3]))
                 total_amount += row[2]
                 details.append(detail)
             return DateData(summary = DateSummary(items=items, totalamount=total_amount), details=details)
