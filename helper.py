@@ -116,3 +116,6 @@ def getDepartmentName(id: str) -> str:
         except Exception as e:
             print(e)
             return ""
+        finally:
+            cursor.close()
+

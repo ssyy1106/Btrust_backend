@@ -28,6 +28,10 @@ class YearSearchParameter:
     SearchKind: str = strawberry.field(description="Search Department kind include Department, SubDepartment, UPC, Store", default = "Store")
     SearchID: Optional[str] = strawberry.field(description="Search Department kind ID like departmentid, upcid", default = "")
 
+@strawberry.input
+class DepartmentSearchParameter:
+    ID: str = strawberry.field(description="Search Departments with ID", default = "")
+
 @strawberry.type
 class DateSummary:
     totalamount: float
@@ -65,6 +69,17 @@ class MonthDetail:
 class MonthData:
     details: typing.List[MonthDetail]
     summary: MonthSummary
+
+@strawberry.type
+class Department:
+    name: str
+    id: str
+
+@strawberry.type
+class DepartmentData:
+    departments: typing.List[Department]
+    items: int
+    
 
 # @strawberry.type
 # class YearSummary:

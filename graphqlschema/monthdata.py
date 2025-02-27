@@ -54,4 +54,6 @@ def getMonthData(param: MonthSearchParameter) -> MonthData:
             return MonthData(summary = MonthSummary(items=items, totalamount=total_amount), details=details)
         except Exception as e:
             print(e)
+        finally:
+            cursor.close()
         return MonthData()
