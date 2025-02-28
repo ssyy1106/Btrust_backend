@@ -37,6 +37,10 @@ class SubDepartmentSearchParameter:
     ID: str = strawberry.field(description="Search SubDepartments with ID", default = "")
     ParentID: str = strawberry.field(description="Search SubDepartments with ParentID", default = "")
 
+@strawberry.input
+class UPCSearchParameter:
+    ID: str = strawberry.field(description="Search UPC with ID", default = "")
+
 @strawberry.type
 class DateSummary:
     totalamount: float
@@ -94,6 +98,17 @@ class SubDepartment:
 @strawberry.type
 class SubDepartmentData:
     subdepartments: typing.List[SubDepartment]
+    items: int
+
+@strawberry.type
+class UPC:
+    nameenglish: str = strawberry.field(description="English name", default = "")
+    namechinese: str = strawberry.field(description="Chinese name", default = "")
+    id: str
+
+@strawberry.type
+class UPCData:
+    UPC: typing.List[UPC]
     items: int
 
 # @strawberry.type

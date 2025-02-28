@@ -1,8 +1,6 @@
-import functools
 from helper import getHODB
 from graphqlschema.schema import DepartmentSearchParameter, DepartmentData, Department, SubDepartmentSearchParameter, SubDepartmentData, SubDepartment
 
-#@functools.cache
 def getDepartments(param: DepartmentSearchParameter) -> DepartmentData:
     id = ""
     if param:
@@ -23,7 +21,7 @@ def getDepartments(param: DepartmentSearchParameter) -> DepartmentData:
                 cursor.execute(sql)
                 rows = cursor.fetchall()
                 if rows:
-                    return DepartmentData(departments = [Department(name = row[1], id = row[0]) for row in rows], items=items)
+                    return DepartmentData(departments = [Department(name = row[1] if row[1] else "", id = row[0]) for row in rows], items=items)
                 return DepartmentData(departments = [], items=items)
             except Exception as e:
                 print(e)
@@ -53,7 +51,7 @@ def getSubDepartments(param: SubDepartmentSearchParameter) -> SubDepartmentData:
                 cursor.execute(sql)
                 rows = cursor.fetchall()
                 if rows:
-                    return SubDepartmentData(subdepartments = [SubDepartment(name = row[1], id = row[0], parentid = row[2]) for row in rows], items=items)
+                    return SubDepartmentData(subdepartments = [SubDepartment(name = row[1] if row[1] else "", id = row[0], parentid = row[2] if row[2] else "") for row in rows], items=items)
                 return SubDepartmentData(subdepartments = [], items=items)
             except Exception as e:
                 print(e)
