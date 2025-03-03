@@ -17,7 +17,7 @@ def getUPCs(param: UPCSearchParameter) -> UPCData:
                     items = row[0]
                 sql = "select F01, F255, F29 from OBJ_TAB"
                 if id:
-                    sql = f"select F01, F255, F29 from OBJ_TAB where F01={id}"
+                    sql = f"select F01, F255, F29 from OBJ_TAB where F01='{id}'"
                 cursor.execute(sql)
                 rows = cursor.fetchall()
                 if rows:
