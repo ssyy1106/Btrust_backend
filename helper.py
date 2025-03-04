@@ -56,6 +56,13 @@ def getPostgresConfig():
     raise Exception("Sorry, no postgresql DB config")
 
 @functools.cache
+def getStore():
+    if 'stores' in CONFIG:
+        stores = CONFIG['stores']['store'].split(",")
+        return stores
+    raise Exception("Sorry, no stores config")
+
+@functools.cache
 def getHOConfig():
     if 'HOsqlserver' in CONFIG:
         USERNAME = CONFIG['HOsqlserver']['name']
@@ -95,6 +102,30 @@ def getHODB():
         conn = pyodbc.connect(connectionString)
         return conn
     except Exception as e:
+        return None
+
+@functools.cache
+def getStoreDBConfig(store: str):
+    stores = getStore()
+    if store not in stores:
+        raise Exception("Sorry, store is not right") 
+    index = stores.index(store)
+    if 'Storesqlserver' in CONFIG:
+        USERNAME = CONFIG['Storesqlserver']['name'].split(",")
+        PASSWORD = CONFIG['Storesqlserver']['password'].split(",")
+        HOST = CONFIG['Storesqlserver']['host'].split(",")
+        DATABASE = CONFIG['Storesqlserver']['database'].split(",")
+        return (USERNAME[index], PASSWORD[index], HOST[index], DATABASE[index])
+    raise Exception("Sorry, Store db config")
+
+def getStoreDB(store: str):
+    try:
+        (USERNAME, PASSWORD, HOST, DATABASE) = getStoreDBConfig(store)
+        connectionString = f'DRIVER={{SQL Server}};SERVER={HOST};DATABASE={DATABASE};UID={USERNAME};PWD={PASSWORD}'
+        conn = pyodbc.connect(connectionString)
+        return conn
+    except Exception as e:
+        print(e)
         return None
 
 @functools.cache

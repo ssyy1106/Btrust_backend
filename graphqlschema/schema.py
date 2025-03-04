@@ -39,6 +39,7 @@ class SubDepartmentSearchParameter:
 
 @strawberry.input
 class UPCSearchParameter:
+    Store: str = strawberry.field(description="Search UPC with Store MS NY TE MT")
     ID: str = strawberry.field(description="Search UPC with ID", default = "")
 
 @strawberry.type
