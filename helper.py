@@ -63,6 +63,15 @@ def getStore():
     raise Exception("Sorry, no stores config")
 
 @functools.cache
+def getStoreDescription():
+    if 'stores' in CONFIG:
+        desc = CONFIG['stores']['description'].split(",")
+        return desc
+    
+    raise Exception("Sorry, no store description config")
+
+
+@functools.cache
 def getHOConfig():
     if 'HOsqlserver' in CONFIG:
         USERNAME = CONFIG['HOsqlserver']['name']
