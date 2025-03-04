@@ -81,6 +81,12 @@ class MonthData:
     summary: MonthSummary
 
 @strawberry.type
+class StoreData:
+    stores: typing.List[str]
+    items: int
+
+
+@strawberry.type
 class Department:
     name: str
     id: str
