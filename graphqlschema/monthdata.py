@@ -38,7 +38,7 @@ def getMonthData(param: MonthSearchParameter) -> MonthData:
                 sql += " and " + column + " = '" + id + "'"
             if store != 'ALL':
                 sql += " and store = '" + store + "'"
-        print(sql)
+        #print(sql)
         try:
             cursor.execute(sql)
             rows = cursor.fetchall()
@@ -46,7 +46,18 @@ def getMonthData(param: MonthSearchParameter) -> MonthData:
             total_amount = 0
             details = []
             for row in rows:
-                detail = MonthDetail(amount = row[2], month = row[0], store=row[1], idkind=kind, id=row[3], name = '')
+                transactions = 0
+                if kind == 'Store':
+                    from_day = row[0] + "-01"
+                    to_day = f"(date_trunc('month', '{row[0] + "-01"}'::date) + interval '1 month' - interval '1 day')::date "
+                    sql = f"select count(1) as transactions from transaction where date between '{from_day}' and {to_day}"
+                    if store != 'ALL':
+                        sql += " and store = '" + store + "'"
+                    cursor.execute(sql)
+                    res = cursor.fetchone()
+                    if res:
+                        transactions = res[0]
+                detail = MonthDetail(amount = row[2], month = row[0], store=row[1], idkind=kind, id=row[3], name = '', transactions=transactions)
                 if (kind == 'Department' or kind == 'SubDepartment') and row[3].isdigit():
                     detail.name = getDepartmentName(int(row[3]))
                 total_amount += row[2]

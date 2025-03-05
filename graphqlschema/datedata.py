@@ -47,7 +47,16 @@ def getDateData(param: DateSearchParameter) -> DateData:
                 total_amount = 0
                 details = []
                 for row in rows:
-                    detail = DateDetail(amount = row[2], date = datetime.datetime.strptime(row[0], '%Y-%m-%d'), store=row[1], idkind=kind, id=row[3], name = '')
+                    transactions = 0
+                    if kind == 'Store':
+                        sql = f"select count(1) as transactions from transaction where date = '{row[0]}'"
+                        if store != 'ALL':
+                            sql += " and store = '" + store + "'"
+                        cursor.execute(sql)
+                        res = cursor.fetchone()
+                        if res:
+                            transactions = res[0]
+                    detail = DateDetail(amount = row[2], date = datetime.datetime.strptime(row[0], '%Y-%m-%d'), store=row[1], idkind=kind, id=row[3], name = '', transactions=transactions)
                     if (kind == 'Department' or kind == 'SubDepartment') and row[3].isdigit():
                         detail.name = getDepartmentName(int(row[3]))
                     total_amount += row[2]

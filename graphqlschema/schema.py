@@ -54,6 +54,7 @@ class DateDetail:
     id: str
     idkind: str
     name: str
+    transactions: int
 
 @strawberry.type
 class DateData:
@@ -73,6 +74,7 @@ class MonthDetail:
     id: str
     idkind: str
     name: str
+    transactions: int
 
 @strawberry.type
 class ItemDetail:
