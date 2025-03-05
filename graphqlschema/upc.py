@@ -1,4 +1,4 @@
-from helper import getHODB, getStore, getStoreDB
+from helper import getStore, getStoreDB
 from graphqlschema.schema import UPC, UPCData, UPCSearchParameter
 
 def getUPCs(param: UPCSearchParameter) -> UPCData:

@@ -21,12 +21,11 @@ class MonthSearchParameter:
     SearchID: Optional[str] = strawberry.field(description="Search Department kind ID like departmentid, upcid", default = "")
 
 @strawberry.input
-class YearSearchParameter:
-    FromYear: str = strawberry.field(description="Search from year", default=datetime.datetime.now().strftime('%Y'))
-    ToYear: str = strawberry.field(description="Search to year", default=datetime.datetime.now().strftime('%Y'))
-    Store: str = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL", default = "All")
-    SearchKind: str = strawberry.field(description="Search Department kind include Department, SubDepartment, UPC, Store", default = "Store")
-    SearchID: Optional[str] = strawberry.field(description="Search Department kind ID like departmentid, upcid", default = "")
+class TransactionSearchParameter:
+    Date: str = strawberry.field(description="Search date", default=datetime.datetime.now().strftime('%Y-%m-%d'))
+    Store: str = strawberry.field(description="Store name, like MT, NY, TE, MS, ALL", default = "All")
+    ID: Optional[str] = strawberry.field(description="Search Transaction using Transaction ID", default="")
+    SearchDetail: Optional[str] = strawberry.field(description="Search Transaction detials Yes or No default No", default="No")
 
 @strawberry.input
 class DepartmentSearchParameter:
@@ -76,6 +75,31 @@ class MonthDetail:
     name: str
 
 @strawberry.type
+class ItemDetail:
+    upc: str
+    weight: str
+    unitprice: str
+    amount: str
+    subdepartment: str
+    department: str
+    discount: str
+
+@strawberry.type
+class TransactionDetail:
+    date: str
+    begintime: str
+    endtime: str
+    id: str
+    paymenttype: str
+    cashier: str
+    store: str
+    amountbeforetax: float
+    amountaftertax: float
+    tax: float
+    itemdetail: typing.List[ItemDetail]
+    items: int
+
+@strawberry.type
 class MonthData:
     details: typing.List[MonthDetail]
     summary: MonthSummary
@@ -90,6 +114,10 @@ class StoreData:
     stores: typing.List[StoreDetail]
     items: int
 
+@strawberry.type
+class TransactionData:
+    details: typing.List[TransactionDetail]
+    items: int
 
 @strawberry.type
 class Department:

@@ -6,8 +6,24 @@ from graphqlschema.monthdata import getMonthData, check_month
 from graphqlschema.department import getDepartments, getSubDepartments
 from graphqlschema.upc import getUPCs
 from graphqlschema.store import getStores
+from graphqlschema.transaction import getTransactions
 #from graphqlschema.yeardata import getYearData, check_year
-from graphqlschema.schema import DateSearchParameter, DateData, MonthSearchParameter, MonthData, DepartmentData, DepartmentSearchParameter, SubDepartmentData, SubDepartmentSearchParameter, UPCSearchParameter, UPCData, StoreData
+from graphqlschema.schema import (
+    DateSearchParameter, 
+    DateData, 
+    MonthSearchParameter, 
+    MonthData, 
+    DepartmentData, 
+    DepartmentSearchParameter, 
+    SubDepartmentData, 
+    SubDepartmentSearchParameter, 
+    UPCSearchParameter, 
+    UPCData, 
+    StoreData,
+    TransactionSearchParameter,
+    TransactionDetail,
+    TransactionData
+)
      
 def get_date_data(param: DateSearchParameter) -> DateData:
     if not check_date(param):
@@ -30,10 +46,9 @@ def get_upc_data(param: UPCSearchParameter = None) -> UPCData:
 
 def get_store_data() -> StoreData:
     return getStores()
-# def get_year_data(param: YearSearchParameter) -> YearData:
-#     if not check_year(param):
-#         raise Exception("Parameters wrong")
-#     return getYearData(param)
+
+def get_transaction_data(param: TransactionSearchParameter) -> TransactionData:
+    return getTransactions(param)
 
 @strawberry.type
 class Query:
@@ -43,6 +58,7 @@ class Query:
     subdepartments: SubDepartmentData = strawberry.field(resolver=get_subdepartments_data)
     upc: UPCData = strawberry.field(resolver=get_upc_data)
     store: StoreData = strawberry.field(resolver=get_store_data)
+    transaction: TransactionData = strawberry.field(resolver=get_transaction_data)
     #yeardata: YearData = strawberry.field(resolver=get_year_data)
 
 config = getConfig()
