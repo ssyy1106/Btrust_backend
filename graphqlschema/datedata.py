@@ -50,8 +50,8 @@ def getDateData(param: DateSearchParameter) -> DateData:
                     transactions = 0
                     if kind == 'Store':
                         sql = f"select count(1) as transactions from transaction where date = '{row[0]}'"
-                        if store != 'ALL':
-                            sql += " and store = '" + store + "'"
+                        #if store != 'ALL':
+                        sql += f" and store = '{row[1]}'"
                         cursor.execute(sql)
                         res = cursor.fetchone()
                         if res:

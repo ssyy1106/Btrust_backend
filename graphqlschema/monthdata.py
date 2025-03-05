@@ -51,8 +51,9 @@ def getMonthData(param: MonthSearchParameter) -> MonthData:
                     from_day = row[0] + "-01"
                     to_day = f"(date_trunc('month', '{row[0] + "-01"}'::date) + interval '1 month' - interval '1 day')::date "
                     sql = f"select count(1) as transactions from transaction where date between '{from_day}' and {to_day}"
-                    if store != 'ALL':
-                        sql += " and store = '" + store + "'"
+                    #if store != 'ALL':
+                    sql += f" and store = '{row[1]}'"
+                    #sql += " group by store, month"
                     cursor.execute(sql)
                     res = cursor.fetchone()
                     if res:
