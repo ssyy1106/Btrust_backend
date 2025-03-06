@@ -1,14 +1,14 @@
 import typing
 import strawberry
 import datetime
-from typing import Optional
+from typing import Optional, Union
 
 # 前端查询时需要传参，参数包括时间段，店，部门，统计方式(日，月，年)等信息
 @strawberry.input
 class DateSearchParameter:
     FromDate: datetime.date = strawberry.field(description="Search from date", default=(datetime.datetime.now() - datetime.timedelta(days=1)).date())
     ToDate: datetime.date = strawberry.field(description="Search to date", default=(datetime.datetime.now() - datetime.timedelta(days=1)).date())
-    Store: str = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL", default = "All")
+    Store: typing.List[str] = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL")
     SearchKind: str = strawberry.field(description="Search Department kind include Department, SubDepartment, UPC, Store", default = "Store")
     SearchID: Optional[str] = strawberry.field(description="Search Department kind ID like departmentid, upcid", default = "")
 
@@ -16,7 +16,7 @@ class DateSearchParameter:
 class MonthSearchParameter:
     FromMonth: str = strawberry.field(description="Search from year-month", default=datetime.datetime.now().strftime('%Y-%m'))
     ToMonth: str = strawberry.field(description="Search to year-month", default=datetime.datetime.now().strftime('%Y-%m'))
-    Store: str = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL", default = "All")
+    Store: typing.List[str] = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL")
     SearchKind: str = strawberry.field(description="Search Department kind include Department, SubDepartment, UPC, Store", default = "Store")
     SearchID: Optional[str] = strawberry.field(description="Search Department kind ID like departmentid, upcid", default = "")
 

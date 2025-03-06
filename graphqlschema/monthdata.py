@@ -1,21 +1,23 @@
 import datetime
-from helper import getDB, getDepartmentName
+from helper import getDB, getDepartmentName, getStoreStr
 from graphqlschema.schema import MonthData, MonthSummary, MonthDetail, MonthSearchParameter
 
 def check_month(param: MonthSearchParameter) -> bool:
     from_month, to_month = param.FromMonth, param.ToMonth
-    store, kind, id = param.Store, param.SearchKind, param.SearchID
+    stores, kind, id = param.Store, param.SearchKind, param.SearchID
     if from_month > to_month:
-        return False
-    if store not in ['NY', 'MS', 'MT', 'ALL', 'TE']:
         return False
     if kind not in ['Department', 'SubDepartment', 'UPC', 'Store']:
         return False
+    for store in stores:
+        if store not in ['NY', 'MS', 'MT', 'TE']:
+            return False
     return True
+
 
 def getMonthData(param: MonthSearchParameter) -> MonthData:
     from_month, to_month = param.FromMonth, param.ToMonth
-    store, kind, id = param.Store, param.SearchKind, param.SearchID
+    store, kind, id = getStoreStr(param.Store), param.SearchKind, param.SearchID
     table = 'month_department_aggregate'
     column = 'department'
     UseID = True if id else False
@@ -29,15 +31,17 @@ def getMonthData(param: MonthSearchParameter) -> MonthData:
         cursor = conn.cursor()
         if kind == 'Store':
             sql = f"select month, store, sum(total_amount) as total_amount, store from {table} where month between '{from_month}' and '{to_month}'"
-            if store != 'ALL':
-                sql += " and store = '" + store + "'"
+            # if store != 'ALL':
+            #     sql += " and store = '" + store + "'"
+            sql += " and store in " + store
             sql += " group by store, month"
         else:
             sql = f"select month, store, total_amount, {column} from {table} where month between '{from_month}' and '{to_month}'"
             if UseID:
                 sql += " and " + column + " = '" + id + "'"
-            if store != 'ALL':
-                sql += " and store = '" + store + "'"
+            sql += " and store in " + store
+            # if store != 'ALL':
+            #     sql += " and store = '" + store + "'"
         #print(sql)
         try:
             cursor.execute(sql)

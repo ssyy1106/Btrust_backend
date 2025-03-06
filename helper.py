@@ -81,6 +81,15 @@ def getHOConfig():
         return (USERNAME, PASSWORD, HOST, DATABASE)
     raise Exception("Sorry, no HO DB config")
 
+def getStoreStr(stores) -> str:
+    if len(stores) == 1 and stores[0] == "ALL":
+        return "('NY', 'MS', 'MT', 'TE')"
+    res = "("
+    for store in stores:
+        res += "'" + store + "',"
+    res = res[: len(res) - 1] + ")"
+    return res
+
 def setLogging(type: str):
     file = type + datetime.datetime.now(datetime.timezone.utc).isoformat()[:10]
     directory = '.\\'

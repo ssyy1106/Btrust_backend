@@ -1,21 +1,24 @@
 import datetime
-from helper import getDB, getDepartmentName
+from helper import getDB, getDepartmentName, getStoreStr
 from graphqlschema.schema import DateData, DateSummary, DateDetail, DateSearchParameter
 
 def check_date(param: DateSearchParameter) -> bool:
     from_date, to_date = param.FromDate, param.ToDate
-    store, kind, id = param.Store, param.SearchKind, param.SearchID
+    stores, kind, id = param.Store, param.SearchKind, param.SearchID
     if from_date > to_date:
-        return False
-    if store not in ['NY', 'MS', 'MT', 'ALL', 'TE']:
         return False
     if kind not in ['Department', 'SubDepartment', 'UPC', 'Store']:
         return False
+    if len(stores) == 1 and stores[0] == "ALL":
+        return True
+    for store in stores:
+        if store not in ['NY', 'MS', 'MT', 'TE']:
+            return False
     return True
 
 def getDateData(param: DateSearchParameter) -> DateData:
     from_date, to_date = str(param.FromDate), str(param.ToDate)
-    store, kind, id = param.Store, param.SearchKind, param.SearchID
+    store, kind, id = getStoreStr(param.Store), param.SearchKind, param.SearchID
     table = 'day_department_aggregate'
     column = 'department'
     UseID = True if id else False
@@ -29,15 +32,15 @@ def getDateData(param: DateSearchParameter) -> DateData:
         with conn.cursor() as cursor:
             if kind == 'Store':
                 sql = f"select day, store, sum(total_amount) as total_amount, store from {table} where day between '{from_date}' and '{to_date}'"
-                if store != 'ALL':
-                    sql += " and store = '" + store + "'"
+                # if store != 'ALL':
+                sql += " and store in " + store
                 sql += " group by store, day"
             else:
                 sql = f"select day, store, total_amount, {column} from {table} where day between '{from_date}' and '{to_date}'"
                 if UseID:
                     sql += " and " + column + " = '" + id + "'"
-                if store != 'ALL':
-                    sql += " and store = '" + store + "'"
+                #if store != 'ALL':
+                sql += " and store in " + store
             
             #print(sql)
             try:
