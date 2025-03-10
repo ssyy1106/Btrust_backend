@@ -1,8 +1,13 @@
+import fastapi.middleware
+import fastapi.middleware.cors
+import fastapi.middleware.httpsredirect
+import fastapi.middleware.wsgi
 from hdbcli import dbapi
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, HTTPException, status
 from fastapi.responses import HTMLResponse
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
+import fastapi
 import pyodbc
 import logging
 import configparser
@@ -13,7 +18,9 @@ from html import html
 from hana import getSalesOrder, getDeliveryOrder, getPurchaseOrder, getWeekOrderOverview, getPickListStatus, getPickListByDepartment, getExpiredItems
 from PO import getPOStoreOrder, getPOWareOrder
 from mygraphql import graphql_app
-
+from pydantic import BaseModel
+from secure import create_jwt_token
+ 
 app = FastAPI()
 origins = [
     "http://localhost:3000",
@@ -129,3 +136,19 @@ async def monitor() -> Response | None:
     logging.info(f"visit enpoint monitor")
     return await getResponse()
     
+# Login Model
+class Login(BaseModel):
+    username: str
+    password: str
+
+@app.post("/login")
+async def login(user: Login):
+    if user.username != 'admin' or user.password != '123456':
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+        )
+    
+    token_data = {"sub": user.username}
+    token = create_jwt_token(data=token_data)
+    return {"access_token": token, "token_type": "bearer"}
