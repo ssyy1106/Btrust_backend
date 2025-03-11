@@ -20,6 +20,7 @@ from PO import getPOStoreOrder, getPOWareOrder
 from mygraphql import graphql_app
 from pydantic import BaseModel
 from secure import create_jwt_token
+from helper import LoginShift
  
 app = FastAPI()
 origins = [
@@ -143,7 +144,8 @@ class Login(BaseModel):
 
 @app.post("/login")
 async def login(user: Login):
-    if user.username != 'admin' or user.password != '123456':
+    if not LoginShift(user.username, user.password):
+    #if user.username != 'admin' or user.password != '123456':
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",

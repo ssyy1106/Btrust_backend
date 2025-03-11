@@ -7,6 +7,7 @@ import psycopg2
 import os
 import configparser
 import pyodbc
+import hashlib
 from enum import Enum
 
 CONFIG = None
@@ -81,6 +82,16 @@ def getHOConfig():
         return (USERNAME, PASSWORD, HOST, DATABASE)
     raise Exception("Sorry, no HO DB config")
 
+@functools.cache
+def getShiftDBConfig():
+    if 'Shiftsqlserver' in CONFIG:
+        USERNAME = CONFIG['Shiftsqlserver']['name']
+        PASSWORD = CONFIG['Shiftsqlserver']['password']
+        HOST = CONFIG['Shiftsqlserver']['host']
+        DATABASE = CONFIG['Shiftsqlserver']['database']
+        return (USERNAME, PASSWORD, HOST, DATABASE)
+    raise Exception("Sorry, no Shift DB config")
+
 def getStoreStr(stores) -> str:
     if len(stores) == 1 and stores[0] == "ALL":
         return "('NY', 'MS', 'MT', 'TE')"
@@ -116,6 +127,15 @@ def getDB():
 def getHODB():
     try:
         (USERNAME, PASSWORD, HOST, DATABASE) = getHOConfig()
+        connectionString = f'DRIVER={{SQL Server}};SERVER={HOST};DATABASE={DATABASE};UID={USERNAME};PWD={PASSWORD}'
+        conn = pyodbc.connect(connectionString)
+        return conn
+    except Exception as e:
+        return None
+
+def getShiftDB():
+    try:
+        (USERNAME, PASSWORD, HOST, DATABASE) = getShiftDBConfig()
         connectionString = f'DRIVER={{SQL Server}};SERVER={HOST};DATABASE={DATABASE};UID={USERNAME};PWD={PASSWORD}'
         conn = pyodbc.connect(connectionString)
         return conn
@@ -168,3 +188,20 @@ def getDepartmentName(id: str) -> str:
         finally:
             cursor.close()
 
+def LoginShift(btrustId: str, password: str) -> bool:
+    with getShiftDB() as conn:
+        with conn.cursor() as cursor:
+            try:
+                sql = f"select password, salt from sysuser where btrustid='{btrustId}'"
+                cursor.execute(sql)
+                row = cursor.fetchone()
+                if not row:
+                    return False
+                return row[0] == EncryptUserPassword(password, row[1])
+            except Exception as e:
+                print(e)
+                return False
+
+def EncryptUserPassword(password: str, salt: str) -> str:
+    md = hashlib.md5(password.encode()).hexdigest()
+    return hashlib.md5((md + salt).encode()).hexdigest()
