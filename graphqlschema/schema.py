@@ -4,6 +4,16 @@ import datetime
 from typing import Optional, Union
 
 # 前端查询时需要传参，参数包括时间段，店，部门，统计方式(日，月，年)等信息
+def get_default_month():
+    return [datetime.datetime.now().month]
+
+@strawberry.input
+class TopProductSearchParameter:
+    Years: typing.List[int] = strawberry.field(description="Search years", default=datetime.datetime.now().year)
+    Months: typing.List[int] = strawberry.field(description="Search months", default_factory=get_default_month)
+    Store: Optional[typing.List[str]] = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL", default="ALL")
+    TopProduct: Optional[int] = strawberry.field(description="Search how many top products", default = 10)
+
 @strawberry.input
 class DateSearchParameter:
     FromDate: datetime.date = strawberry.field(description="Search from date", default=(datetime.datetime.now() - datetime.timedelta(days=1)).date())
@@ -52,6 +62,10 @@ class DateSummary:
 class Product:
     totalamount: float
     upc: str
+
+@strawberry.type
+class Products:
+    product: typing.List[Product]
 
 @strawberry.type
 class DateDetail:

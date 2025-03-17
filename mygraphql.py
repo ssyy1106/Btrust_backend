@@ -10,6 +10,7 @@ from graphqlschema.department import getDepartments, getSubDepartments
 from graphqlschema.upc import getUPCs
 from graphqlschema.store import getStores
 from graphqlschema.transaction import getTransactions
+from graphqlschema.product import getTopProduct, check_product
 from starlette.requests import Request
 from starlette.websockets import WebSocket
 #from graphqlschema.yeardata import getYearData, check_year
@@ -27,7 +28,9 @@ from graphqlschema.schema import (
     StoreData,
     TransactionSearchParameter,
     TransactionDetail,
-    TransactionData
+    TransactionData,
+    Products,
+    TopProductSearchParameter
 )
      
 def get_date_data(param: DateSearchParameter) -> DateData:
@@ -54,6 +57,11 @@ def get_store_data() -> StoreData:
 
 def get_transaction_data(param: TransactionSearchParameter) -> TransactionData:
     return getTransactions(param)
+
+def get_top_product_data(param: TopProductSearchParameter) -> Products:
+    if not check_product(param):
+        raise Exception("Parameters wrong")
+    return getTopProduct(param)
 
 class IsAuthenticated(BasePermission):
     message = "User is not authenticated"
@@ -84,6 +92,7 @@ class Query:
     upc: UPCData = strawberry.field(resolver=get_upc_data,permission_classes=[IsAuthenticated])
     store: StoreData = strawberry.field(resolver=get_store_data,permission_classes=[IsAuthenticated])
     transaction: TransactionData = strawberry.field(resolver=get_transaction_data,permission_classes=[IsAuthenticated])
+    topproduct: Products = strawberry.field(resolver=get_top_product_data,permission_classes=[IsAuthenticated])
     #yeardata: YearData = strawberry.field(resolver=get_year_data)
 
 config = getConfig()
