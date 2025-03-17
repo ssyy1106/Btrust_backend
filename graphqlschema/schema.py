@@ -11,6 +11,7 @@ class DateSearchParameter:
     Store: typing.List[str] = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL")
     SearchKind: str = strawberry.field(description="Search Department kind include Department, SubDepartment, UPC, Store", default = "Store")
     SearchID: Optional[str] = strawberry.field(description="Search Department kind ID like departmentid, upcid", default = "")
+    TopProduct: int = strawberry.field(description="Search how many top products when search kind is Store", default = 10)
 
 @strawberry.input
 class MonthSearchParameter:
@@ -19,6 +20,7 @@ class MonthSearchParameter:
     Store: typing.List[str] = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL")
     SearchKind: str = strawberry.field(description="Search Department kind include Department, SubDepartment, UPC, Store", default = "Store")
     SearchID: Optional[str] = strawberry.field(description="Search Department kind ID like departmentid, upcid", default = "")
+    TopProduct: int = strawberry.field(description="Search how many top products when search kind is Store", default = 10)
 
 @strawberry.input
 class TransactionSearchParameter:
@@ -47,6 +49,11 @@ class DateSummary:
     items: int
 
 @strawberry.type
+class Product:
+    totalamount: float
+    upc: str
+
+@strawberry.type
 class DateDetail:
     amount: float
     date: datetime.date
@@ -60,6 +67,7 @@ class DateDetail:
 class DateData:
     details: typing.List[DateDetail]
     summary: DateSummary
+    topproduct: typing.List[Product] 
 
 @strawberry.type
 class MonthSummary:
@@ -105,6 +113,7 @@ class TransactionDetail:
 class MonthData:
     details: typing.List[MonthDetail]
     summary: MonthSummary
+    topproduct: typing.List[Product] 
 
 @strawberry.type
 class StoreDetail:

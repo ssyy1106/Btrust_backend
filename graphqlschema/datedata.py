@@ -1,6 +1,6 @@
 import datetime
 from helper import getDB, getDepartmentName, getStoreStr
-from graphqlschema.schema import DateData, DateSummary, DateDetail, DateSearchParameter
+from graphqlschema.schema import DateData, DateSummary, DateDetail, DateSearchParameter, Product
 
 def check_date(param: DateSearchParameter) -> bool:
     from_date, to_date = param.FromDate, param.ToDate
@@ -19,6 +19,7 @@ def check_date(param: DateSearchParameter) -> bool:
 def getDateData(param: DateSearchParameter) -> DateData:
     from_date, to_date = str(param.FromDate), str(param.ToDate)
     store, kind, id = getStoreStr(param.Store), param.SearchKind, param.SearchID
+    top_product = param.TopProduct
     table = 'day_department_aggregate'
     column = 'department'
     UseID = True if id else False
@@ -30,7 +31,15 @@ def getDateData(param: DateSearchParameter) -> DateData:
         column = 'upc'
     with getDB() as conn:
         with conn.cursor() as cursor:
+            products = []
             if kind == 'Store':
+                # get top product info
+                sql = f"select sum(total_amount) as total_amount, upc from day_upc_aggregate where day between '{from_date}' and '{to_date}' and store in {store} group by upc order by sum(total_amount) desc limit {top_product}"
+                cursor.execute(sql)
+                rows = cursor.fetchall()
+                for row in rows:
+                    product = Product(totalamount = row[0], upc = row[1])
+                    products.append(product)
                 sql = f"select day, store, sum(total_amount) as total_amount, store from {table} where day between '{from_date}' and '{to_date}'"
                 # if store != 'ALL':
                 sql += " and store in " + store
@@ -64,7 +73,7 @@ def getDateData(param: DateSearchParameter) -> DateData:
                         detail.name = getDepartmentName(int(row[3]))
                     total_amount += row[2]
                     details.append(detail)
-                return DateData(summary = DateSummary(items=items, totalamount=total_amount), details=details)
+                return DateData(summary = DateSummary(items=items, totalamount=total_amount), details=details, topproduct=products)
             except Exception as e:
                 print(e)
             return DateData()
