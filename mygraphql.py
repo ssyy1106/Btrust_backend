@@ -69,9 +69,9 @@ class IsAuthenticated(BasePermission):
     # This method can also be async!
     def has_permission(self, source: typing.Any, info: strawberry.Info, **kwargs) -> bool:
         request: typing.Union[Request, WebSocket] = info.context["request"]
-        print(request.headers)
+        #print(request.headers)
         if "Authorization" in request.headers:
-            print(request.headers['Authorization'])
+            #print(request.headers['Authorization'])
             if verify_jwt_token( request.headers['Authorization'][7:] ):
                 return True
             return False

@@ -19,10 +19,10 @@ def getUPCs(param: UPCSearchParameter) -> UPCData:
                 row = cursor.fetchone()
                 if row:
                     items = row[0]
-                sql = f"select {id_col}, {name_ch}, {name_en} from OBJ_TAB"
+                sql = f"select SUBSTRING({id_col}, PATINDEX('%[^0]%', {id_col}+'.'), LEN({id_col})), {name_ch}, {name_en} from OBJ_TAB"
                 if id:
-                    sql = f"select {id_col}, {name_ch}, {name_en} from {Table} where {id_col}='{id}'"
-                
+                    sql = f"select SUBSTRING({id_col}, PATINDEX('%[^0]%', {id_col}+'.'), LEN({id_col})), {name_ch}, {name_en} from {Table} where SUBSTRING({id_col}, PATINDEX('%[^0]%', {id_col}+'.'), LEN({id_col}))='{id}'"
+                #print(sql)
                 cursor.execute(sql)
                 rows = cursor.fetchall()
                 if rows:
