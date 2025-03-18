@@ -1,14 +1,14 @@
-from helper import getStore, getStoreDB
+from helper import getStore, getStoreDB, getHODB
 from graphqlschema.schema import UPC, UPCData, UPCSearchParameter
 
 def getUPCs(param: UPCSearchParameter) -> UPCData:
-    store = param.Store
-    if store not in getStore():
-        return UPCData(UPC = [], items=0)
+    # store = param.Store
+    # if store not in getStore():
+    #     return UPCData(UPC = [], items=0)
     id = ""
     if param:
         id = param.ID
-    with getStoreDB(store) as conn:
+    with getHODB() as conn:
         with conn.cursor() as cursor:
             # search from [OBJ_TAB]
             Table, id_col, name_en, name_ch = 'OBJ_TAB', 'F01', 'F29', 'F255'
