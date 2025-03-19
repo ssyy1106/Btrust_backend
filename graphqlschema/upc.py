@@ -8,7 +8,7 @@ def getUPCs(param: UPCSearchParameter) -> UPCData:
     id = ""
     if param:
         id = param.ID
-    with getHODB() as conn:
+    with getStoreDB('MT') as conn:
         with conn.cursor() as cursor:
             # search from [OBJ_TAB]
             Table, id_col, name_en, name_ch = 'OBJ_TAB', 'F01', 'F29', 'F255'
