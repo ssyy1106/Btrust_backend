@@ -12,6 +12,7 @@ from graphqlschema.store import getStores
 from graphqlschema.transaction import getTransactions
 from graphqlschema.product import getTopProduct, check_product
 from graphqlschema.payment import check_payment_date, getPaymentDateData, check_payment_month, getPaymentMonthData
+from graphqlschema.hour import check_hour_date, getHourDateData
 from starlette.requests import Request
 from starlette.websockets import WebSocket
 #from graphqlschema.yeardata import getYearData, check_year
@@ -36,7 +37,9 @@ from graphqlschema.schema import (
     DatePaymentData,
     MonthPaymentData,
     DatePaymentSearchParameter,
-    MonthPaymentSearchParameter
+    MonthPaymentSearchParameter,
+    DateHourSearchParameter,
+    DateHourData
 )
      
 def get_date_data(param: DateSearchParameter) -> DateData:
@@ -77,6 +80,11 @@ def get_date_payment_data(param: DatePaymentSearchParameter) -> DatePaymentData:
         raise Exception("Parameters wrong")
     return getPaymentDateData(param)
 
+def get_date_hour_data(param: DateHourSearchParameter) -> DateHourData:
+    if not check_hour_date(param):
+        raise Exception("Parameters wrong")
+    return getHourDateData(param)
+
 def get_month_payment_data(param: MonthPaymentSearchParameter) -> MonthPaymentData:
     if not check_payment_month(param):
         raise Exception("Parameters wrong")
@@ -115,6 +123,7 @@ class Query:
     paymenttype: PaymentType = strawberry.field(resolver=get_payment_type_data,permission_classes=[IsAuthenticated])
     datepaymentdata: DatePaymentData = strawberry.field(resolver=get_date_payment_data,permission_classes=[IsAuthenticated])
     monthpaymentdata: MonthPaymentData = strawberry.field(resolver=get_month_payment_data,permission_classes=[IsAuthenticated])
+    datehourdata: DateHourData = strawberry.field(resolver=get_date_hour_data,permission_classes=[IsAuthenticated])
     #yeardata: YearData = strawberry.field(resolver=get_year_data)
 
 config = getConfig()

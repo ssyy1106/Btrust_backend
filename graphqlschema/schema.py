@@ -10,12 +10,22 @@ def get_default_month():
 def get_all():
     return ['ALL']
 
+def get_hours():
+    return [hour for hour in range(8, 23)]
+
 @strawberry.input
 class TopProductSearchParameter:
     Years: typing.List[int] = strawberry.field(description="Search years", default=datetime.datetime.now().year)
     Months: typing.List[int] = strawberry.field(description="Search months", default_factory=get_default_month)
     Store: Optional[typing.List[str]] = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL", default_factory=get_all)
     TopProduct: Optional[int] = strawberry.field(description="Search how many top products", default = 10)
+
+@strawberry.input
+class DateHourSearchParameter:
+    FromDate: datetime.date = strawberry.field(description="Search from date", default=(datetime.datetime.now() - datetime.timedelta(days=1)).date())
+    ToDate: datetime.date = strawberry.field(description="Search to date", default=(datetime.datetime.now() - datetime.timedelta(days=1)).date())
+    Store: Optional[typing.List[str]] = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL", default_factory=get_all)
+    Hour: Optional[typing.List[int]] = strawberry.field(description="Search payment type", default_factory=get_hours)
 
 @strawberry.input
 class DatePaymentSearchParameter:
@@ -123,6 +133,26 @@ class DatePaymentDetail:
 class DatePaymentData:
     details: typing.List[DatePaymentDetail]
     summary: DatePaymentSummary
+
+@strawberry.type
+class DateHourSummary:
+    totalamountbeforetax: float
+    totalamountaftertax: float
+    items: int
+
+@strawberry.type
+class DateHourDetail:
+    amountbeforetax: float
+    amountaftertax: float
+    date: datetime.date
+    store: str
+    hour: int
+    transactions: int
+
+@strawberry.type
+class DateHourData:
+    details: typing.List[DateHourDetail]
+    summary: DateHourSummary
 
 @strawberry.type
 class MonthPaymentSummary:
@@ -236,21 +266,3 @@ class UPC:
 class UPCData:
     UPC: typing.List[UPC]
     items: int
-
-# @strawberry.type
-# class YearSummary:
-#     totalamount: float
-#     items: int
-
-# @strawberry.type
-# class YearDetail:
-#     amount: float
-#     year: str
-#     store: str
-#     id: str
-#     idkind: str
-
-# @strawberry.type
-# class YearData:
-#     details: typing.List[YearDetail]
-#     summary: YearSummary
