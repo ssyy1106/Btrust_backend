@@ -1,6 +1,6 @@
 import strawberry
 import typing
-from helper import getConfig
+from helper import getConfig, getPaymentTypes
 from secure import verify_jwt_token
 from strawberry.fastapi import GraphQLRouter
 from strawberry.permission import BasePermission
@@ -11,6 +11,7 @@ from graphqlschema.upc import getUPCs
 from graphqlschema.store import getStores
 from graphqlschema.transaction import getTransactions
 from graphqlschema.product import getTopProduct, check_product
+from graphqlschema.payment import check_payment_date, getPaymentDateData, check_payment_month, getPaymentMonthData
 from starlette.requests import Request
 from starlette.websockets import WebSocket
 #from graphqlschema.yeardata import getYearData, check_year
@@ -30,7 +31,12 @@ from graphqlschema.schema import (
     TransactionDetail,
     TransactionData,
     Products,
-    TopProductSearchParameter
+    TopProductSearchParameter,
+    PaymentType,
+    DatePaymentData,
+    MonthPaymentData,
+    DatePaymentSearchParameter,
+    MonthPaymentSearchParameter
 )
      
 def get_date_data(param: DateSearchParameter) -> DateData:
@@ -63,6 +69,19 @@ def get_top_product_data(param: TopProductSearchParameter) -> Products:
         raise Exception("Parameters wrong")
     return getTopProduct(param)
 
+def get_payment_type_data() -> PaymentType:
+    return PaymentType(typename = getPaymentTypes())
+
+def get_date_payment_data(param: DatePaymentSearchParameter) -> DatePaymentData:
+    if not check_payment_date(param):
+        raise Exception("Parameters wrong")
+    return getPaymentDateData(param)
+
+def get_month_payment_data(param: MonthPaymentSearchParameter) -> MonthPaymentData:
+    if not check_payment_month(param):
+        raise Exception("Parameters wrong")
+    return getPaymentMonthData(param)
+
 class IsAuthenticated(BasePermission):
     message = "User is not authenticated"
 
@@ -93,6 +112,9 @@ class Query:
     store: StoreData = strawberry.field(resolver=get_store_data,permission_classes=[IsAuthenticated])
     transaction: TransactionData = strawberry.field(resolver=get_transaction_data,permission_classes=[IsAuthenticated])
     topproduct: Products = strawberry.field(resolver=get_top_product_data,permission_classes=[IsAuthenticated])
+    paymenttype: PaymentType = strawberry.field(resolver=get_payment_type_data,permission_classes=[IsAuthenticated])
+    datepaymentdata: DatePaymentData = strawberry.field(resolver=get_date_payment_data,permission_classes=[IsAuthenticated])
+    monthpaymentdata: MonthPaymentData = strawberry.field(resolver=get_month_payment_data,permission_classes=[IsAuthenticated])
     #yeardata: YearData = strawberry.field(resolver=get_year_data)
 
 config = getConfig()

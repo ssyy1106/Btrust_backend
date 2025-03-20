@@ -29,6 +29,13 @@ def getConfig(type: str = 'dat'):
     setLogging(type)
     return config
 
+@functools.cache
+def getPaymentTypes():
+    if 'Payment' in CONFIG:
+        paymenttypes = CONFIG['Payment']['type'].split(",")
+        return paymenttypes
+    raise Exception("Sorry, no payment type config")
+
 def getConfigFile():
     configFile = 'config.ini'
     # try:
@@ -100,6 +107,11 @@ def getStoreStr(stores) -> str:
         res += "'" + store + "',"
     res = res[: len(res) - 1] + ")"
     return res
+
+def getPaymentTypeStr(paymentType) -> str:
+    if len(paymentType) == 1 and paymentType[0] == "ALL":
+        return getPaymentTypes()
+    return paymentType
 
 def setLogging(type: str):
     file = type + datetime.datetime.now(datetime.timezone.utc).isoformat()[:10]
