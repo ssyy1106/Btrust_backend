@@ -144,13 +144,14 @@ class Login(BaseModel):
 
 @app.post("/login")
 async def login(user: Login):
-    if not LoginShift(user.username, user.password):
+    ok, userId = LoginShift(user.username, user.password)
+    if not ok:
     #if user.username != 'admin' or user.password != '123456':
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
         )
     
-    token_data = {"sub": user.username}
+    token_data = {"sub": str(userId)}
     token = create_jwt_token(data=token_data)
     return {"access_token": token, "token_type": "bearer"}

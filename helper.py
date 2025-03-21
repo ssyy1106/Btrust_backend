@@ -9,6 +9,9 @@ import configparser
 import pyodbc
 import hashlib
 from enum import Enum
+from graphqlschema.schema import (
+    UserInformation
+)
 
 CONFIG = None
 def _init(config):
@@ -200,20 +203,74 @@ def getDepartmentName(id: str) -> str:
         finally:
             cursor.close()
 
-def LoginShift(btrustId: str, password: str) -> bool:
+def LoginShift(btrustId: str, password: str) -> tuple:
     with getShiftDB() as conn:
         with conn.cursor() as cursor:
             try:
-                sql = f"select password, salt from sysuser where btrustid='{btrustId}'"
+                sql = f"select password, salt, id from sysuser where btrustid='{btrustId}'"
                 cursor.execute(sql)
                 row = cursor.fetchone()
                 if not row:
-                    return False
-                return row[0] == EncryptUserPassword(password, row[1])
+                    return (False, 0)
+                if row[0] == EncryptUserPassword(password, row[1]):
+                    return (True, row[2])
+                return (False, 0)
             except Exception as e:
                 print(e)
-                return False
+                return (False, 0)
 
 def EncryptUserPassword(password: str, salt: str) -> str:
     md = hashlib.md5(password.encode()).hexdigest()
     return hashlib.md5((md + salt).encode()).hexdigest()
+
+@functools.cache
+def getAllDepartmentIds() -> dict:
+    res = {}
+    with getShiftDB() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(f"select id, parentid from sysdepartment")
+            items = cursor.fetchall()
+            for (id, parentId) in items:
+                res[id] = parentId
+            return res
+
+@functools.cache
+def getStoreName(id: str) -> str:
+    with getShiftDB() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(f"select departmentName from sysdepartment where id = " + str(id))
+            name = cursor.fetchone()
+            if name:
+                return name[0]
+            return ""
+
+@functools.cache
+def getStoreWithId(departmentId: int) -> str:
+    try:
+        deps = getAllDepartmentIds()
+        son = departmentId
+        store = deps[departmentId]
+        father = deps[store]
+        grandFather = deps[father]
+        while grandFather != 0:
+            son = store
+            store = father
+            father = grandFather
+            grandFather = deps[father]
+        return son
+    except Exception as e:
+        return son
+
+def get_user_db(userid) -> UserInformation:
+    with getShiftDB() as conn:
+        with conn.cursor() as cursor:
+            try:
+                sql = f"select username, realname, departmentname, lastvisit, departmentid from sysuser inner join sysdepartment on departmentid = sysdepartment.id where sysuser.id={userid}"
+                cursor.execute(sql)
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                return UserInformation(id=userid, realname=row[1], username=row[0],lastvisit=row[3], department=row[2],store=getStoreName(getStoreWithId(row[4])))
+            except Exception as e:
+                print(e)
+                return None

@@ -155,6 +155,15 @@ class DateHourData:
     summary: DateHourSummary
 
 @strawberry.type
+class UserInformation:
+    id: str
+    realname: str
+    username: str
+    department: str
+    store: str
+    lastvisit: str
+
+@strawberry.type
 class MonthPaymentSummary:
     totalamountbeforetax: float
     totalamountaftertax: float
