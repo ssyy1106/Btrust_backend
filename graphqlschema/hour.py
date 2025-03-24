@@ -1,6 +1,6 @@
 import datetime
 import numbers
-from helper import getDB, getPaymentTypes, getStoreStr, getPaymentTypeStr
+from helper import getDB, getPaymentTypes, getStoreStr
 from graphqlschema.schema import DateHourData, DateHourSummary, DateHourDetail, DateHourSearchParameter
 
 def check_store_hour(stores, hours) -> bool:

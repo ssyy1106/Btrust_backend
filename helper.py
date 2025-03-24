@@ -111,10 +111,10 @@ def getStoreStr(stores) -> str:
     res = res[: len(res) - 1] + ")"
     return res
 
-def getPaymentTypeStr(paymentType) -> str:
+def getPaymentTypeStr(paymentType) -> tuple:
     if len(paymentType) == 1 and paymentType[0] == "ALL":
-        return getPaymentTypes()
-    return paymentType
+        return (True, getPaymentTypes())
+    return (False, paymentType)
 
 def setLogging(type: str):
     file = type + datetime.datetime.now(datetime.timezone.utc).isoformat()[:10]
