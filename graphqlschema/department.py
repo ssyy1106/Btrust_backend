@@ -15,13 +15,13 @@ def getDepartments(param: DepartmentSearchParameter) -> DepartmentData:
                 row = cursor.fetchone()
                 if row:
                     items = row[0]
-                sql = "select F03, F238 from DEPT_TAB"
+                sql = "select F03, F238, F1894 from DEPT_TAB"
                 if id:
-                    sql = f"select F03, F238 from DEPT_TAB where F03={id}"
+                    sql = f"select F03, F238, F1894 from DEPT_TAB where F03={id}"
                 cursor.execute(sql)
                 rows = cursor.fetchall()
                 if rows:
-                    return DepartmentData(departments = [Department(name = row[1] if row[1] else "", id = row[0]) for row in rows], items=items)
+                    return DepartmentData(departments = [Department(name = {"en_us": row[1] if row[1] else "", "zh_cn": row[2] if row[2] else ""}, id = row[0]) for row in rows], items=items)
                 return DepartmentData(departments = [], items=items)
             except Exception as e:
                 print(e)
@@ -43,15 +43,15 @@ def getSubDepartments(param: SubDepartmentSearchParameter) -> SubDepartmentData:
                 row = cursor.fetchone()
                 if row:
                     items = row[0]
-                sql = "select F04, F1022, F03 from SDP_TAB"
+                sql = "select F04, F1022, F03, F1120 from SDP_TAB"
                 if id:
-                    sql = f"select F04, F1022, F03 from SDP_TAB where F04={id}"
+                    sql = f"select F04, F1022, F03, F1120 from SDP_TAB where F04={id}"
                 elif parent_id:
-                    sql = f"select F04, F1022, F03 from SDP_TAB where F03={parent_id}"
+                    sql = f"select F04, F1022, F03, F1120 from SDP_TAB where F03={parent_id}"
                 cursor.execute(sql)
                 rows = cursor.fetchall()
                 if rows:
-                    return SubDepartmentData(subdepartments = [SubDepartment(name = row[1] if row[1] else "", id = row[0], parentid = row[2] if row[2] else "") for row in rows], items=items)
+                    return SubDepartmentData(subdepartments = [SubDepartment(name = {"en_us": row[1] if row[1] else "", "zh_cn": row[3] if row[3] else ""}, id = row[0], parentid = row[2] if row[2] else "") for row in rows], items=items)
                 return SubDepartmentData(subdepartments = [], items=items)
             except Exception as e:
                 print(e)

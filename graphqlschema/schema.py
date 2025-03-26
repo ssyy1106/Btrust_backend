@@ -1,7 +1,14 @@
 import typing
 import strawberry
 import datetime
-from typing import Optional, Union
+from typing import Optional, Union, NewType
+
+JSON = strawberry.scalar(
+    NewType("JSON", object),
+    description="The `JSON` scalar type represents JSON values as specified by ECMA-404",
+    serialize=lambda v: v,
+    parse_value=lambda v: v,
+)
 
 # 前端查询时需要传参，参数包括时间段，店，部门，统计方式(日，月，年)等信息
 def get_default_month():
@@ -246,7 +253,7 @@ class TransactionData:
 
 @strawberry.type
 class Department:
-    name: str
+    name: JSON
     id: str
 
 @strawberry.type
@@ -256,7 +263,7 @@ class DepartmentData:
     
 @strawberry.type
 class SubDepartment:
-    name: str
+    name: JSON
     id: str
     parentid: str
 
