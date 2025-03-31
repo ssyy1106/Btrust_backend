@@ -16,6 +16,7 @@ def check_month(param: MonthSearchParameter) -> bool:
 
 
 def getMonthData(param: MonthSearchParameter) -> MonthData:
+    start = datetime.datetime.now()
     from_month, to_month = param.FromMonth, param.ToMonth
     store, kind, id = getStoreStr(param.Store), param.SearchKind, param.SearchID
     top_product = param.TopProduct
@@ -77,6 +78,8 @@ def getMonthData(param: MonthSearchParameter) -> MonthData:
                         detail.name = getDepartmentName(int(row[3]))
                     total_amount += row[2]
                     details.append(detail)
+                end = datetime.datetime.now()
+                print(f"month data run time: {end-start} param: {param}")
                 return MonthData(summary = MonthSummary(items=items, totalamount=total_amount), details=details, topproduct=products)
             except Exception as e:
                 print(e)

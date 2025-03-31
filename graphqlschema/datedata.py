@@ -17,8 +17,6 @@ def check_date(param: DateSearchParameter) -> bool:
     return True
 
 def getDateData(param: DateSearchParameter) -> DateData:
-    print("start")
-    log_and_save('INFO', "get_date_data start")
     start = datetime.datetime.now()
     from_date, to_date = str(param.FromDate), str(param.ToDate)
     store, kind, id = getStoreStr(param.Store), param.SearchKind, param.SearchID
@@ -77,7 +75,7 @@ def getDateData(param: DateSearchParameter) -> DateData:
                     total_amount += row[2]
                     details.append(detail)
                 end = datetime.datetime.now()
-                print(f"run time: {end-start}")
+                print(f"date data run time: {end-start} param: {param}")
                 log_and_save('INFO', f"get_date_data end time: {end-start}")
                 return DateData(summary = DateSummary(items=items, totalamount=total_amount), details=details, topproduct=products)
             except Exception as e:

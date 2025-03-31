@@ -24,6 +24,7 @@ def get_months(years, months) -> list[str]:
     return "('" + "','".join(str(y) + '-' + helper(m) for y, m in product(years, months)) + "')"
 
 def getTopProduct(param: TopProductSearchParameter) -> list[Product]:
+    start = datetime.datetime.now()
     months = get_months(param.Years, param.Months)
     stores, top_product = getStoreStr(param.Store), param.TopProduct
     table = 'month_upc_aggregate'
@@ -37,4 +38,6 @@ def getTopProduct(param: TopProductSearchParameter) -> list[Product]:
             for row in rows:
                 product = Product(totalamount = row[0], upc = row[1])
                 products.append(product)
+            end = datetime.datetime.now()
+            print(f"top product data run time: {end-start}")
             return Products(product=products)
