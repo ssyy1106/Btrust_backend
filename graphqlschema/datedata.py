@@ -1,5 +1,5 @@
 import datetime
-from helper import getDB, getDepartmentName, getStoreStr
+from helper import getDB, getDepartmentName, getStoreStr, log_and_save
 from graphqlschema.schema import DateData, DateSummary, DateDetail, DateSearchParameter, Product
 
 def check_date(param: DateSearchParameter) -> bool:
@@ -17,6 +17,9 @@ def check_date(param: DateSearchParameter) -> bool:
     return True
 
 def getDateData(param: DateSearchParameter) -> DateData:
+    print("start")
+    log_and_save('INFO', "get_date_data start")
+    start = datetime.datetime.now()
     from_date, to_date = str(param.FromDate), str(param.ToDate)
     store, kind, id = getStoreStr(param.Store), param.SearchKind, param.SearchID
     top_product = param.TopProduct
@@ -73,6 +76,9 @@ def getDateData(param: DateSearchParameter) -> DateData:
                         detail.name = getDepartmentName(int(row[3]))
                     total_amount += row[2]
                     details.append(detail)
+                end = datetime.datetime.now()
+                print(f"run time: {end-start}")
+                log_and_save('INFO', f"get_date_data end time: {end-start}")
                 return DateData(summary = DateSummary(items=items, totalamount=total_amount), details=details, topproduct=products)
             except Exception as e:
                 print(e)

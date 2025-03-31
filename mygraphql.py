@@ -1,7 +1,7 @@
 import strawberry
 import typing
 from functools import cached_property
-from helper import getConfig, getPaymentTypes
+from helper import getConfig, getPaymentTypes, log_and_save
 from secure import verify_jwt_token, get_user_information
 from strawberry.fastapi import GraphQLRouter, BaseContext
 from strawberry.permission import BasePermission
@@ -50,9 +50,11 @@ def get_date_data(param: DateSearchParameter) -> DateData:
         raise Exception("Parameters wrong")
     return getDateData(param)
 
-def get_month_data(param: MonthSearchParameter) -> MonthData:
+def get_month_data(param: MonthSearchParameter, info) -> MonthData:
     if not check_month(param):
         raise Exception("Parameters wrong")
+    # if info.context.user.store == "Btrust":
+    #     print('ok')
     return getMonthData(param)
 
 def get_departments_data(param: DepartmentSearchParameter = None) -> DepartmentData:
@@ -99,24 +101,19 @@ class IsAuthenticated(BasePermission):
 
     # This method can also be async!
     def has_permission(self, source: typing.Any, info: strawberry.Info, **kwargs) -> bool:
-        request: typing.Union[Request, WebSocket] = info.context["request"]
+        #request: typing.Union[Request, WebSocket] = info.context["request"]
+        request: typing.Union[Request, WebSocket] = info.context.request
         if "Authorization" in request.headers:
             if verify_jwt_token( request.headers['Authorization'][7:] ):
                 return True
             return False
-            # if result.get("status") == "error":
-            #     print(result.get("msg"))
-            #     return False
-            # if result.get("sub"):
-            #     print(result)
-            #     return True
         return False
     
 config = getConfig()
 
 class Context(BaseContext):
-    def __init__(self):
-        super().__init__()
+    # def __init__(self):
+    #     super().__init__()
     #     self.data = {}
 
     @cached_property
@@ -144,24 +141,18 @@ class Query:
     datehourdata: DateHourData = strawberry.field(resolver=get_date_hour_data,permission_classes=[IsAuthenticated])
     @strawberry.field
     def me(self, info: strawberry.Info) -> UserInformation | None:
-        request: typing.Union[Request, WebSocket] = info.context["request"]
+        #request: typing.Union[Request, WebSocket] = info.context["request"]
+        return info.context.user
+        request: typing.Union[Request, WebSocket] = info.context.request
         if "Authorization" in request.headers:
             return get_user_information(request.headers['Authorization'][7:])
 
         return None
-    # def get_me_data(param: MonthPaymentSearchParameter) -> MonthPaymentData:
-    #     if not check_payment_month(param):
-    #         raise Exception("Parameters wrong")
-    #     return getPaymentMonthData(param)
-    
-    #me: UserInformation = strawberry.field(resolver=get_me_data,permission_classes=[IsAuthenticated])
-    #yeardata: YearData = strawberry.field(resolver=get_year_data)
 
 async def get_context() -> Context:
-    #return {"hi": "there"}
     return Context()
 
 schema = strawberry.Schema(query=Query)
 
-#graphql_app = GraphQLRouter(schema, context_getter=get_context)
-graphql_app = GraphQLRouter(schema)
+graphql_app = GraphQLRouter(schema, context_getter=get_context)
+#graphql_app = GraphQLRouter(schema)
