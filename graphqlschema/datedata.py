@@ -41,12 +41,12 @@ def getDateData(param: DateSearchParameter) -> DateData:
                 for row in rows:
                     product = Product(totalamount = row[0], upc = row[1])
                     products.append(product)
-                sql = f"select day, store, sum(total_amount) as total_amount, store from {table} where day between '{from_date}' and '{to_date}'"
+                sql = f"select day, store, sum(total_amount) as total_amount, store, sum(transactions) from {table} where day between '{from_date}' and '{to_date}'"
                 # if store != 'ALL':
                 sql += " and store in " + store
                 sql += " group by store, day"
             else:
-                sql = f"select day, store, total_amount, {column} from {table} where day between '{from_date}' and '{to_date}'"
+                sql = f"select day, store, total_amount, {column}, transactions from {table} where day between '{from_date}' and '{to_date}'"
                 if UseID:
                     sql += " and " + column + " = '" + id + "'"
                 #if store != 'ALL':
@@ -60,15 +60,14 @@ def getDateData(param: DateSearchParameter) -> DateData:
                 total_amount = 0
                 details = []
                 for row in rows:
-                    transactions = 0
-                    if kind == 'Store':
-                        sql = f"select count(1) as transactions from transaction where date = '{row[0]}'"
-                        #if store != 'ALL':
-                        sql += f" and store = '{row[1]}'"
-                        cursor.execute(sql)
-                        res = cursor.fetchone()
-                        if res:
-                            transactions = res[0]
+                    transactions = row[4]
+                    # if kind == 'Store':
+                    #     sql = f"select count(1) as transactions from transaction where date = '{row[0]}'"
+                    #     sql += f" and store = '{row[1]}'"
+                    #     cursor.execute(sql)
+                    #     res = cursor.fetchone()
+                    #     if res:
+                    #         transactions = res[0]
                     detail = DateDetail(amount = row[2], date = datetime.datetime.strptime(row[0], '%Y-%m-%d'), store=row[1], idkind=kind, id=row[3], name = '', transactions=transactions)
                     if (kind == 'Department' or kind == 'SubDepartment') and row[3].isdigit():
                         detail.name = getDepartmentName(int(row[3]))

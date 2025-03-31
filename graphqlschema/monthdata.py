@@ -35,19 +35,18 @@ def getMonthData(param: MonthSearchParameter) -> MonthData:
             if kind == 'Store':
                 # get top product info
                 sql = f"select sum(total_amount) as total_amount, upc from month_upc_aggregate where month between '{from_month}' and '{to_month}' and store in {store} group by upc order by sum(total_amount) desc limit {top_product}"
-                print(sql)
                 cursor.execute(sql)
                 rows = cursor.fetchall()
                 for row in rows:
                     product = Product(totalamount = row[0], upc = row[1])
                     products.append(product)
-                sql = f"select month, store, sum(total_amount) as total_amount, store from {table} where month between '{from_month}' and '{to_month}'"
+                sql = f"select month, store, sum(total_amount) as total_amount, store, sum(transactions) from {table} where month between '{from_month}' and '{to_month}'"
                 # if store != 'ALL':
                 #     sql += " and store = '" + store + "'"
                 sql += " and store in " + store
                 sql += " group by store, month"
             else:
-                sql = f"select month, store, total_amount, {column} from {table} where month between '{from_month}' and '{to_month}'"
+                sql = f"select month, store, total_amount, {column}, transactions from {table} where month between '{from_month}' and '{to_month}'"
                 if UseID:
                     sql += " and " + column + " = '" + id + "'"
                 sql += " and store in " + store
@@ -61,18 +60,16 @@ def getMonthData(param: MonthSearchParameter) -> MonthData:
                 total_amount = 0
                 details = []
                 for row in rows:
-                    transactions = 0
-                    if kind == 'Store':
-                        from_day = row[0] + "-01"
-                        to_day = f"(date_trunc('month', '{row[0] + "-01"}'::date) + interval '1 month' - interval '1 day')::date "
-                        sql = f"select count(1) as transactions from transaction where date between '{from_day}' and {to_day}"
-                        #if store != 'ALL':
-                        sql += f" and store = '{row[1]}'"
-                        #sql += " group by store, month"
-                        cursor.execute(sql)
-                        res = cursor.fetchone()
-                        if res:
-                            transactions = res[0]
+                    transactions = row[4]
+                    # if kind == 'Store':
+                    #     from_day = row[0] + "-01"
+                    #     to_day = f"(date_trunc('month', '{row[0] + "-01"}'::date) + interval '1 month' - interval '1 day')::date "
+                    #     sql = f"select count(1) as transactions from transaction where date between '{from_day}' and {to_day}"
+                    #     sql += f" and store = '{row[1]}'"
+                    #     cursor.execute(sql)
+                    #     res = cursor.fetchone()
+                    #     if res:
+                    #         transactions = res[0]
                     detail = MonthDetail(amount = row[2], month = row[0], store=row[1], idkind=kind, id=row[3], name = '', transactions=transactions)
                     if (kind == 'Department' or kind == 'SubDepartment') and row[3].isdigit():
                         detail.name = getDepartmentName(int(row[3]))
