@@ -35,7 +35,7 @@ def getDateData(param: DateSearchParameter) -> DateData:
             products = []
             if kind == 'Store':
                 # get top product info
-                sql = f"select sum(total_amount) as total_amount, upc from day_upc_aggregate where day between '{from_date}' and '{to_date}' and store in {store} group by upc order by sum(total_amount) desc limit {top_product}"
+                sql = f"select sum(total_amount) as total_amount, upc from day_upc_max_aggregate where day between '{from_date}' and '{to_date}' and store in {store} group by upc order by sum(total_amount) desc limit {top_product}"
                 cursor.execute(sql)
                 rows = cursor.fetchall()
                 for row in rows:
