@@ -35,7 +35,8 @@ def getDateData(param: DateSearchParameter) -> DateData:
             products = []
             if kind == 'Store':
                 # get top product info
-                sql = f"select sum(total_amount) as total_amount, upc from day_upc_max_aggregate where day between '{from_date}' and '{to_date}' and store in {store} group by upc order by sum(total_amount) desc limit {top_product}"
+                dayUPCTable = 'day_upc_max_aggregate' if top_product <= 20 else 'day_upc_aggregate'
+                sql = f"select sum(total_amount) as total_amount, upc from {dayUPCTable} where day between '{from_date}' and '{to_date}' and store in {store} group by upc order by sum(total_amount) desc limit {top_product}"
                 cursor.execute(sql)
                 rows = cursor.fetchall()
                 for row in rows:
@@ -61,13 +62,6 @@ def getDateData(param: DateSearchParameter) -> DateData:
                 details = []
                 for row in rows:
                     transactions = row[4]
-                    # if kind == 'Store':
-                    #     sql = f"select count(1) as transactions from transaction where date = '{row[0]}'"
-                    #     sql += f" and store = '{row[1]}'"
-                    #     cursor.execute(sql)
-                    #     res = cursor.fetchone()
-                    #     if res:
-                    #         transactions = res[0]
                     detail = DateDetail(amount = row[2], date = datetime.datetime.strptime(row[0], '%Y-%m-%d'), store=row[1], idkind=kind, id=row[3], name = '', transactions=transactions)
                     if (kind == 'Department' or kind == 'SubDepartment') and row[3].isdigit():
                         detail.name = getDepartmentName(int(row[3]))

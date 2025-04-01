@@ -34,7 +34,8 @@ def getMonthData(param: MonthSearchParameter) -> MonthData:
             products = []
             if kind == 'Store':
                 # get top product info
-                sql = f"select sum(total_amount) as total_amount, upc from month_upc_aggregate where month between '{from_month}' and '{to_month}' and store in {store} group by upc order by sum(total_amount) desc limit {top_product}"
+                monthUPCTable = 'month_upc_max_aggregate' if top_product <= 20 else 'month_upc_aggregate'
+                sql = f"select sum(total_amount) as total_amount, upc from {monthUPCTable} where month between '{from_month}' and '{to_month}' and store in {store} group by upc order by sum(total_amount) desc limit {top_product}"
                 cursor.execute(sql)
                 rows = cursor.fetchall()
                 for row in rows:
@@ -61,15 +62,6 @@ def getMonthData(param: MonthSearchParameter) -> MonthData:
                 details = []
                 for row in rows:
                     transactions = row[4]
-                    # if kind == 'Store':
-                    #     from_day = row[0] + "-01"
-                    #     to_day = f"(date_trunc('month', '{row[0] + "-01"}'::date) + interval '1 month' - interval '1 day')::date "
-                    #     sql = f"select count(1) as transactions from transaction where date between '{from_day}' and {to_day}"
-                    #     sql += f" and store = '{row[1]}'"
-                    #     cursor.execute(sql)
-                    #     res = cursor.fetchone()
-                    #     if res:
-                    #         transactions = res[0]
                     detail = MonthDetail(amount = row[2], month = row[0], store=row[1], idkind=kind, id=row[3], name = '', transactions=transactions)
                     if (kind == 'Department' or kind == 'SubDepartment') and row[3].isdigit():
                         detail.name = getDepartmentName(int(row[3]))
