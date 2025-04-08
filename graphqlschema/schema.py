@@ -74,6 +74,10 @@ class TransactionSearchParameter:
     SearchDetail: Optional[str] = strawberry.field(description="Search Transaction detials Yes or No default No", default="No")
 
 @strawberry.input
+class TodaySearchParameter:
+    Store: typing.List[str] = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL")
+
+@strawberry.input
 class DepartmentSearchParameter:
     ID: str = strawberry.field(description="Search Departments with ID", default = "")
 
@@ -160,6 +164,39 @@ class DateHourDetail:
 class DateHourData:
     details: typing.List[DateHourDetail]
     summary: DateHourSummary
+
+@strawberry.type
+class TodaySummary:
+    totalamountbeforetax: float
+    totalamountaftertax: float
+    transactions: int
+
+@strawberry.type
+class TodaySubDepartmentDetail:
+    name: str
+    id: str
+    totalamount: float
+
+@strawberry.type
+class TodayDepartmentDetail:
+    name: str
+    id: str
+    totalamount: float
+    subdepartments: typing.List[TodaySubDepartmentDetail]
+
+@strawberry.type
+class TodayDetail:
+    amountbeforetax: float
+    amountaftertax: float
+    date: datetime.date
+    store: str
+    transactions: int
+    departments: typing.List[TodayDepartmentDetail]
+
+@strawberry.type
+class TodayData:
+    details: typing.List[TodayDetail]
+    summary: TodaySummary
 
 @strawberry.type
 class UserInformation:

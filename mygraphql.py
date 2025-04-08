@@ -14,6 +14,7 @@ from graphqlschema.transaction import getTransactions
 from graphqlschema.product import getTopProduct, check_product
 from graphqlschema.payment import check_payment_date, getPaymentDateData, check_payment_month, getPaymentMonthData
 from graphqlschema.hour import check_hour_date, getHourDateData
+from graphqlschema.today import check_today, getTodayData
 from starlette.requests import Request
 from starlette.websockets import WebSocket
 from collections import UserDict
@@ -42,7 +43,9 @@ from graphqlschema.schema import (
     MonthPaymentSearchParameter,
     DateHourSearchParameter,
     DateHourData,
-    UserInformation
+    UserInformation,
+    TodayData,
+    TodaySearchParameter
 )
      
 def get_date_data(param: DateSearchParameter) -> DateData:
@@ -95,6 +98,10 @@ def get_month_payment_data(param: MonthPaymentSearchParameter) -> MonthPaymentDa
         raise Exception("Parameters wrong")
     return getPaymentMonthData(param)
 
+def get_today_data(param: TodaySearchParameter) -> TodayData:
+    if not check_today(param):
+        raise Exception("Parameters wrong")
+    return getTodayData(param)
 
 class IsAuthenticated(BasePermission):
     message = "User is not authenticated"
@@ -139,6 +146,7 @@ class Query:
     datepaymentdata: DatePaymentData = strawberry.field(resolver=get_date_payment_data,permission_classes=[IsAuthenticated])
     monthpaymentdata: MonthPaymentData = strawberry.field(resolver=get_month_payment_data,permission_classes=[IsAuthenticated])
     datehourdata: DateHourData = strawberry.field(resolver=get_date_hour_data,permission_classes=[IsAuthenticated])
+    todaydata: TodayData = strawberry.field(resolver=get_today_data,permission_classes=[IsAuthenticated])
     @strawberry.field
     def me(self, info: strawberry.Info) -> UserInformation | None:
         #request: typing.Union[Request, WebSocket] = info.context["request"]
