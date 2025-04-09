@@ -3,3 +3,4 @@ def func():
 
 def test_func():
     assert func() == 1
+    

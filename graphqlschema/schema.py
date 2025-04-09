@@ -178,6 +178,16 @@ class TodaySubDepartmentDetail:
     totalamount: float
 
 @strawberry.type
+class TodayCashierDetail:
+    name: str
+    id: str
+    transactions: int
+    workingtime: str
+    timepertransaction: str
+    amountbeforetax: float
+    amountaftertax: float
+
+@strawberry.type
 class TodayDepartmentDetail:
     name: str
     id: str
@@ -192,6 +202,7 @@ class TodayDetail:
     store: str
     transactions: int
     departments: typing.List[TodayDepartmentDetail]
+    cashiers: typing.List[TodayCashierDetail]
 
 @strawberry.type
 class TodayData:
