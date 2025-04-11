@@ -75,7 +75,7 @@ class TransactionSearchParameter:
 
 @strawberry.input
 class TodaySearchParameter:
-    Store: typing.List[str] = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL")
+    Store: Optional[typing.List[str]] = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL", default_factory=get_all)
     TopProduct: int = strawberry.field(description="Search how many top products", default = 10)
 
 @strawberry.input
