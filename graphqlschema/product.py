@@ -2,6 +2,7 @@ import datetime
 from itertools import product
 from helper import getDB, getDepartmentName, getStoreStr
 from graphqlschema.schema import TopProductSearchParameter, Products, Product
+from graphqlschema.upc import UPC, getUPC
 
 def check_product(param: TopProductSearchParameter) -> bool:
     years, months = param.Years, param.Months
@@ -36,7 +37,7 @@ def getTopProduct(param: TopProductSearchParameter) -> list[Product]:
             cursor.execute(sql)
             rows = cursor.fetchall()
             for row in rows:
-                product = Product(totalamount = row[0], upc = row[1])
+                product = Product(totalamount = row[0], upc = getUPC(row[1]))
                 products.append(product)
             end = datetime.datetime.now()
             print(f"top product data run time: {end-start}")

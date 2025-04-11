@@ -1,6 +1,7 @@
 import datetime
 from helper import getDB, getDepartmentName, getStoreStr
 from graphqlschema.schema import MonthData, MonthSummary, MonthDetail, MonthSearchParameter, Product
+from graphqlschema.upc import UPC, getUPC
 
 def check_month(param: MonthSearchParameter) -> bool:
     from_month, to_month = param.FromMonth, param.ToMonth
@@ -39,7 +40,7 @@ def getMonthData(param: MonthSearchParameter) -> MonthData:
                 cursor.execute(sql)
                 rows = cursor.fetchall()
                 for row in rows:
-                    product = Product(totalamount = row[0], upc = row[1])
+                    product = Product(totalamount = row[0], upc = getUPC(row[1]))
                     products.append(product)
                 sql = f"select month, store, sum(total_amount) as total_amount, store, sum(transactions) from {table} where month between '{from_month}' and '{to_month}'"
                 # if store != 'ALL':

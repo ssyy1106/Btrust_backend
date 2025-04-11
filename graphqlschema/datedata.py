@@ -1,6 +1,7 @@
 import datetime
 from helper import getDB, getDepartmentName, getStoreStr, log_and_save
 from graphqlschema.schema import DateData, DateSummary, DateDetail, DateSearchParameter, Product
+from graphqlschema.upc import UPC, getUPC
 
 def check_date(param: DateSearchParameter) -> bool:
     from_date, to_date = param.FromDate, param.ToDate
@@ -40,7 +41,7 @@ def getDateData(param: DateSearchParameter) -> DateData:
                 cursor.execute(sql)
                 rows = cursor.fetchall()
                 for row in rows:
-                    product = Product(totalamount = row[0], upc = row[1])
+                    product = Product(totalamount = row[0], upc = getUPC(row[1]))
                     products.append(product)
                 sql = f"select day, store, sum(total_amount) as total_amount, store, sum(transactions) from {table} where day between '{from_date}' and '{to_date}'"
                 # if store != 'ALL':

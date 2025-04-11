@@ -93,6 +93,12 @@ class UPCSearchParameter:
     ID: str = strawberry.field(description="Search UPC with ID", default = "")
 
 @strawberry.type
+class UPC:
+    nameenglish: str = strawberry.field(description="English name", default = "")
+    namechinese: str = strawberry.field(description="Chinese name", default = "")
+    id: str
+    
+@strawberry.type
 class DateSummary:
     totalamount: float
     items: int
@@ -100,7 +106,7 @@ class DateSummary:
 @strawberry.type
 class Product:
     totalamount: float
-    upc: str
+    upc: UPC
 
 @strawberry.type
 class Products:
@@ -321,12 +327,6 @@ class SubDepartment:
 class SubDepartmentData:
     subdepartments: typing.List[SubDepartment]
     items: int
-
-@strawberry.type
-class UPC:
-    nameenglish: str = strawberry.field(description="English name", default = "")
-    namechinese: str = strawberry.field(description="Chinese name", default = "")
-    id: str
 
 @strawberry.type
 class UPCData:

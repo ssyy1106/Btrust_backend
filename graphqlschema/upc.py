@@ -1,5 +1,22 @@
 from helper import getStore, getStoreDB, getHODB
+import functools
 from graphqlschema.schema import UPC, UPCData, UPCSearchParameter
+
+@functools.cache
+def getUPC(id: str) -> UPC:
+        Table, id_col, name_en, name_ch = 'OBJ_TAB', 'F01', 'F29', 'F255'
+        sql = f"select SUBSTRING({id_col}, PATINDEX('%[^0]%', {id_col}+'.'), LEN({id_col})), {name_ch}, {name_en} from {Table} where SUBSTRING({id_col}, PATINDEX('%[^0]%', {id_col}+'.'), LEN({id_col}))='{id}'"
+        with getStoreDB('MT') as conn:
+            with conn.cursor() as cursor:
+                try:
+                    cursor.execute(sql)
+                    row = cursor.fetchone()
+                    if row:
+                        return UPC(namechinese = row[1] if row[1] else "", nameenglish = row[2] if row[2] else "",  id = row[0])
+                    return UPC(namechinese = "", nameenglish= "", id=id)
+                except Exception as e:
+                    print(f"error: {e}")
+                    return UPC(namechinese = "", nameenglish= "", id=id)
 
 def getUPCs(param: UPCSearchParameter) -> UPCData:
     # store = param.Store

@@ -2,6 +2,7 @@ import datetime
 from collections import defaultdict
 from helper import getDB, getDepartmentName, getStoreStr, log_and_save
 from graphqlschema.schema import TodaySummary, TodaySearchParameter, TodayDetail, TodayData, TodayDepartmentDetail, TodaySubDepartmentDetail, TodayCashierDetail, Product
+from graphqlschema.upc import UPC, getUPC
 
 def check_today(param: TodaySearchParameter) -> bool:
     stores = param.Store
@@ -84,7 +85,8 @@ def getTodayData(param: TodaySearchParameter) -> TodayData:
                 sql = f"select sum(total_amount) as total_amount, upc from sale_item where date = '{datetime.datetime.today().strftime('%Y-%m-%d')}' and store in {store_str} group by upc order by total_amount desc limit {top_product}"
                 cursor.execute(sql)
                 rows = cursor.fetchall()
-                products = [Product(totalamount = row[0], upc = row[1]) for row in rows]
+                products = [Product(totalamount = row[0], upc = getUPC(row[1])) for row in rows]
+                print(products)
                 end = datetime.datetime.now()
                 print(f"today data run time: {end-start} param: {param}")
                 log_and_save('INFO', f"get_today_data end time: {end-start}")
