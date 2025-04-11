@@ -35,15 +35,15 @@ def get_cashier_details(cursor, store) -> dict:
 
 def getTodayData(param: TodaySearchParameter) -> TodayData:
     start = datetime.datetime.now()
-    store = getStoreStr(param.Store)
+    store_str = getStoreStr(param.Store)
     top_product = param.TopProduct
     with getDB() as conn:
         with conn.cursor() as cursor:
             dic = get_department_details(cursor)
-            dic_cashier = get_cashier_details(cursor, store)
+            dic_cashier = get_cashier_details(cursor, store_str)
             totalamountbeforetax, totalamountaftertax, totalTransactions = 0, 0, 0
             sql = f"select store, count(1) as transactions, sum(amount_before_tax) as amount_before_tax, sum(amount_after_tax) as amount_after_tax from transaction where date = '{datetime.datetime.today().strftime('%Y-%m-%d')}'"
-            sql += " and store in " + store
+            sql += " and store in " + store_str
             sql += " group by store"
             try:
                 cursor.execute(sql)
@@ -81,7 +81,7 @@ def getTodayData(param: TodaySearchParameter) -> TodayData:
                     detail = TodayDetail(amountbeforetax=amount_before_tax, amountaftertax=amount_after_tax, date = datetime.datetime.today(), store=store, transactions=transactions, cashiers=cashiers, departments=departments)
                     details.append(detail)
                 # get today best upc sales
-                sql = f"select sum(total_amount) as total_amount, upc from sale_item where date = '{datetime.datetime.today().strftime('%Y-%m-%d')}' and store in {store} group by upc order by total_amount desc limit {top_product}"
+                sql = f"select sum(total_amount) as total_amount, upc from sale_item where date = '{datetime.datetime.today().strftime('%Y-%m-%d')}' and store in {store_str} group by upc order by total_amount desc limit {top_product}"
                 cursor.execute(sql)
                 rows = cursor.fetchall()
                 products = [Product(totalamount = row[0], upc = row[1]) for row in rows]
