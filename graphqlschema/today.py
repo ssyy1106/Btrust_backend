@@ -1,7 +1,7 @@
 import datetime
 from collections import defaultdict
 from helper import getDB, getDepartmentName, getStoreStr, log_and_save
-from graphqlschema.schema import TodaySummary, TodaySearchParameter, TodayDetail, TodayData, TodayDepartmentDetail, TodaySubDepartmentDetail, TodayCashierDetail
+from graphqlschema.schema import TodaySummary, TodaySearchParameter, TodayDetail, TodayData, TodayDepartmentDetail, TodaySubDepartmentDetail, TodayCashierDetail, Product
 
 def check_today(param: TodaySearchParameter) -> bool:
     stores = param.Store
@@ -36,6 +36,7 @@ def get_cashier_details(cursor, store) -> dict:
 def getTodayData(param: TodaySearchParameter) -> TodayData:
     start = datetime.datetime.now()
     store = getStoreStr(param.Store)
+    top_product = param.TopProduct
     with getDB() as conn:
         with conn.cursor() as cursor:
             dic = get_department_details(cursor)
@@ -79,10 +80,15 @@ def getTodayData(param: TodaySearchParameter) -> TodayData:
                         cashiers.append(TodayCashierDetail(name=name, id=id,transactions=transactions, workingtime=time, timepertransaction=perTransaction, amountbeforetax=amount_before_tax, amountaftertax=amount_after_tax))
                     detail = TodayDetail(amountbeforetax=amount_before_tax, amountaftertax=amount_after_tax, date = datetime.datetime.today(), store=store, transactions=transactions, cashiers=cashiers, departments=departments)
                     details.append(detail)
+                # get today best upc sales
+                sql = f"select sum(total_amount) as total_amount, upc from sale_item where date = '{datetime.datetime.today().strftime('%Y-%m-%d')}' and store in {store} group by upc order by total_amount desc limit {top_product}"
+                cursor.execute(sql)
+                rows = cursor.fetchall()
+                products = [Product(totalamount = row[0], upc = row[1]) for row in rows]
                 end = datetime.datetime.now()
                 print(f"today data run time: {end-start} param: {param}")
                 log_and_save('INFO', f"get_today_data end time: {end-start}")
-                return TodayData(summary = TodaySummary(totalamountbeforetax=totalamountbeforetax, totalamountaftertax=totalamountaftertax, transactions=totalTransactions), details=details)
+                return TodayData(summary = TodaySummary(totalamountbeforetax=totalamountbeforetax, totalamountaftertax=totalamountaftertax, transactions=totalTransactions), details=details, topproduct = products)
             except Exception as e:
                 print(e)
             return TodayData()

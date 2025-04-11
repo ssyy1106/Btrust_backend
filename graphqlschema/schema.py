@@ -76,6 +76,7 @@ class TransactionSearchParameter:
 @strawberry.input
 class TodaySearchParameter:
     Store: typing.List[str] = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL")
+    TopProduct: int = strawberry.field(description="Search how many top products", default = 10)
 
 @strawberry.input
 class DepartmentSearchParameter:
@@ -208,6 +209,7 @@ class TodayDetail:
 class TodayData:
     details: typing.List[TodayDetail]
     summary: TodaySummary
+    topproduct: typing.List[Product] 
 
 @strawberry.type
 class UserInformation:
