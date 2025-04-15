@@ -1,5 +1,6 @@
 import strawberry
 import typing
+import asyncio
 from functools import cached_property
 from helper import getConfig, getPaymentTypes, log_and_save
 from secure import verify_jwt_token, get_user_information
@@ -17,7 +18,8 @@ from graphqlschema.hour import check_hour_date, getHourDateData
 from graphqlschema.today import check_today, getTodayData
 from starlette.requests import Request
 from starlette.websockets import WebSocket
-from collections import UserDict
+from typing import AsyncGenerator
+from strawberry.subscriptions import GRAPHQL_TRANSPORT_WS_PROTOCOL, GRAPHQL_WS_PROTOCOL
 #from graphqlschema.yeardata import getYearData, check_year
 from graphqlschema.schema import (
     DateSearchParameter, 
@@ -45,7 +47,8 @@ from graphqlschema.schema import (
     DateHourData,
     UserInformation,
     TodayData,
-    TodaySearchParameter
+    TodaySearchParameter,
+    Department
 )
      
 def get_date_data(param: DateSearchParameter) -> DateData:
@@ -151,16 +154,28 @@ class Query:
     def me(self, info: strawberry.Info) -> UserInformation | None:
         #request: typing.Union[Request, WebSocket] = info.context["request"]
         return info.context.user
-        request: typing.Union[Request, WebSocket] = info.context.request
-        if "Authorization" in request.headers:
-            return get_user_information(request.headers['Authorization'][7:])
 
-        return None
+@strawberry.type
+class Subscription:
+    @strawberry.subscription
+    async def Today(self, timer: int = 5) -> AsyncGenerator[TodayData, None]:
+        try:
+            while True:
+                yield get_today_data(TodaySearchParameter(Store=['MS'], TopProduct=10))
+                #yield chr(ord('a') + i)
+                await asyncio.sleep(timer * 60)
+        except asyncio.CancelledError:
+            print('unsubscription!')
+            return
+
 
 async def get_context() -> Context:
     return Context()
 
-schema = strawberry.Schema(query=Query)
+schema = strawberry.Schema(query=Query, subscription=Subscription)
 
-graphql_app = GraphQLRouter(schema, context_getter=get_context)
+graphql_app = GraphQLRouter(schema, context_getter=get_context, subscription_protocols=[
+        GRAPHQL_TRANSPORT_WS_PROTOCOL,
+        GRAPHQL_WS_PROTOCOL,
+    ],)
 #graphql_app = GraphQLRouter(schema)

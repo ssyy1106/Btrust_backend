@@ -51,11 +51,11 @@ def getTodayData(param: TodaySearchParameter) -> TodayData:
                 rows = cursor.fetchall()
                 details = []
                 for row in rows:
-                    transactions, store = row[1], row[0]
-                    amount_before_tax, amount_after_tax = row[2], row[3]
-                    totalamountbeforetax += amount_before_tax
-                    totalamountaftertax += amount_after_tax
-                    totalTransactions += transactions
+                    transactions_store, store = row[1], row[0]
+                    amount_before_tax_store, amount_after_tax_store = row[2], row[3]
+                    totalamountbeforetax += amount_before_tax_store
+                    totalamountaftertax += amount_after_tax_store
+                    totalTransactions += transactions_store
                     department = defaultdict(list)
                     cashier = {}
                     for k, v in dic_cashier.items():
@@ -79,14 +79,13 @@ def getTodayData(param: TodaySearchParameter) -> TodayData:
                         name, item = v[0], v[1]
                         (transactions, time, perTransaction, amount_before_tax, amount_after_tax) = item
                         cashiers.append(TodayCashierDetail(name=name, id=id,transactions=transactions, workingtime=time, timepertransaction=perTransaction, amountbeforetax=amount_before_tax, amountaftertax=amount_after_tax))
-                    detail = TodayDetail(amountbeforetax=amount_before_tax, amountaftertax=amount_after_tax, date = datetime.datetime.today(), store=store, transactions=transactions, cashiers=cashiers, departments=departments)
+                    detail = TodayDetail(amountbeforetax=amount_before_tax_store, amountaftertax=amount_after_tax_store, date = datetime.datetime.today(), store=store, transactions=transactions_store, cashiers=cashiers, departments=departments)
                     details.append(detail)
                 # get today best upc sales
                 sql = f"select sum(total_amount) as total_amount, upc from sale_item where date = '{datetime.datetime.today().strftime('%Y-%m-%d')}' and store in {store_str} group by upc order by total_amount desc limit {top_product}"
                 cursor.execute(sql)
                 rows = cursor.fetchall()
                 products = [Product(totalamount = row[0], upc = getUPC(row[1])) for row in rows]
-                print(products)
                 end = datetime.datetime.now()
                 print(f"today data run time: {end-start} param: {param}")
                 log_and_save('INFO', f"get_today_data end time: {end-start}")
