@@ -3,8 +3,8 @@ import fastapi.middleware.cors
 import fastapi.middleware.httpsredirect
 import fastapi.middleware.wsgi
 from hdbcli import dbapi
-from fastapi import FastAPI, WebSocket, HTTPException, status
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, WebSocket, HTTPException, status, Request, Header, Depends
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 import fastapi
@@ -13,16 +13,30 @@ import logging
 import configparser
 import datetime
 import asyncio
+from contextlib import asynccontextmanager
 from classes import SaleItem, Summary, SalesOrder, MonitorData, Response, WeekOrderSummary
 from html import html
 from hana import getSalesOrder, getDeliveryOrder, getPurchaseOrder, getWeekOrderOverview, getPickListStatus, getPickListByDepartment, getExpiredItems
 from PO import getPOStoreOrder, getPOWareOrder
 from mygraphql import graphql_app
 from pydantic import BaseModel
-from secure import create_jwt_token
-from helper import LoginShift
+from secure import create_jwt_token, verify_jwt_token, get_user_information
+from helper import LoginShift, verify_token
+from graphqlschema.schema import UserInformation
+from routers import invoice
+from database import engine, Base
  
-app = FastAPI()
+#app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 应用启动时执行
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+    # 应用关闭时执行（如有需要可以添加清理逻辑）
+
+app = FastAPI(lifespan=lifespan)
+app.include_router(invoice.router)
 origins = [
     "http://localhost:3000",
     "http://172.16.10.106:3000",
@@ -40,6 +54,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# EXCLUDE_PATHS = ["/login", "/register", "/docs", "/redoc"]
+
+# @app.middleware("http")
+# async def verify_token(request: Request, call_next):
+#     if request.url.path in EXCLUDE_PATHS:
+#         return await call_next(request)
+#     if "Authorization" in request.headers:
+#         if verify_jwt_token( request.headers['Authorization'][7:] ):
+#             response = await call_next(request)
+#             return response
+#     return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 
 app.include_router(graphql_app, prefix="/graphql")
 configFile = 'config.ini'
@@ -139,7 +166,11 @@ async def websocket_endpoint(websocket: WebSocket):
 async def monitor() -> Response | None:
     logging.info(f"visit enpoint monitor")
     return await getResponse()
-    
+
+@app.get("/token")
+async def token(user=Depends(verify_token)):
+    return {"user": user}
+
 # Login Model
 class Login(BaseModel):
     username: str

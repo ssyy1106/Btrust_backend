@@ -2,8 +2,7 @@ import strawberry
 import typing
 import asyncio
 from functools import cached_property
-from helper import getConfig, getPaymentTypes, log_and_save
-from secure import verify_jwt_token, get_user_information
+from helper import getConfig, getPaymentTypes, log_and_save, verify_jwt_token, get_user_information
 from strawberry.fastapi import GraphQLRouter, BaseContext
 from strawberry.permission import BasePermission
 from graphqlschema.datedata import getDateData, check_date
@@ -158,10 +157,10 @@ class Query:
 @strawberry.type
 class Subscription:
     @strawberry.subscription
-    async def Today(self, timer: int = 5) -> AsyncGenerator[TodayData, None]:
+    async def Today(self, timer: int = 5, topproduct: int = 10) -> AsyncGenerator[TodayData, None]:
         try:
             while True:
-                yield get_today_data(TodaySearchParameter(Store=['MS'], TopProduct=10))
+                yield get_today_data(TodaySearchParameter(Store=['MS'], TopProduct=topproduct))
                 #yield chr(ord('a') + i)
                 await asyncio.sleep(timer * 60)
         except asyncio.CancelledError:

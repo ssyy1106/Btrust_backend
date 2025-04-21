@@ -8,10 +8,31 @@ import os
 import configparser
 import pyodbc
 import hashlib
-from enum import Enum
+import jwt
+#from datetime import datetime, timedelta
+import time
+from fastapi import HTTPException
+from fastapi import HTTPException, status, Header
+from typing import Optional
 from graphqlschema.schema import (
     UserInformation
 )
+
+# 定义一个依赖项：验证 token
+def verify_token(authorization: Optional[str] = Header(None)):
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="missing token",
+        )
+    user = get_user_information(authorization[7:])
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="wrong token",
+        )
+    # 可以返回 user 信息或权限等级等
+    return user
 
 CONFIG = None
 def _init(config):
@@ -261,6 +282,30 @@ def getStoreWithId(departmentId: int) -> str:
     except Exception as e:
         return son
 
+SECRET_KEY = "1234567890abC"  # Use a secure key in production
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+# Create JWT Token
+def create_jwt_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.datetime.now() + datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire.timestamp()})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+# Verify JWT Token
+def verify_jwt_token(token: str):
+    try:
+        decoded_token = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return decoded_token if decoded_token["exp"] >= datetime.datetime.now().timestamp() else None
+    except Exception as err:
+        print(f"error: {err}")
+        return None
+    # except jwt.PyJWTError:
+    #     print('err')
+    #     return None
+    
 def get_user_db(userid) -> UserInformation:
     with getShiftDB() as conn:
         with conn.cursor() as cursor:
@@ -274,3 +319,15 @@ def get_user_db(userid) -> UserInformation:
             except Exception as e:
                 print(e)
                 return None
+            
+def get_user_information(token: str) -> UserInformation:
+    try:
+        #print(token)
+        decode_token = verify_jwt_token(token)
+        if decode_token:
+            userid = decode_token["sub"]
+            return get_user_db(userid)
+        return None
+    except Exception as err:
+        print(err)
+        return None
