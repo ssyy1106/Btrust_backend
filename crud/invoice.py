@@ -5,8 +5,7 @@ from sqlalchemy.future import select
 from typing import Optional
 from datetime import date
 
-async def create_invoice(db: AsyncSession, invoice: InvoiceCreate):
-    print(invoice)
+async def create_invoice(db: AsyncSession, invoice: InvoiceCreate, user):
     db_invoice = Invoice(
         number=invoice.number,
         totalamount=invoice.totalamount,
@@ -14,14 +13,17 @@ async def create_invoice(db: AsyncSession, invoice: InvoiceCreate):
         invoicedate=invoice.invoicedate,
         entrytime=invoice.entrytime,
         department=invoice.department,
-        creatorid=invoice.creatorid
+        #creatorid=invoice.creatorid
+        creatorid=int(user.id),
+        modifierid = int(user.id)
     )
     for detail in invoice.details:
         db_invoice.details.append(
             InvoiceDetail(
                 totalamount=detail.totalamount,
                 department=detail.department,
-                creatorid=invoice.creatorid
+                creatorid=int(user.id),
+                modifierid = int(user.id)
             )
         )
     db.add(db_invoice)
@@ -40,3 +42,8 @@ async def get_invoice_list(db: AsyncSession, start_date: Optional[date] = None, 
 
     result = await db.execute(stmt)
     return result.scalars().all()
+
+# 根据发票ID查询发票
+async def get_invoice_by_id(db: AsyncSession, invoice_id: int):
+    result = await db.execute(select(Invoice).filter(Invoice.id == invoice_id))
+    return result.scalar_one_or_none()  # 返回单个发票或 None

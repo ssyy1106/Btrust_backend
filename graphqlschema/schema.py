@@ -219,7 +219,7 @@ class TodayData:
 
 @strawberry.type
 class UserInformation:
-    id: str
+    id: int
     realname: str
     username: str
     department: str

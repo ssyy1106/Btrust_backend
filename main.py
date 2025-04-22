@@ -7,6 +7,7 @@ from fastapi import FastAPI, WebSocket, HTTPException, status, Request, Header, 
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import fastapi
 import pyodbc
 import logging
@@ -20,8 +21,7 @@ from hana import getSalesOrder, getDeliveryOrder, getPurchaseOrder, getWeekOrder
 from PO import getPOStoreOrder, getPOWareOrder
 from mygraphql import graphql_app
 from pydantic import BaseModel
-from secure import create_jwt_token, verify_jwt_token, get_user_information
-from helper import LoginShift, verify_token
+from helper import LoginShift, verify_token, create_jwt_token, verify_jwt_token, get_user_information
 from graphqlschema.schema import UserInformation
 from routers import invoice
 from database import engine, Base
@@ -189,3 +189,6 @@ async def login(user: Login):
     token_data = {"sub": str(userId)}
     token = create_jwt_token(data=token_data)
     return {"access_token": token, "token_type": "bearer"}
+
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+app.mount("/thumbnails", StaticFiles(directory="thumbnails"), name="thumbnails")

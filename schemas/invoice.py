@@ -13,5 +13,22 @@ class InvoiceCreate(BaseModel):
     invoicedate: date
     entrytime: date
     department: Optional[int]
-    creatorid: int
+    #creatorid: int
     details: List[InvoiceDetailCreate]
+
+class InvoiceResponse(BaseModel):
+    id: int
+    createtime: datetime
+    modifytime: datetime
+    creatorid: int
+    modifierid: Optional[int] = None
+    number: str
+    status: int
+    totalamount: float
+    remark: Optional[str] = None
+    invoicedate: date
+    entrytime: date
+    department: int
+
+    class Config:
+        orm_mode = True  # 让 Pydantic 支持从 SQLAlchemy 模型中提取数据

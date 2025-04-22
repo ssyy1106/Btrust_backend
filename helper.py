@@ -11,7 +11,6 @@ import hashlib
 import jwt
 #from datetime import datetime, timedelta
 import time
-from fastapi import HTTPException
 from fastapi import HTTPException, status, Header
 from typing import Optional
 from graphqlschema.schema import (
@@ -300,7 +299,7 @@ def verify_jwt_token(token: str):
         decoded_token = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return decoded_token if decoded_token["exp"] >= datetime.datetime.now().timestamp() else None
     except Exception as err:
-        print(f"error: {err}")
+        print(f"error verify : {err}")
         return None
     # except jwt.PyJWTError:
     #     print('err')
