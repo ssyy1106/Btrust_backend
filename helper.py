@@ -285,7 +285,7 @@ def getStoreWithId(departmentId: int) -> str:
 
 SECRET_KEY = "1234567890abC"  # Use a secure key in production
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
 # Create JWT Token
 def create_jwt_token(data: dict):
@@ -323,7 +323,6 @@ def get_user_db(userid) -> UserInformation:
             
 def get_user_information(token: str) -> UserInformation:
     try:
-        #print(token)
         decode_token = verify_jwt_token(token)
         if decode_token:
             userid = decode_token["sub"]
