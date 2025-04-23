@@ -223,8 +223,9 @@ class UserInformation:
     realname: str
     username: str
     department: str
-    store: str
+    store: typing.List[str]
     lastvisit: str
+    authorize: typing.List[str] 
 
 @strawberry.type
 class MonthPaymentSummary:

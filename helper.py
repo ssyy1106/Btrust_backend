@@ -261,8 +261,10 @@ def getStoreName(id: str) -> str:
             cursor.execute(f"select departmentName from sysdepartment where id = " + str(id))
             name = cursor.fetchone()
             if name:
-                return name[0]
-            return ""
+                if name[0] == 'Btrust':
+                    return ['MS', 'NY', 'TE', 'MT']
+                return [name[0]]
+            return []
 
 @functools.cache
 def getStoreWithId(departmentId: int) -> str:
@@ -314,7 +316,7 @@ def get_user_db(userid) -> UserInformation:
                 row = cursor.fetchone()
                 if not row:
                     return None
-                return UserInformation(id=userid, realname=row[1], username=row[0],lastvisit=row[3], department=row[2],store=getStoreName(getStoreWithId(row[4])))
+                return UserInformation(id=userid, realname=row[1], username=row[0],lastvisit=row[3], department=row[2],store=getStoreName(getStoreWithId(row[4])), authorize=['invoice:view', 'invoice:update', 'invoice:insert'])
             except Exception as e:
                 print(e)
                 return None
