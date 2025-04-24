@@ -20,6 +20,7 @@ class Invoice(Base):
     invoicedate = Column(Date)
     entrytime = Column(Date)
     department = Column(Integer)
+    store = Column(String)
 
     details = relationship("InvoiceDetail", back_populates="invoice", cascade="all, delete-orphan", lazy="selectin")
     attachments = relationship("InvoiceAttachment", back_populates="invoice", lazy="selectin")

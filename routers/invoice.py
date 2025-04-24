@@ -30,14 +30,19 @@ os.makedirs(THUMBNAIL_DIR, exist_ok=True)
 #     return await crud_invoice.create_invoice(db, invoice, user)
 @router.post("/", response_model=InvoiceOut)
 async def create_invoice(
-    number: str= Form(...),
+    store: str = Form(...),
+    number: str = Form(...),
     totalamount: float= Form(...),
     invoicedate: date= Form(...),
+    entrytime: date= Form(...),
     department: int= Form(...),
     files: List[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
     user=Depends(verify_token)
 ):
+    # 判断store参数是否正确
+    if store not in user.store:
+        raise HTTPException(status_code=404, detail="Store not found")
     # 创建发票
     invoice = Invoice(
         number=number,
@@ -46,8 +51,10 @@ async def create_invoice(
         department=department,
         createtime=datetime.datetime.now(),
         modifytime=datetime.datetime.now(),
-        creatorid=int(user.id),  # 假设当前用户ID是1
-        modifierid=int(user.id)  # 假设当前用户ID是1
+        creatorid=int(user.id),
+        modifierid=int(user.id),
+        store = store,
+        entrytime=entrytime
     )
     db.add(invoice)
     await db.commit()

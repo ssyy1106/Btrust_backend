@@ -26,8 +26,8 @@ class InvoiceResponse(BaseModel):
     status: int
     totalamount: float
     remark: Optional[str] = None
-    invoicedate: date
-    entrytime: date
+    invoicedate: Optional[date] = None
+    entrytime: Optional[date] = None
     department: int
 
     class Config:
