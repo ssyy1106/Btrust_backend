@@ -29,7 +29,7 @@ os.makedirs(THUMBNAIL_DIR, exist_ok=True)
 # @router.post("/")
 # async def create(invoice: InvoiceCreate, db: AsyncSession = Depends(get_db), user=Depends(verify_token)):
 #     return await crud_invoice.create_invoice(db, invoice, user)
-@router.post("/", response_model=InvoiceOut)
+@router.post("/", response_model=InvoiceOutFull)
 async def create_invoice(
     supplier: int = Form(...),
     details: str = Form(...),
