@@ -256,6 +256,7 @@ def getAllDepartmentIds() -> dict:
 
 @functools.cache
 def getStoreName(id: str) -> str:
+    stores = {"Terra": "TE", "B1": "MS", "B2": "NY", "Montreal": "MT"}
     with getShiftDB() as conn:
         with conn.cursor() as cursor:
             cursor.execute(f"select departmentName from sysdepartment where id = " + str(id))
@@ -263,7 +264,9 @@ def getStoreName(id: str) -> str:
             if name:
                 if name[0] == 'Btrust':
                     return ['MS', 'NY', 'TE', 'MT']
-                return [name[0]]
+                if name[0] in stores:
+                    return [stores[name[0]]]
+                return []
             return []
 
 @functools.cache
