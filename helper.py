@@ -314,12 +314,20 @@ def get_user_db(userid) -> UserInformation:
     with getShiftDB() as conn:
         with conn.cursor() as cursor:
             try:
+                # get user authorize
+                sql =(f"select Authorize from sysuser inner join SysUserBelong on SysUserBelong.userid=SysUser.id"
+                    f" inner join SysMenuAuthorize on SysMenuAuthorize.AuthorizeId=sysuserBelong.belongid"
+                    f" inner join SysMenu on sysmenu.id= SysMenuAuthorize.MenuId"
+                    f" where sysuser.id={userid} and belongtype=2 and Authorize is not null and Authorize<>''")
+                cursor.execute(sql)
+                rows = cursor.fetchall()
+                authorize = [row[0] for row in rows]
                 sql = f"select username, realname, departmentname, lastvisit, departmentid from sysuser inner join sysdepartment on departmentid = sysdepartment.id where sysuser.id={userid}"
                 cursor.execute(sql)
                 row = cursor.fetchone()
                 if not row:
                     return None
-                return UserInformation(id=userid, realname=row[1], username=row[0],lastvisit=row[3], department=row[2],store=getStoreName(getStoreWithId(row[4])), authorize=['invoice:view', 'invoice:update', 'invoice:insert'])
+                return UserInformation(id=userid, realname=row[1], username=row[0],lastvisit=row[3], department=row[2],store=getStoreName(getStoreWithId(row[4])), authorize=authorize)
             except Exception as e:
                 print(e)
                 return None
