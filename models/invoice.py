@@ -79,4 +79,5 @@ class Supplier(Base):
     contact = Column(String)
 
     invoices = relationship("Invoice", back_populates="supplier", lazy="selectin")
-
+    def __repr__(self):
+        return f"id is {self.id} name is {self.name}"

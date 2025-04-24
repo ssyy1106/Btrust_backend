@@ -44,10 +44,12 @@ async def create_invoice(
     db: AsyncSession = Depends(get_db),
     user=Depends(verify_token)
 ):
-    print(details)
     # 判断store参数是否正确
     if store not in user.store:
         raise HTTPException(status_code=404, detail="Store not found")
+    suppliers = await crud_invoice.get_suppliers(db)
+    if supplier not in [s.id for s in suppliers]:
+        raise HTTPException(status_code=404, detail="Supplier not found")
     # 创建发票
     invoice = Invoice(
         number=number,
