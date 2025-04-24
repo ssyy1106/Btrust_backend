@@ -5,17 +5,18 @@ from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from schemas.invoice import InvoiceCreate, InvoiceResponse
+from schemas.invoice import InvoiceCreate, InvoiceResponse, InvoiceOut, InvoiceOutFull, SupplierCreate, SupplierOut
 from database import get_db
 from crud import invoice as crud_invoice
 from main import verify_token
-from models.invoice import Invoice, InvoiceAttachment, InvoiceOut
+from models.invoice import Invoice, InvoiceAttachment, InvoiceDetail
 import os
 import shutil
 import uuid
 from io import BytesIO
 from PIL import Image
 from pydantic import TypeAdapter
+import json
 
 router = APIRouter(prefix="/invoices", tags=["Invoices"])
 
@@ -30,16 +31,20 @@ os.makedirs(THUMBNAIL_DIR, exist_ok=True)
 #     return await crud_invoice.create_invoice(db, invoice, user)
 @router.post("/", response_model=InvoiceOut)
 async def create_invoice(
+    supplier: int = Form(...),
+    details: str = Form(...),
     store: str = Form(...),
     number: str = Form(...),
     totalamount: float= Form(...),
     invoicedate: date= Form(...),
     entrytime: date= Form(...),
-    department: int= Form(...),
+    remark:str= Form(...),
+    #department: int= Form(...),
     files: List[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
     user=Depends(verify_token)
 ):
+    print(details)
     # 判断store参数是否正确
     if store not in user.store:
         raise HTTPException(status_code=404, detail="Store not found")
@@ -48,7 +53,9 @@ async def create_invoice(
         number=number,
         totalamount=totalamount,
         invoicedate=invoicedate,
-        department=department,
+        supplierid=supplier,
+        remark=remark,
+        #department=department,
         createtime=datetime.datetime.now(),
         modifytime=datetime.datetime.now(),
         creatorid=int(user.id),
@@ -59,6 +66,24 @@ async def create_invoice(
     db.add(invoice)
     await db.commit()
     await db.refresh(invoice)
+    # 解析发票明细
+    try:
+        detail_items = json.loads(details)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON in 'details'")
+
+    for idx, item in enumerate(detail_items):
+        detail = InvoiceDetail(
+            invoiceid=invoice.id,
+            totalamount=item.get("totalamount"),
+            department=item.get("department"),
+            createtime=datetime.datetime.now(),
+            modifytime=datetime.datetime.now(),
+            creatorid=int(user.id),
+            modifierid=int(user.id),
+            status=0
+        )
+        db.add(detail)
 
     # 处理所有附件
     for idx, file in enumerate(files):
@@ -99,13 +124,39 @@ async def create_invoice(
 
     return invoice
 
-@router.get("/")
-async def list_invoices(start_date: Optional[date] = Query(None, description="start date"),
-    end_date: Optional[date] = Query(None, description="end date"),
-    db: AsyncSession = Depends(get_db), user=Depends(verify_token)):
-    return await crud_invoice.get_invoice_list(db, start_date, end_date)
+# @router.get("/", response_model=List[InvoiceOutFull])
+# async def list_invoices(start_date: Optional[date] = Query(None, description="start date"),
+#     end_date: Optional[date] = Query(None, description="end date"),
+#     db: AsyncSession = Depends(get_db), user=Depends(verify_token)):
+#     return await crud_invoice.get_invoice_list(db, start_date, end_date)
+@router.get("/", response_model=List[InvoiceOutFull])
+async def list_invoices(
+    invoice_start_date: Optional[date] = Query(None, description="发票开始日期"),
+    invoice_end_date: Optional[date] = Query(None, description="发票结束日期"),
+    entry_start_date: Optional[date] = Query(None, description="入账开始日期"),
+    entry_end_date: Optional[date] = Query(None, description="入账结束日期"),
+    number: Optional[str] = Query(None, description="发票号"),
+    department: Optional[int] = Query(None, description="部门"),
+    status: Optional[int] = Query(None, description="状态"),
+    store: Optional[List[str]] = Query(None, description="门店（多个）"),
+    supplier: Optional[List[int]] = Query(None, description="供应商ID（多个）"),
+    db: AsyncSession = Depends(get_db),
+    user=Depends(verify_token),
+):
+    return await crud_invoice.get_invoice_list(
+        db=db,
+        invoice_start_date=invoice_start_date,
+        invoice_end_date=invoice_end_date,
+        entry_start_date=entry_start_date,
+        entry_end_date=entry_end_date,
+        number=number,
+        department=department,
+        status=status,
+        store=store,
+        supplier=supplier,
+    )
 
-@router.get("/{invoice_id}", response_model=InvoiceResponse)
+@router.get("/{invoice_id}", response_model=InvoiceOutFull)
 async def get_invoice_by_id(
     invoice_id: int,
     db: AsyncSession = Depends(get_db),
@@ -119,7 +170,8 @@ async def get_invoice_by_id(
 async def upload_attachment(
     invoice_id: int,
     attachment: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user=Depends(verify_token)
 ):
     # 生成一个唯一的文件名
     unique_filename = f"{uuid.uuid4().hex}_{attachment.filename}"
@@ -142,8 +194,8 @@ async def upload_attachment(
         path=file_path,
         thumbnail=thumbnail_path,
         sort=1,  # 假设默认排序为 1
-        creatorid=1,  # 假设creatorid是1，可以替换成当前用户的ID
-        modifierid=1,  # 假设modifierid是1，可以替换成当前用户的ID
+        creatorid=int(user.id),
+        modifierid=int(user.id)
     )
 
     db.add(invoice_attachment)

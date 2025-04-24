@@ -3,7 +3,7 @@ from sqlalchemy.orm import relationship
 from database import Base
 import datetime
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
 class Invoice(Base):
     __tablename__ = "invoice"
@@ -19,9 +19,12 @@ class Invoice(Base):
     remark = Column(String)
     invoicedate = Column(Date)
     entrytime = Column(Date)
-    department = Column(Integer)
+    #department = Column(Integer)
     store = Column(String)
+    #supplier = Column(BigInteger)
+    supplierid = Column(BigInteger, ForeignKey("supplier.id"))  # ✅ 加入供应商外键
 
+    supplier = relationship("Supplier", back_populates="invoices", lazy="joined")  # ✅ 反向关系
     details = relationship("InvoiceDetail", back_populates="invoice", cascade="all, delete-orphan", lazy="selectin")
     attachments = relationship("InvoiceAttachment", back_populates="invoice", lazy="selectin")
 
@@ -59,26 +62,21 @@ class InvoiceAttachment(Base):
     def __repr__(self):
         return f"<InvoiceAttachment(id={self.id}, invoiceid={self.invoiceid}, path={self.path})>"
     
-class InvoiceAttachmentOut(BaseModel):
-    id: int
-    path: str
-    thumbnail: str
-    # model_config = {
-    #     "from_attributes": True
-    # }
-    class Config:
-        orm_mode = True
 
-class InvoiceOut(BaseModel):
-    id: int
-    number: str
-    totalamount: float
-    invoicedate: datetime.date
-    department: int
-    attachments: List[InvoiceAttachmentOut] = []
+class Supplier(Base):
+    __tablename__ = "supplier"
 
-    # model_config = {
-    #     "from_attributes": True
-    # }
-    class Config:
-        orm_mode = True
+    id = Column(BigInteger, primary_key=True, index=True)
+    createtime = Column(DateTime, default=datetime.datetime.now())
+    modifytime = Column(DateTime, default=datetime.datetime.now(), onupdate=datetime.datetime.now())
+    creatorid = Column(BigInteger)
+    modifierid = Column(BigInteger)
+    name = Column(JSON, nullable=False)  #{ "zh": "供应商名", "en": "Supplier Name" }
+    status = Column(Integer, default=0)
+    telephone = Column(String, default="")
+    remark = Column(String)
+    email = Column(String)
+    contact = Column(String)
+
+    invoices = relationship("Invoice", back_populates="supplier", lazy="selectin")
+

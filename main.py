@@ -23,7 +23,7 @@ from mygraphql import graphql_app
 from pydantic import BaseModel
 from helper import LoginShift, verify_token, create_jwt_token, verify_jwt_token, get_user_information
 from graphqlschema.schema import UserInformation
-from routers import invoice
+from routers import invoice, supplier
 from database import engine, Base
  
 #app = FastAPI()
@@ -37,6 +37,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(invoice.router)
+app.include_router(supplier.router)
 origins = [
     "http://localhost:3000",
     "http://172.16.10.106:3000",

@@ -13,6 +13,7 @@ class InvoiceCreate(BaseModel):
     invoicedate: date
     entrytime: date
     department: Optional[int]
+    supplier: int
     #creatorid: int
     details: List[InvoiceDetailCreate]
 
@@ -28,7 +29,82 @@ class InvoiceResponse(BaseModel):
     remark: Optional[str] = None
     invoicedate: Optional[date] = None
     entrytime: Optional[date] = None
-    department: int
+    #department: int
+    supplier: int
 
     class Config:
         orm_mode = True  # 让 Pydantic 支持从 SQLAlchemy 模型中提取数据
+
+class InvoiceAttachmentOut(BaseModel):
+    id: int
+    path: str
+    thumbnail: str
+    # model_config = {
+    #     "from_attributes": True
+    # }
+    class Config:
+        orm_mode = True
+
+class InvoiceOut(BaseModel):
+    id: int
+    number: str
+    totalamount: float
+    invoicedate: date
+    #department: int
+    attachments: List[InvoiceAttachmentOut] = []
+    supplier: int
+    # model_config = {
+    #     "from_attributes": True
+    # }
+    class Config:
+        orm_mode = True
+
+class InvoiceDetailOut(BaseModel):
+    id: int
+    totalamount: float
+    department: int
+
+    class Config:
+        orm_mode = True
+
+class InvoiceAttachmentOut(BaseModel):
+    id: int
+    path: str
+    thumbnail: str
+
+    class Config:
+        orm_mode = True
+
+class SupplierBase(BaseModel):
+    name: dict  # JSON 字段，例如 {"en": "Apple", "zh": "苹果"}
+    telephone: Optional[str] = None
+    remark: Optional[str] = None
+    email: Optional[str] = None
+    contact: Optional[str] = None
+    status: Optional[int] = 0
+
+class SupplierCreate(SupplierBase):
+    pass
+
+class SupplierOut(SupplierBase):
+    id: int
+
+    class Config:
+        orm_mode = True
+
+class InvoiceOutFull(BaseModel):
+    id: int
+    number: str
+    totalamount: float
+    invoicedate: date
+    entrytime: Optional[date] = None
+    store: Optional[str] = None
+    status: Optional[int]
+    #department: int
+    supplier: Optional[SupplierOut] = None
+    attachments: List[InvoiceAttachmentOut] = []
+    details: List[InvoiceDetailOut] = []
+
+    #supplier_name: Optional[str] = None
+    class Config:
+        orm_mode = True
