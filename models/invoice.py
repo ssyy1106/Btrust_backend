@@ -71,7 +71,8 @@ class Supplier(Base):
     modifytime = Column(DateTime, default=datetime.datetime.now(), onupdate=datetime.datetime.now())
     creatorid = Column(BigInteger)
     modifierid = Column(BigInteger)
-    name = Column(JSON, nullable=False)  #{ "zh": "供应商名", "en": "Supplier Name" }
+    #name = Column(JSON, nullable=False)  #{ "zh": "供应商名", "en": "Supplier Name" }
+    name = Column(String)
     status = Column(Integer, default=0)
     telephone = Column(String, default="")
     remark = Column(String)
