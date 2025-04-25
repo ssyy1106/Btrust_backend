@@ -76,7 +76,7 @@ class InvoiceAttachmentOut(BaseModel):
         orm_mode = True
 
 class SupplierBase(BaseModel):
-    name: dict  # JSON 字段，例如 {"en": "Apple", "zh": "苹果"}
+    name: str
     telephone: Optional[str] = None
     remark: Optional[str] = None
     email: Optional[str] = None
