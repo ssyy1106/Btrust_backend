@@ -104,6 +104,7 @@ class InvoiceOutFull(BaseModel):
     supplier: Optional[SupplierOut] = None
     attachments: List[InvoiceAttachmentOut] = []
     details: List[InvoiceDetailOut] = []
+    createtime: Optional[datetime] = None
 
     #supplier_name: Optional[str] = None
     class Config:
