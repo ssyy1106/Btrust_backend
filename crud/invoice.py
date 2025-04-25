@@ -94,7 +94,7 @@ async def get_invoice_list(
 
     # 映射 supplier_name（如果你不使用自定义 Pydantic getter）
     for invoice in invoices:
-        invoice.supplier_name = invoice.supplier.name.get("en", "") if invoice.supplier else None
+        invoice.supplier_name = invoice.supplier.name if invoice.supplier else None
 
     return invoices
 
