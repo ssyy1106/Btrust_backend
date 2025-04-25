@@ -342,3 +342,36 @@ def get_user_information(token: str) -> UserInformation:
     except Exception as err:
         print(err)
         return None
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ATTACHMENT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".", "uploads"))
+THUMBNAIL_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".", "thumbnails"))
+
+def resolve_attachment_path(attachment_path_from_db: str) -> str:
+    path = attachment_path_from_db.replace("\\", "/")
+    if path.startswith("uploads/"):
+        path = path[len("uploads/"):]
+        return os.path.join(ATTACHMENT_ROOT, path)
+    elif path.startswith("thumbnails/"):
+        path = path[len("thumbnails/"):]
+        return os.path.join(THUMBNAIL_ROOT, path)
+    return os.path.join(ATTACHMENT_ROOT, path)
+
+# BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# ATTACHMENT_ROOT = os.path.abspath(os.path.join(BASE_DIR, "..", "uploads"))
+# THUMBNAIL_ROOT = os.path.abspath(os.path.join(BASE_DIR, "..", "thumbnails"))
+
+# def resolve_attachment_path(attachment_path_from_db: str) -> str:
+#     # 确保路径是正斜杠格式
+#     path = attachment_path_from_db.replace("\\", "/")
+    
+#     # 判断路径是否包含uploads/或thumbnails/前缀
+#     if path.startswith("uploads/"):
+#         # 如果路径以uploads/开始，不要去掉uploads/部分，直接拼接
+#         return os.path.join(ATTACHMENT_ROOT, path)
+#     elif path.startswith("thumbnails/"):
+#         # 如果路径以thumbnails/开始，同样直接拼接
+#         return os.path.join(THUMBNAIL_ROOT, path)
+    
+#     # 如果路径没有uploads/或thumbnails/前缀，则默认拼接到uploads目录下
+#     return os.path.join(ATTACHMENT_ROOT, path)

@@ -76,8 +76,8 @@ async def get_invoice_list(
         stmt = stmt.where(Invoice.entrytime <= entry_end_date)
     if number:
         stmt = stmt.where(Invoice.number.like(f"%{number}%"))
-    if department is not None:
-        stmt = stmt.where(Invoice.department == department)
+    # if department is not None:
+    #     stmt = stmt.where(Invoice.department == department)
     if status is not None:
         stmt = stmt.where(Invoice.status == status)
     if store:
