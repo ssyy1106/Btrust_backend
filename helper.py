@@ -98,6 +98,17 @@ def getPostgresConfig():
     raise Exception("Sorry, no postgresql DB config")
 
 @functools.cache
+def getInvoiceConfig():
+    if 'postgresqlinvoice' in CONFIG:
+        USERNAME = CONFIG['postgresqlinvoice']['username']
+        PASSWORD = CONFIG['postgresqlinvoice']['password']
+        HOST = CONFIG['postgresqlinvoice']['host']
+        DATABASE = CONFIG['postgresqlinvoice']['database']
+        PORT = CONFIG['postgresqlinvoice']['port']
+        return (USERNAME, PASSWORD, HOST, DATABASE, PORT)
+    raise Exception("Sorry, no invoice DB config")
+
+@functools.cache
 def getStore():
     if 'stores' in CONFIG:
         stores = CONFIG['stores']['store'].split(",")
