@@ -1,11 +1,21 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from models.invoice import Invoice, InvoiceDetail, Supplier
+from models.invoice import Invoice, InvoiceDetail, Supplier, InvoiceAttachment
 from schemas.invoice import InvoiceCreate, SupplierCreate
 from sqlalchemy.future import select
 from typing import Optional, List
 from datetime import date
 from sqlalchemy.orm import selectinload
 from sqlalchemy import or_, and_
+
+async def get_attachment(db: AsyncSession, attachment_id: int) -> InvoiceAttachment:
+    stmt = (
+        select(InvoiceAttachment)
+        .options(selectinload(InvoiceAttachment.invoice))  # 自动加载关联的 Invoice
+        .where(InvoiceAttachment.id == attachment_id)
+    )
+    result = await db.execute(stmt)
+    attachment = result.scalar_one_or_none()
+    return attachment
 
 async def create_invoice(db: AsyncSession, invoice: InvoiceCreate, user):
     db_invoice = Invoice(

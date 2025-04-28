@@ -36,7 +36,7 @@ class PermissionChecker:
 # ✅ 加一个工厂函数，支持动态store传入
 def get_permission_checker(required_roles: Optional[List[str]] = None):
     def checker(
-        store: Union[str, List[str]] = Form(...),  # ✅ 支持 str 或 List[str]
+        store: Optional[Union[str, List[str]]] = Form(...),  # ✅ 支持 str 或 List[str]
         user: UserInformation = Depends(verify_token)
     ) -> UserInformation:
         # 角色校验
@@ -46,16 +46,17 @@ def get_permission_checker(required_roles: Optional[List[str]] = None):
                 detail="You don't have the required role permission."
             )
         # 统一成列表
-        if isinstance(store, str):
-            store_list = [store]
-        else:
-            store_list = store
-        # store权限校验
-        user_stores = set(user.store or [])
-        if not set(store_list).issubset(user_stores):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access these stores."
-            )
+        if store is not None:
+            if isinstance(store, str):
+                store_list = [store]
+            else:
+                store_list = store
+            # store权限校验
+            user_stores = set(user.store or [])
+            if not set(store_list).issubset(user_stores):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You don't have permission to access these stores."
+                )
         return user
     return checker

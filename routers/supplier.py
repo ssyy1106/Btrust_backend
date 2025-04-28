@@ -4,6 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from database import get_db
 from schemas.invoice import SupplierCreate, SupplierOut
 from crud import invoice as crud_supplier
+from dependencies.permission import get_permission_checker
 
 router = APIRouter(prefix="/suppliers", tags=["Supplier"])
 

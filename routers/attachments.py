@@ -4,6 +4,8 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 import os
+from dependencies.permission import get_permission_checker
+from crud import invoice as crud_invoice
 
 from database import get_db
 from models.invoice import InvoiceAttachment
@@ -14,11 +16,25 @@ router = APIRouter(
     tags=["附件"]
 )
 
+async def get_store_by_attachment_id(
+    attachment_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> str:
+    attachment = await crud_invoice.get_attachment(db, attachment_id)
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    if not attachment.invoice:
+        raise HTTPException(status_code=404, detail="Associated invoice not found")
+
+    return attachment.invoice.store  # 从 invoice 取 store
+
 @router.get("/{attachment_id}")
 async def get_attachment(
     attachment_id: int,
     db: AsyncSession = Depends(get_db),
-    user=Depends(verify_token)
+    store: str = Depends(get_store_by_attachment_id),  # 自动查出来store
+    user = Depends(get_permission_checker(required_roles=["invoice:search", "invoice:view"]))
+    #user=Depends(verify_token)
 ):
     # 查询附件
     result = await db.execute(
@@ -44,7 +60,9 @@ async def get_attachment(
 async def get_attachment_thumbnail(
     attachment_id: int,
     db: AsyncSession = Depends(get_db),
-    user=Depends(verify_token)
+    store: str = Depends(get_store_by_attachment_id),  # 自动查出来store
+    user = Depends(get_permission_checker(required_roles=["invoice:search", "invoice:view"]))
+    #user=Depends(verify_token)
 ):
     # 查数据库获取附件记录
     result = await db.execute(
