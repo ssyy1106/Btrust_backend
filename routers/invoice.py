@@ -9,7 +9,7 @@ from schemas.invoice import InvoiceCreate, InvoiceResponse, InvoiceOut, InvoiceO
 from database import get_db
 from crud import invoice as crud_invoice
 from main import verify_token
-from dependencies.permission import get_permission_checker, PermissionChecker
+from dependencies.permission import PermissionChecker
 from models.invoice import Invoice, InvoiceAttachment, InvoiceDetail
 import os
 import shutil

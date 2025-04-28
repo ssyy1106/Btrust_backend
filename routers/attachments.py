@@ -4,7 +4,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 import os
-from dependencies.permission import get_permission_checker, PermissionChecker
+from dependencies.permission import PermissionChecker
 from crud import invoice as crud_invoice
 from typing import Optional, List
 from database import get_db
