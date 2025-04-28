@@ -1,5 +1,5 @@
 # routers/attachments.py （继续扩展）
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -36,6 +36,11 @@ async def get_attachment(
     user = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
     #user=Depends(verify_token)
 ):
+    if store not in user.store:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this attachment."
+        )
     # 查询附件
     result = await db.execute(
         select(InvoiceAttachment).where(InvoiceAttachment.id == attachment_id)
@@ -64,6 +69,11 @@ async def get_attachment_thumbnail(
     user = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
     #user=Depends(verify_token)
 ):
+    if store not in user.store:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this thumbnail."
+        )
     # 查数据库获取附件记录
     result = await db.execute(
         select(InvoiceAttachment).where(InvoiceAttachment.id == attachment_id)

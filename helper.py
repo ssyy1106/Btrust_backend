@@ -12,10 +12,21 @@ import jwt
 #from datetime import datetime, timedelta
 import time
 from fastapi import HTTPException, status, Header
-from typing import Optional
+from typing import Optional, List
 from graphqlschema.schema import (
     UserInformation
 )
+
+def getStores(user: UserInformation, store: List[str]) -> List[str]:
+    if not store:
+        return user.store
+    if any(st not in user.store for st in store):
+        raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You don't have permission to access these stores."
+                )
+    return store
+
 
 # 定义一个依赖项：验证 token
 def verify_token(authorization: Optional[str] = Header(None)):

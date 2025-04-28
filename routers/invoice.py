@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, HTTPException, File, UploadFile, Form
+from fastapi import APIRouter, Depends, Query, HTTPException, File, UploadFile, Form, status
 from datetime import date
 import datetime
 from typing import Optional, List
@@ -18,6 +18,7 @@ from io import BytesIO
 from PIL import Image
 from pydantic import TypeAdapter
 import json
+from helper import getStores
 
 router = APIRouter(prefix="/invoices", tags=["Invoices"])
 
@@ -148,6 +149,7 @@ async def list_invoices(
     user: dict = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
     #user=Depends(verify_token),
 ):
+    store = getStores(user, store)
     return await crud_invoice.get_invoice_list(
         db=db,
         invoice_start_date=invoice_start_date,
@@ -171,6 +173,11 @@ async def get_invoice_by_id(
     invoice = await crud_invoice.get_invoice_by_id(db, invoice_id)
     if invoice is None:
         raise HTTPException(status_code=404, detail="Invoice not found")
+    if invoice.store not in user.store:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access these invoices."
+        )
     return invoice
 
 # @router.post("/{invoice_id}/attachment")
