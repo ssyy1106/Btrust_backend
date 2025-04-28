@@ -9,6 +9,7 @@ from schemas.invoice import InvoiceCreate, InvoiceResponse, InvoiceOut, InvoiceO
 from database import get_db
 from crud import invoice as crud_invoice
 from main import verify_token
+from dependencies.permission import get_permission_checker
 from models.invoice import Invoice, InvoiceAttachment, InvoiceDetail
 import os
 import shutil
@@ -42,7 +43,8 @@ async def create_invoice(
     #department: int= Form(...),
     files: List[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
-    user=Depends(verify_token)
+    #user=Depends(verify_token)
+    user = Depends(get_permission_checker(required_roles=["invoice:insert", "invoice:view"]))
 ):
     # 判断store参数是否正确
     if store not in user.store:
@@ -143,7 +145,8 @@ async def list_invoices(
     store: Optional[List[str]] = Query(None, description="门店（多个）"),
     supplier: Optional[List[int]] = Query(None, description="供应商ID（多个）"),
     db: AsyncSession = Depends(get_db),
-    user=Depends(verify_token),
+    user = Depends(get_permission_checker(required_roles=["invoice:search", "invoice:view"]))
+    #user=Depends(verify_token),
 ):
     return await crud_invoice.get_invoice_list(
         db=db,
@@ -162,45 +165,46 @@ async def list_invoices(
 async def get_invoice_by_id(
     invoice_id: int,
     db: AsyncSession = Depends(get_db),
+    user = Depends(get_permission_checker(required_roles=["invoice:search", "invoice:view"]))
 ):
     invoice = await crud_invoice.get_invoice_by_id(db, invoice_id)
     if invoice is None:
         raise HTTPException(status_code=404, detail="Invoice not found")
     return invoice
 
-@router.post("/{invoice_id}/attachment")
-async def upload_attachment(
-    invoice_id: int,
-    attachment: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
-    user=Depends(verify_token)
-):
-    # 生成一个唯一的文件名
-    unique_filename = f"{uuid.uuid4().hex}_{attachment.filename}"
-    file_path = os.path.join(UPLOAD_DIR, unique_filename)
+# @router.post("/{invoice_id}/attachment")
+# async def upload_attachment(
+#     invoice_id: int,
+#     attachment: UploadFile = File(...),
+#     db: AsyncSession = Depends(get_db),
+#     user=Depends(verify_token)
+# ):
+#     # 生成一个唯一的文件名
+#     unique_filename = f"{uuid.uuid4().hex}_{attachment.filename}"
+#     file_path = os.path.join(UPLOAD_DIR, unique_filename)
 
-    # 保存原始文件
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(attachment.file, buffer)
+#     # 保存原始文件
+#     with open(file_path, "wb") as buffer:
+#         shutil.copyfileobj(attachment.file, buffer)
 
-    # 生成缩略图并保存
-    thumbnail_path = os.path.join(THUMBNAIL_DIR, f"thumb_{unique_filename}")
-    with Image.open(file_path) as img:
-        img.thumbnail((100, 100))  # 设置缩略图最大尺寸为 100x100
-        img.save(thumbnail_path)
+#     # 生成缩略图并保存
+#     thumbnail_path = os.path.join(THUMBNAIL_DIR, f"thumb_{unique_filename}")
+#     with Image.open(file_path) as img:
+#         img.thumbnail((100, 100))  # 设置缩略图最大尺寸为 100x100
+#         img.save(thumbnail_path)
 
-    # 在数据库中创建记录
-    invoice_attachment = InvoiceAttachment(
-        invoiceid=invoice_id,
-        status=1,  # 假设 1 表示有效状态
-        path=file_path,
-        thumbnail=thumbnail_path,
-        sort=1,  # 假设默认排序为 1
-        creatorid=int(user.id),
-        modifierid=int(user.id)
-    )
+#     # 在数据库中创建记录
+#     invoice_attachment = InvoiceAttachment(
+#         invoiceid=invoice_id,
+#         status=1,  # 假设 1 表示有效状态
+#         path=file_path,
+#         thumbnail=thumbnail_path,
+#         sort=1,  # 假设默认排序为 1
+#         creatorid=int(user.id),
+#         modifierid=int(user.id)
+#     )
 
-    db.add(invoice_attachment)
-    await db.commit()
+#     db.add(invoice_attachment)
+#     await db.commit()
 
-    return {"message": "Attachment uploaded successfully", "file_path": file_path, "thumbnail_path": thumbnail_path}
+#     return {"message": "Attachment uploaded successfully", "file_path": file_path, "thumbnail_path": thumbnail_path}
