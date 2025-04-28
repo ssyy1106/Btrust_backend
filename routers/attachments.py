@@ -4,9 +4,9 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 import os
-from dependencies.permission import get_permission_checker
+from dependencies.permission import get_permission_checker, PermissionChecker
 from crud import invoice as crud_invoice
-
+from typing import Optional, List
 from database import get_db
 from models.invoice import InvoiceAttachment
 from helper import verify_token, resolve_attachment_path
@@ -32,8 +32,8 @@ async def get_store_by_attachment_id(
 async def get_attachment(
     attachment_id: int,
     db: AsyncSession = Depends(get_db),
-    store: str = Depends(get_store_by_attachment_id),  # 自动查出来store
-    user = Depends(get_permission_checker(required_roles=["invoice:search", "invoice:view"]))
+    store: Optional[str] = Depends(get_store_by_attachment_id),  # 自动查出来store
+    user = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
     #user=Depends(verify_token)
 ):
     # 查询附件
@@ -61,7 +61,7 @@ async def get_attachment_thumbnail(
     attachment_id: int,
     db: AsyncSession = Depends(get_db),
     store: str = Depends(get_store_by_attachment_id),  # 自动查出来store
-    user = Depends(get_permission_checker(required_roles=["invoice:search", "invoice:view"]))
+    user = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
     #user=Depends(verify_token)
 ):
     # 查数据库获取附件记录

@@ -4,12 +4,12 @@ from sqlalchemy.exc import IntegrityError
 from database import get_db
 from schemas.invoice import SupplierCreate, SupplierOut
 from crud import invoice as crud_supplier
-from dependencies.permission import get_permission_checker
+from dependencies.permission import PermissionChecker
 
 router = APIRouter(prefix="/suppliers", tags=["Supplier"])
 
 @router.post("/", response_model=SupplierOut)
-async def create_supplier(supplier: SupplierCreate, db: AsyncSession = Depends(get_db)):
+async def create_supplier(supplier: SupplierCreate, db: AsyncSession = Depends(get_db), user = Depends(PermissionChecker(required_roles=["invoice:insert", "invoice:view"]))):
     try:
         # 调用crud_supplier创建供应商
         return await crud_supplier.create_supplier(db, supplier)

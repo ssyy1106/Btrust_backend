@@ -9,7 +9,7 @@ from schemas.invoice import InvoiceCreate, InvoiceResponse, InvoiceOut, InvoiceO
 from database import get_db
 from crud import invoice as crud_invoice
 from main import verify_token
-from dependencies.permission import get_permission_checker
+from dependencies.permission import get_permission_checker, PermissionChecker
 from models.invoice import Invoice, InvoiceAttachment, InvoiceDetail
 import os
 import shutil
@@ -44,7 +44,7 @@ async def create_invoice(
     files: List[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
     #user=Depends(verify_token)
-    user = Depends(get_permission_checker(required_roles=["invoice:insert", "invoice:view"]))
+    user = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
 ):
     # 判断store参数是否正确
     if store not in user.store:
@@ -145,7 +145,7 @@ async def list_invoices(
     store: Optional[List[str]] = Query(None, description="门店（多个）"),
     supplier: Optional[List[int]] = Query(None, description="供应商ID（多个）"),
     db: AsyncSession = Depends(get_db),
-    user = Depends(get_permission_checker(required_roles=["invoice:search", "invoice:view"]))
+    user: dict = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
     #user=Depends(verify_token),
 ):
     return await crud_invoice.get_invoice_list(
@@ -165,7 +165,8 @@ async def list_invoices(
 async def get_invoice_by_id(
     invoice_id: int,
     db: AsyncSession = Depends(get_db),
-    user = Depends(get_permission_checker(required_roles=["invoice:search", "invoice:view"]))
+    user = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
+    #user = Depends(get_permission_checker(required_roles=["invoice:search", "invoice:view"]))
 ):
     invoice = await crud_invoice.get_invoice_by_id(db, invoice_id)
     if invoice is None:

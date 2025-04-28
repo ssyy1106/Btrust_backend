@@ -7,14 +7,13 @@ from graphqlschema.schema import (
 
 class PermissionChecker:
     def __init__(self, required_stores: Optional[List[str]] = None, required_roles: Optional[List[str]] = None):
-        self.required_stores = required_stores
+        self.required_stores = required_stores or []
         self.required_roles = required_roles
 
     async def __call__(self, user: UserInformation = Depends(verify_token)) -> UserInformation:
         # 1. 检查角色权限
         if self.required_roles:
-            if not all(auth in self.required_roles for auth in user.authorize):
-            #if user.authorize not in self.required_roles:
+            if not any(auth in user.authorize for auth in self.required_roles ):
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="You don't have the required role permission."
