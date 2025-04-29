@@ -182,8 +182,8 @@ async def get_invoice_by_id(
 
 @router.put("/{invoice_id}", response_model=InvoiceOutFull)
 async def update_invoice(
-    status: int,
     invoice_id: int,
+    status: int= Form(...),
     supplier: int = Form(...),
     details: str = Form(...),
     store: str = Form(...),
