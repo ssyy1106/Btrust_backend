@@ -36,6 +36,15 @@ async def lifespan(app: FastAPI):
     # 应用关闭时执行（如有需要可以添加清理逻辑）
 
 app = FastAPI(lifespan=lifespan)
+
+# ⭐ 注册全局异常处理器
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc)},
+    )
+
 app.include_router(invoice.router)
 app.include_router(supplier.router)
 app.include_router(attachments.router)
@@ -46,7 +55,8 @@ origins = [
     "http://localhost:8000",
     "http://172.16.30.8:8000",
     "http://172.16.30.8",
-    "http://172.16.30.8:81"
+    "http://172.16.30.8:81",
+    "http://172.16.30.8:82"
 ]
 
 app.add_middleware(
