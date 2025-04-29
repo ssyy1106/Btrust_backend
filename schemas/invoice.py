@@ -70,7 +70,7 @@ class InvoiceDetailOut(BaseModel):
 class InvoiceAttachmentOut(BaseModel):
     id: int
     path: str
-    thumbnail: str
+    thumbnail: Optional[str]
 
     class Config:
         orm_mode = True

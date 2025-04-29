@@ -49,7 +49,7 @@ async def create_invoice(
 ):
     # 判断store参数是否正确
     if store not in user.store:
-        raise HTTPException(status_code=404, detail="Store not found")
+        raise HTTPException(status_code=403, detail="No permission for this store")
     suppliers = await crud_invoice.get_suppliers(db)
     if supplier not in [s.id for s in suppliers]:
         raise HTTPException(status_code=404, detail="Supplier not found")
@@ -180,39 +180,128 @@ async def get_invoice_by_id(
         )
     return invoice
 
-# @router.post("/{invoice_id}/attachment")
-# async def upload_attachment(
-#     invoice_id: int,
-#     attachment: UploadFile = File(...),
-#     db: AsyncSession = Depends(get_db),
-#     user=Depends(verify_token)
-# ):
-#     # 生成一个唯一的文件名
-#     unique_filename = f"{uuid.uuid4().hex}_{attachment.filename}"
-#     file_path = os.path.join(UPLOAD_DIR, unique_filename)
+@router.put("/{invoice_id}", response_model=InvoiceOutFull)
+async def update_invoice(
+    invoice_id: int,
+    supplier: int = Form(...),
+    details: str = Form(...),
+    store: str = Form(...),
+    number: str = Form(...),
+    totalamount: float = Form(...),
+    invoicedate: date = Form(...),
+    entrytime: date = Form(...),
+    remark: str = Form(...),
+    files: List[UploadFile] = File([]),
+    keep_attachment_ids: List[int] = Form([]),
+    db: AsyncSession = Depends(get_db),
+    user = Depends(PermissionChecker(required_roles=["invoice:update", "invoice:view"]))
+):
+    # 获取并验证发票
+    #stmt = select(Invoice).where(Invoice.id == invoice_id)
+    stmt = (
+        select(Invoice)
+        .where(Invoice.id == invoice_id)
+        .options(
+            selectinload(Invoice.attachments)
+        )
+    )
+    result = await db.execute(stmt)
+    invoice = result.scalar_one_or_none()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    if store not in user.store:
+        raise HTTPException(status_code=403, detail="No permission for this store")
+    suppliers = await crud_invoice.get_suppliers(db)
+    if supplier not in [s.id for s in suppliers]:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+    
+    # 更新基本字段
+    invoice.supplierid = supplier
+    #invoice.details = details
+    invoice.store = store
+    invoice.number = number
+    invoice.totalamount = totalamount
+    invoice.invoicedate = invoicedate
+    invoice.entrytime = entrytime
+    invoice.remark = remark
+    invoice.modifytime = datetime.datetime.now()
+    invoice.modifierid = int(user.id)
+    # ---------- 处理 InvoiceDetail ----------
+    try:
+        parsed_details = json.loads(details)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON in 'details'")
+    stmt = select(InvoiceDetail).where(InvoiceDetail.invoiceid == invoice_id)
+    result = await db.execute(stmt)
+    existing_details = result.scalars().all()
+    existing_detail_map = {d.id: d for d in existing_details}
+    incoming_ids = set()
+    for item in parsed_details:
+        detail_id = item.get("id")
+        if detail_id and detail_id in existing_detail_map:
+            # 修改现有明细
+            detail = existing_detail_map[detail_id]
+            detail.totalamount = item.get("totalamount", 0)
+            detail.department = item.get("department")
+            detail.modifytime = datetime.datetime.now()
+            detail.modifierid = int(user.id)
+            incoming_ids.add(detail_id)
+        else:
+            # 新增明细
+            new_detail = InvoiceDetail(
+                invoiceid=invoice.id,
+                totalamount=item.get("totalamount"),
+                department=item.get("department"),
+                createtime=datetime.datetime.now(),
+                modifytime=datetime.datetime.now(),
+                creatorid=int(user.id),
+                modifierid=int(user.id),
+                status=0
+            )
+            db.add(new_detail)
+    # 删除未包含的明细
+    for detail in existing_details:
+        if detail.id not in incoming_ids:
+            await db.delete(detail)
+    #await db.commit()
 
-#     # 保存原始文件
-#     with open(file_path, "wb") as buffer:
-#         shutil.copyfileobj(attachment.file, buffer)
+    # 删除未保留的旧附件
+    for att in invoice.attachments:
+        if att.id not in keep_attachment_ids:
+            if os.path.exists(att.path):
+                os.remove(att.path)
+            if att.thumbnail and os.path.exists(att.thumbnail):
+                os.remove(att.thumbnail)
+            await db.delete(att)
 
-#     # 生成缩略图并保存
-#     thumbnail_path = os.path.join(THUMBNAIL_DIR, f"thumb_{unique_filename}")
-#     with Image.open(file_path) as img:
-#         img.thumbnail((100, 100))  # 设置缩略图最大尺寸为 100x100
-#         img.save(thumbnail_path)
+    # 添加新附件
+    for idx, file in enumerate(files):
+        filename = f"{uuid.uuid4().hex}_{file.filename}"
+        filepath = os.path.join(UPLOAD_DIR, filename)
+        thumbnail_filepath = os.path.join(THUMBNAIL_DIR, f"thumb_{filename}")
+        with open(filepath, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        try:
+            with Image.open(filepath) as image:
+                image.thumbnail((100, 100))
+                image.save(thumbnail_filepath)
+        except Exception:
+            thumbnail_filepath = ""
 
-#     # 在数据库中创建记录
-#     invoice_attachment = InvoiceAttachment(
-#         invoiceid=invoice_id,
-#         status=1,  # 假设 1 表示有效状态
-#         path=file_path,
-#         thumbnail=thumbnail_path,
-#         sort=1,  # 假设默认排序为 1
-#         creatorid=int(user.id),
-#         modifierid=int(user.id)
-#     )
+        attachment = InvoiceAttachment(
+            invoiceid=invoice.id,
+            path=filepath,
+            thumbnail=thumbnail_filepath,
+            status=0,
+            sort=idx + 1,
+            createtime=datetime.datetime.now(),
+            modifytime=datetime.datetime.now(),
+            creatorid=int(user.id),
+            modifierid=int(user.id)
+        )
+        db.add(attachment)
 
-#     db.add(invoice_attachment)
-#     await db.commit()
-
-#     return {"message": "Attachment uploaded successfully", "file_path": file_path, "thumbnail_path": thumbnail_path}
+    await db.commit()
+    await db.refresh(invoice)
+    return invoice
