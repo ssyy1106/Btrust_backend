@@ -5,7 +5,7 @@ from sqlalchemy.future import select
 from typing import Optional, List
 from datetime import date
 from sqlalchemy.orm import selectinload
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, exists
 
 async def get_attachment(db: AsyncSession, attachment_id: int) -> InvoiceAttachment:
     stmt = (
@@ -86,25 +86,34 @@ async def get_invoice_list(
         stmt = stmt.where(Invoice.entrytime <= entry_end_date)
     if number:
         stmt = stmt.where(Invoice.number.like(f"%{number}%"))
-    # if department is not None:
-    #     stmt = stmt.where(Invoice.department == department)
     if status is not None:
         stmt = stmt.where(Invoice.status == status)
     if store:
         stmt = stmt.where(Invoice.store.in_(store))
     if supplier:
         stmt = stmt.where(Invoice.supplierid.in_(supplier))
-
+    # ✅ 根据 department 条件，筛选包含该部门的发票
+    # if department is not None:
+    #     stmt = stmt.where(
+    #         exists().where(
+    #             (InvoiceDetail.invoiceid == Invoice.id) &
+    #             (InvoiceDetail.department == department)
+    #         )
+    #     )
     stmt = stmt.order_by(Invoice.invoicedate.desc())
-
-    # result = await db.execute(stmt)
-    # return result.scalars().all()
     result = await db.execute(stmt)
     invoices = result.scalars().all()
+    # 部门筛选逻辑：仅返回包含该部门的 invoice（可选）
+    if department is not None:
+        invoices = [inv for inv in invoices if any(d.department == department for d in inv.details)]
 
-    # 映射 supplier_name（如果你不使用自定义 Pydantic getter）
-    for invoice in invoices:
-        invoice.supplier_name = invoice.supplier.name if invoice.supplier else None
+        for inv in invoices:
+            inv.department_total_amount = sum(
+                d.totalamount for d in inv.details if d.department == department
+            )
+    else:
+        for inv in invoices:
+            inv.department_total_amount = None
 
     return invoices
 

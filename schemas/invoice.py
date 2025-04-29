@@ -106,6 +106,7 @@ class InvoiceOutFull(BaseModel):
     details: List[InvoiceDetailOut] = []
     createtime: Optional[datetime] = None
     remark: Optional[str]
+    department_total_amount: Optional[float] = None
 
     #supplier_name: Optional[str] = None
     class Config:

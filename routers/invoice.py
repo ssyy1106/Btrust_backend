@@ -84,6 +84,18 @@ async def create_invoice(
     user = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
 ):
     await check_store_supplier(db, store, supplier, user)
+    # 解析发票明细
+    try:
+        detail_items = json.loads(details)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON in 'details'")
+    # 验证 detail 总金额与 invoice.totalamount 是否一致
+    detail_total = sum(item.get("totalamount", 0) for item in detail_items)
+    if round(detail_total, 2) != round(totalamount, 2):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invoice totalamount ({totalamount}) does not match sum of details ({detail_total})"
+        )
     # 创建发票
     invoice = Invoice(
         number=number,
@@ -102,12 +114,7 @@ async def create_invoice(
     db.add(invoice)
     await db.commit()
     await db.refresh(invoice)
-    # 解析发票明细
-    try:
-        detail_items = json.loads(details)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON in 'details'")
-
+    
     for idx, item in enumerate(detail_items):
         detail = InvoiceDetail(
             invoiceid=invoice.id,
