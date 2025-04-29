@@ -13,8 +13,6 @@ class PermissionChecker:
     async def __call__(self, user: UserInformation = Depends(verify_token)) -> UserInformation:
         # 1. 检查角色权限
         if self.required_roles:
-            print(user.authorize)
-            print(self.required_roles)
             if not all(auth in user.authorize for auth in self.required_roles ):
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
