@@ -28,6 +28,42 @@ THUMBNAIL_DIR = "thumbnails/"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(THUMBNAIL_DIR, exist_ok=True)
 
+async def check_store_supplier(db, store, supplier, user):
+    # 判断store参数是否正确
+    if store not in user.store:
+        raise HTTPException(status_code=403, detail="No permission for this store")
+    suppliers = await crud_invoice.get_suppliers(db)
+    if supplier not in [s.id for s in suppliers]:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+
+def add_attachments(files, db, user, invoice):
+    # 添加新附件
+    for idx, file in enumerate(files):
+        filename = f"{uuid.uuid4().hex}_{file.filename}"
+        filepath = os.path.join(UPLOAD_DIR, filename)
+        thumbnail_filepath = os.path.join(THUMBNAIL_DIR, f"thumb_{filename}")
+        with open(filepath, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        try:
+            with Image.open(filepath) as image:
+                image.thumbnail((100, 100))
+                image.save(thumbnail_filepath)
+        except Exception:
+            thumbnail_filepath = ""
+
+        attachment = InvoiceAttachment(
+            invoiceid=invoice.id,
+            path=filepath,
+            thumbnail=thumbnail_filepath,
+            status=0,
+            sort=idx + 1,
+            createtime=datetime.datetime.now(),
+            modifytime=datetime.datetime.now(),
+            creatorid=int(user.id),
+            modifierid=int(user.id)
+        )
+        db.add(attachment)
+
 # @router.post("/")
 # async def create(invoice: InvoiceCreate, db: AsyncSession = Depends(get_db), user=Depends(verify_token)):
 #     return await crud_invoice.create_invoice(db, invoice, user)
@@ -47,12 +83,7 @@ async def create_invoice(
     #user=Depends(verify_token)
     user = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
 ):
-    # 判断store参数是否正确
-    if store not in user.store:
-        raise HTTPException(status_code=403, detail="No permission for this store")
-    suppliers = await crud_invoice.get_suppliers(db)
-    if supplier not in [s.id for s in suppliers]:
-        raise HTTPException(status_code=404, detail="Supplier not found")
+    await check_store_supplier(db, store, supplier, user)
     # 创建发票
     invoice = Invoice(
         number=number,
@@ -90,38 +121,7 @@ async def create_invoice(
         )
         db.add(detail)
 
-    # 处理所有附件
-    for idx, file in enumerate(files):
-        filename = f"{uuid.uuid4().hex}_{file.filename}"
-        filepath = os.path.join(UPLOAD_DIR, filename)
-        thumbnail_filepath = os.path.join(THUMBNAIL_DIR, f"thumb_{filename}")
-
-        # 保存原始文件
-        with open(filepath, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-
-        # 生成缩略图
-        try:
-            with Image.open(filepath) as image:
-                image.thumbnail((100, 100))
-                image.save(thumbnail_filepath)
-        except Exception as e:
-            thumbnail_filepath = ""
-
-        # 存数据库
-        attachment = InvoiceAttachment(
-            invoiceid=invoice.id,
-            path=filepath,
-            thumbnail=thumbnail_filepath,
-            status=0,
-            sort=idx + 1,
-            createtime=datetime.datetime.now(),
-            modifytime=datetime.datetime.now(),
-            creatorid=int(user.id),
-            modifierid=int(user.id)
-        )
-        db.add(attachment)
-
+    add_attachments(files, db, user, invoice)
     await db.commit()
 
     # 刷新发票对象，加载附件关系
@@ -197,8 +197,8 @@ async def update_invoice(
     db: AsyncSession = Depends(get_db),
     user = Depends(PermissionChecker(required_roles=["invoice:update", "invoice:view"]))
 ):
+    await check_store_supplier(db, store, supplier, user)
     # 获取并验证发票
-    #stmt = select(Invoice).where(Invoice.id == invoice_id)
     stmt = (
         select(Invoice)
         .where(Invoice.id == invoice_id)
@@ -210,12 +210,6 @@ async def update_invoice(
     invoice = result.scalar_one_or_none()
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
-    
-    if store not in user.store:
-        raise HTTPException(status_code=403, detail="No permission for this store")
-    suppliers = await crud_invoice.get_suppliers(db)
-    if supplier not in [s.id for s in suppliers]:
-        raise HTTPException(status_code=404, detail="Supplier not found")
     
     # 更新基本字段
     invoice.status = status
@@ -276,33 +270,7 @@ async def update_invoice(
             if att.thumbnail and os.path.exists(att.thumbnail):
                 os.remove(att.thumbnail)
             await db.delete(att)
-
-    # 添加新附件
-    for idx, file in enumerate(files):
-        filename = f"{uuid.uuid4().hex}_{file.filename}"
-        filepath = os.path.join(UPLOAD_DIR, filename)
-        thumbnail_filepath = os.path.join(THUMBNAIL_DIR, f"thumb_{filename}")
-        with open(filepath, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        try:
-            with Image.open(filepath) as image:
-                image.thumbnail((100, 100))
-                image.save(thumbnail_filepath)
-        except Exception:
-            thumbnail_filepath = ""
-
-        attachment = InvoiceAttachment(
-            invoiceid=invoice.id,
-            path=filepath,
-            thumbnail=thumbnail_filepath,
-            status=0,
-            sort=idx + 1,
-            createtime=datetime.datetime.now(),
-            modifytime=datetime.datetime.now(),
-            creatorid=int(user.id),
-            modifierid=int(user.id)
-        )
-        db.add(attachment)
+    add_attachments(files, db, user, invoice)
 
     await db.commit()
     await db.refresh(invoice)
