@@ -182,6 +182,7 @@ async def get_invoice_by_id(
 
 @router.put("/{invoice_id}", response_model=InvoiceOutFull)
 async def update_invoice(
+    status: int,
     invoice_id: int,
     supplier: int = Form(...),
     details: str = Form(...),
@@ -217,6 +218,7 @@ async def update_invoice(
         raise HTTPException(status_code=404, detail="Supplier not found")
     
     # 更新基本字段
+    invoice.status = status
     invoice.supplierid = supplier
     #invoice.details = details
     invoice.store = store
