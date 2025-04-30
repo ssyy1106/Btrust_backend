@@ -5,7 +5,7 @@ from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from schemas.invoice import InvoiceCreate, InvoiceResponse, InvoiceOut, InvoiceOutFull, SupplierCreate, SupplierOut
+from schemas.invoice import InvoiceStatus, InvoiceOutFull, SupplierCreate, SupplierOut
 from database import get_db
 from crud import invoice as crud_invoice
 from main import verify_token
@@ -88,10 +88,11 @@ async def create_invoice(
     remark: str= Form(None),
     #department: int= Form(...),
     files: List[UploadFile] = File([]),
+    status: InvoiceStatus = Form(...),
     db: AsyncSession = Depends(get_db),
-    isdraft: bool = Form(False),
     user = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
 ):
+    isdraft = (status == InvoiceStatus.DRAFT)
     # 如果不是草稿，强制校验参数
     if not isdraft:
         missing_fields = []
@@ -115,6 +116,7 @@ async def create_invoice(
             raise HTTPException(status_code=422, detail=f"Missing required fields for confirmed invoice: {', '.join(missing_fields)}")
     await check_store_supplier(db, store, supplier, user, isdraft)
     # 解析发票明细
+    detail_items = []
     if details is not None:
         try:
             detail_items = json.loads(details)
@@ -137,26 +139,25 @@ async def create_invoice(
         modifierid=int(user.id),
         store = store,
         entrytime=entrytime,
-        isdraft = isdraft
+        status = status.value
     )
     db.add(invoice)
     await db.commit()
     await db.refresh(invoice)
-    if details is not None:
-        for idx, item in enumerate(detail_items):
-            detail = InvoiceDetail(
-                invoiceid=invoice.id,
-                # totalamount=item.get("totalamount"),
-                # department=item.get("department"),
-                totalamount=item["totalamount"],
-                department=item["department"],
-                createtime=datetime.datetime.now(),
-                modifytime=datetime.datetime.now(),
-                creatorid=int(user.id),
-                modifierid=int(user.id),
-                status=0
-            )
-            db.add(detail)
+    for item in detail_items:
+        detail = InvoiceDetail(
+            invoiceid=invoice.id,
+            # totalamount=item.get("totalamount"),
+            # department=item.get("department"),
+            totalamount=item["totalamount"],
+            department=item["department"],
+            createtime=datetime.datetime.now(),
+            modifytime=datetime.datetime.now(),
+            creatorid=int(user.id),
+            modifierid=int(user.id),
+            status=0
+        )
+        db.add(detail)
     if files:
         add_attachments(files, db, user, invoice)
     await db.commit()
@@ -222,7 +223,7 @@ async def get_invoice_by_id(
 @router.put("/{invoice_id}", response_model=InvoiceOutFull)
 async def update_invoice(
     invoice_id: int,
-    status: int= Form(None),
+    status: InvoiceStatus = Form(...),
     supplier: int = Form(None),
     details: str = Form(None),
     store: str = Form(None),
@@ -231,12 +232,12 @@ async def update_invoice(
     invoicedate: date= Form(None),
     entrytime: date= Form(None),
     remark: str= Form(None),
-    isdraft: bool = Form(False),
     files: List[UploadFile] = File([]),
     keep_attachment_ids: List[int] = Form([]),
     db: AsyncSession = Depends(get_db),
     user = Depends(PermissionChecker(required_roles=["invoice:view"]))
 ):
+    isdraft = (status == InvoiceStatus.DRAFT)
     await check_store_supplier(db, store, supplier, user, isdraft)
     # 获取并验证发票
     stmt = (

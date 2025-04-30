@@ -1,6 +1,12 @@
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import date, datetime
+from enum import IntEnum
+
+class InvoiceStatus(IntEnum):
+    CONFIRMED = 0
+    Voided = 1
+    DRAFT = 2
 
 class InvoiceDetailCreate(BaseModel):
     totalamount: float
@@ -99,7 +105,7 @@ class InvoiceOutFull(BaseModel):
     invoicedate: Optional[date] = None
     entrytime: Optional[date] = None
     store: Optional[str] = None
-    status: Optional[int]
+    status: Optional[InvoiceStatus]
     #department: int
     supplier: Optional[SupplierOut] = None
     attachments: List[InvoiceAttachmentOut] = []
@@ -107,8 +113,9 @@ class InvoiceOutFull(BaseModel):
     createtime: Optional[datetime] = None
     remark: Optional[str]
     department_total_amount: Optional[float] = None
-    isdraft: Optional[bool]
+    #isdraft: Optional[bool]
 
     #supplier_name: Optional[str] = None
     class Config:
+        use_enum_values = True  # 输出 JSON 时显示 数字 0 1 2
         orm_mode = True

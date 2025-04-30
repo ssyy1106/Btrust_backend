@@ -4,6 +4,7 @@ from database import Base
 import datetime
 from pydantic import BaseModel
 from typing import List, Optional
+from schemas.invoice import InvoiceStatus
 
 class Invoice(Base):
     __tablename__ = "invoice"
@@ -14,7 +15,8 @@ class Invoice(Base):
     creatorid = Column(BigInteger)
     modifierid = Column(BigInteger)
     number = Column(String, index=True)
-    status = Column(Integer, default=0)
+    #status = Column(Integer, default=0)
+    status = Column(Integer, default=InvoiceStatus.CONFIRMED, nullable=False)
     totalamount = Column(Float)
     remark = Column(String)
     invoicedate = Column(Date)
