@@ -28,13 +28,14 @@ THUMBNAIL_DIR = "thumbnails/"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(THUMBNAIL_DIR, exist_ok=True)
 
-async def check_store_supplier(db, store, supplier, user):
+async def check_store_supplier(db, store, supplier, user, isdraft = False):
     # 判断store参数是否正确
     if store not in user.store:
         raise HTTPException(status_code=403, detail="No permission for this store")
-    suppliers = await crud_invoice.get_suppliers(db)
-    if supplier not in [s.id for s in suppliers]:
-        raise HTTPException(status_code=404, detail="Supplier not found")
+    if not isdraft:
+        suppliers = await crud_invoice.get_suppliers(db)
+        if supplier not in [s.id for s in suppliers]:
+            raise HTTPException(status_code=404, detail="Supplier not found")
 
 def add_attachments(files, db, user, invoice):
     # 添加新附件
@@ -112,7 +113,7 @@ async def create_invoice(
             missing_fields.append("files")
         if missing_fields:
             raise HTTPException(status_code=422, detail=f"Missing required fields for confirmed invoice: {', '.join(missing_fields)}")
-    await check_store_supplier(db, store, supplier, user)
+    await check_store_supplier(db, store, supplier, user, isdraft)
     # 解析发票明细
     if details is not None:
         try:
@@ -234,7 +235,7 @@ async def update_invoice(
     db: AsyncSession = Depends(get_db),
     user = Depends(PermissionChecker(required_roles=["invoice:view"]))
 ):
-    await check_store_supplier(db, store, supplier, user)
+    await check_store_supplier(db, store, supplier, user, isdraft)
     # 获取并验证发票
     stmt = (
         select(Invoice)
