@@ -94,9 +94,9 @@ class SupplierOut(SupplierBase):
 
 class InvoiceOutFull(BaseModel):
     id: int
-    number: str
-    totalamount: float
-    invoicedate: date
+    number: Optional[str] = None
+    totalamount: Optional[float] = None
+    invoicedate: Optional[date] = None
     entrytime: Optional[date] = None
     store: Optional[str] = None
     status: Optional[int]

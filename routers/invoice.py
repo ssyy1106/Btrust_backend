@@ -91,7 +91,7 @@ async def create_invoice(
     isdraft: bool = Form(False),
     user = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
 ):
-     # 如果不是草稿，强制校验参数
+    # 如果不是草稿，强制校验参数
     if not isdraft:
         missing_fields = []
         if supplier is None:
