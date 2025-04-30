@@ -84,7 +84,7 @@ async def create_invoice(
     totalamount: float= Form(None),
     invoicedate: date= Form(None),
     entrytime: date= Form(None),
-    remark:str= Form(None),
+    remark: str= Form(None),
     #department: int= Form(...),
     files: List[UploadFile] = File([]),
     db: AsyncSession = Depends(get_db),
@@ -217,16 +217,16 @@ async def get_invoice_by_id(
 @router.put("/{invoice_id}", response_model=InvoiceOutFull)
 async def update_invoice(
     invoice_id: int,
-    status: int= Form(...),
-    supplier: int = Form(...),
-    details: str = Form(...),
-    store: str = Form(...),
-    number: str = Form(...),
-    totalamount: float = Form(...),
-    invoicedate: date = Form(...),
-    entrytime: date = Form(...),
-    remark: str = Form(...),
-    isdraft: bool = Form(...),
+    status: int= Form(None),
+    supplier: int = Form(None),
+    details: str = Form(None),
+    store: str = Form(None),
+    number: str = Form(None),
+    totalamount: float= Form(None),
+    invoicedate: date= Form(None),
+    entrytime: date= Form(None),
+    remark: str= Form(None),
+    isdraft: bool = Form(False),
     files: List[UploadFile] = File([]),
     keep_attachment_ids: List[int] = Form([]),
     db: AsyncSession = Depends(get_db),
@@ -260,6 +260,25 @@ async def update_invoice(
         # 修改已确认发票
         if "invoice:update" not in user.roles:
             raise HTTPException(status_code=403, detail="No permission to update confirmed invoice")
+    # 非草稿时强制校验必要字段
+    if not isdraft:
+        missing = []
+        if supplier is None:
+            missing.append("supplier")
+        if store is None:
+            missing.append("store")
+        if number is None:
+            missing.append("number")
+        if totalamount is None:
+            missing.append("totalamount")
+        if invoicedate is None:
+            missing.append("invoicedate")
+        if entrytime is None:
+            missing.append("entrytime")
+        if details is None:
+            missing.append("details")
+        if missing:
+            raise HTTPException(status_code=422, detail=f"Missing required fields for confirmed invoice: {', '.join(missing)}")
     # 更新基本字段
     invoice.status = status
     invoice.supplierid = supplier
