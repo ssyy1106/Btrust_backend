@@ -77,20 +77,41 @@ def check_total_amount(detail_items, totalamount):
 #     return await crud_invoice.create_invoice(db, invoice, user)
 @router.post("/", response_model=InvoiceOutFull)
 async def create_invoice(
-    supplier: int = Form(...),
-    details: str = Form(...),
-    store: str = Form(...),
-    number: str = Form(...),
-    totalamount: float= Form(...),
-    invoicedate: date= Form(...),
-    entrytime: date= Form(...),
-    remark:str= Form(...),
+    supplier: int = Form(None),
+    details: str = Form(None),
+    store: str = Form(None),
+    number: str = Form(None),
+    totalamount: float= Form(None),
+    invoicedate: date= Form(None),
+    entrytime: date= Form(None),
+    remark:str= Form(None),
     #department: int= Form(...),
-    files: List[UploadFile] = File(...),
+    files: List[UploadFile] = File([]),
     db: AsyncSession = Depends(get_db),
     isdraft: bool = Form(False),
     user = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
 ):
+     # 如果不是草稿，强制校验参数
+    if not isdraft:
+        missing_fields = []
+        if supplier is None:
+            missing_fields.append("supplier")
+        if store is None:
+            missing_fields.append("store")
+        if number is None:
+            missing_fields.append("number")
+        if totalamount is None:
+            missing_fields.append("totalamount")
+        if invoicedate is None:
+            missing_fields.append("invoicedate")
+        if entrytime is None:
+            missing_fields.append("entrytime")
+        if details is None:
+            missing_fields.append("details")
+        if files is None or len(files) == 0:
+            missing_fields.append("files")
+        if missing_fields:
+            raise HTTPException(status_code=422, detail=f"Missing required fields for confirmed invoice: {', '.join(missing_fields)}")
     await check_store_supplier(db, store, supplier, user)
     # 解析发票明细
     try:
