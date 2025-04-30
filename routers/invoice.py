@@ -114,12 +114,14 @@ async def create_invoice(
             raise HTTPException(status_code=422, detail=f"Missing required fields for confirmed invoice: {', '.join(missing_fields)}")
     await check_store_supplier(db, store, supplier, user)
     # 解析发票明细
-    try:
-        detail_items = json.loads(details)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON in 'details'")
-    # 验证 detail 总金额与 invoice.totalamount 是否一致
-    check_total_amount(detail_items, totalamount)
+    if details is not None:
+        try:
+            detail_items = json.loads(details)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON in 'details'")
+        # 验证 detail 总金额与 invoice.totalamount 是否一致
+    if not isdraft:
+        check_total_amount(detail_items, totalamount)
     # 创建发票
     invoice = Invoice(
         number=number,
@@ -139,21 +141,21 @@ async def create_invoice(
     db.add(invoice)
     await db.commit()
     await db.refresh(invoice)
-    
-    for idx, item in enumerate(detail_items):
-        detail = InvoiceDetail(
-            invoiceid=invoice.id,
-            totalamount=item.get("totalamount"),
-            department=item.get("department"),
-            createtime=datetime.datetime.now(),
-            modifytime=datetime.datetime.now(),
-            creatorid=int(user.id),
-            modifierid=int(user.id),
-            status=0
-        )
-        db.add(detail)
-
-    add_attachments(files, db, user, invoice)
+    if details is not None:
+        for idx, item in enumerate(detail_items):
+            detail = InvoiceDetail(
+                invoiceid=invoice.id,
+                totalamount=item.get("totalamount"),
+                department=item.get("department"),
+                createtime=datetime.datetime.now(),
+                modifytime=datetime.datetime.now(),
+                creatorid=int(user.id),
+                modifierid=int(user.id),
+                status=0
+            )
+            db.add(detail)
+    if files:
+        add_attachments(files, db, user, invoice)
     await db.commit()
 
     # 刷新发票对象，加载附件关系
@@ -293,10 +295,11 @@ async def update_invoice(
     invoice.modifierid = int(user.id)
     invoice.isdraft = isdraft
     # ---------- 处理 InvoiceDetail ----------
-    try:
-        parsed_details = json.loads(details)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid JSON in 'details'")
+    if details is not None:
+        try:
+            parsed_details = json.loads(details)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid JSON in 'details'")
     if not isdraft:
         check_total_amount(parsed_details, totalamount)
     stmt = select(InvoiceDetail).where(InvoiceDetail.invoiceid == invoice_id)
@@ -304,29 +307,31 @@ async def update_invoice(
     existing_details = result.scalars().all()
     existing_detail_map = {d.id: d for d in existing_details}
     incoming_ids = set()
-    for item in parsed_details:
-        detail_id = item.get("id")
-        if detail_id and detail_id in existing_detail_map:
-            # 修改现有明细
-            detail = existing_detail_map[detail_id]
-            detail.totalamount = item.get("totalamount", 0)
-            detail.department = item.get("department")
-            detail.modifytime = datetime.datetime.now()
-            detail.modifierid = int(user.id)
-            incoming_ids.add(detail_id)
-        else:
-            # 新增明细
-            new_detail = InvoiceDetail(
-                invoiceid=invoice.id,
-                totalamount=item.get("totalamount"),
-                department=item.get("department"),
-                createtime=datetime.datetime.now(),
-                modifytime=datetime.datetime.now(),
-                creatorid=int(user.id),
-                modifierid=int(user.id),
-                status=0
-            )
-            db.add(new_detail)
+
+    if details is not None:
+        for item in parsed_details:
+            detail_id = item.get("id")
+            if detail_id and detail_id in existing_detail_map:
+                # 修改现有明细
+                detail = existing_detail_map[detail_id]
+                detail.totalamount = item.get("totalamount", 0)
+                detail.department = item.get("department")
+                detail.modifytime = datetime.datetime.now()
+                detail.modifierid = int(user.id)
+                incoming_ids.add(detail_id)
+            else:
+                # 新增明细
+                new_detail = InvoiceDetail(
+                    invoiceid=invoice.id,
+                    totalamount=item.get("totalamount"),
+                    department=item.get("department"),
+                    createtime=datetime.datetime.now(),
+                    modifytime=datetime.datetime.now(),
+                    creatorid=int(user.id),
+                    modifierid=int(user.id),
+                    status=0
+                )
+                db.add(new_detail)
     # 删除未包含的明细
     for detail in existing_details:
         if detail.id not in incoming_ids:
@@ -341,7 +346,8 @@ async def update_invoice(
             if att.thumbnail and os.path.exists(att.thumbnail):
                 os.remove(att.thumbnail)
             await db.delete(att)
-    add_attachments(files, db, user, invoice)
+    if files:
+        add_attachments(files, db, user, invoice)
 
     await db.commit()
     await db.refresh(invoice)
