@@ -146,8 +146,10 @@ async def create_invoice(
         for idx, item in enumerate(detail_items):
             detail = InvoiceDetail(
                 invoiceid=invoice.id,
-                totalamount=item.get("totalamount"),
-                department=item.get("department"),
+                # totalamount=item.get("totalamount"),
+                # department=item.get("department"),
+                totalamount=item["totalamount"],
+                department=item["department"],
                 createtime=datetime.datetime.now(),
                 modifytime=datetime.datetime.now(),
                 creatorid=int(user.id),
@@ -266,6 +268,8 @@ async def update_invoice(
     # 非草稿时强制校验必要字段
     if not isdraft:
         missing = []
+        if status is None:
+            missing.append("status")
         if supplier is None:
             missing.append("supplier")
         if store is None:
@@ -280,6 +284,8 @@ async def update_invoice(
             missing.append("entrytime")
         if details is None:
             missing.append("details")
+        if not files:
+            missing.append("files")
         if missing:
             raise HTTPException(status_code=422, detail=f"Missing required fields for confirmed invoice: {', '.join(missing)}")
     # 更新基本字段
@@ -315,8 +321,10 @@ async def update_invoice(
             if detail_id and detail_id in existing_detail_map:
                 # 修改现有明细
                 detail = existing_detail_map[detail_id]
-                detail.totalamount = item.get("totalamount", 0)
-                detail.department = item.get("department")
+                # detail.totalamount = item.get("totalamount", 0)
+                # detail.department = item.get("department")
+                detail.totalamount = item["totalamount"]
+                detail.department = item["department"]
                 detail.modifytime = datetime.datetime.now()
                 detail.modifierid = int(user.id)
                 incoming_ids.add(detail_id)
@@ -324,8 +332,8 @@ async def update_invoice(
                 # 新增明细
                 new_detail = InvoiceDetail(
                     invoiceid=invoice.id,
-                    totalamount=item.get("totalamount"),
-                    department=item.get("department"),
+                    totalamount=item["totalamount"],
+                    department=item["department"],
                     createtime=datetime.datetime.now(),
                     modifytime=datetime.datetime.now(),
                     creatorid=int(user.id),
