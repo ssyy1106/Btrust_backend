@@ -147,10 +147,10 @@ async def create_invoice(
     for item in detail_items:
         detail = InvoiceDetail(
             invoiceid=invoice.id,
-            # totalamount=item.get("totalamount"),
-            # department=item.get("department"),
-            totalamount=item["totalamount"],
-            department=item["department"],
+            totalamount=item.get("totalamount", None),
+            department=item.get("department"),
+            # totalamount=item["totalamount"],
+            # department=item["department"],
             createtime=datetime.datetime.now(),
             modifytime=datetime.datetime.now(),
             creatorid=int(user.id),
@@ -183,7 +183,7 @@ async def list_invoices(
     status: Optional[int] = Query(None, description="状态"),
     store: Optional[List[str]] = Query(None, description="门店（多个）"),
     supplier: Optional[List[int]] = Query(None, description="供应商ID（多个）"),
-    isdraft: Optional[bool] = Query(None, description="是否是草稿"),
+    #isdraft: Optional[bool] = Query(None, description="是否是草稿"),
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
     #user=Depends(verify_token),
@@ -199,8 +199,7 @@ async def list_invoices(
         department=department,
         status=status,
         store=store,
-        supplier=supplier,
-        isdraft = isdraft
+        supplier=supplier
     )
 
 @router.get("/{invoice_id}", response_model=InvoiceOutFull)
@@ -319,10 +318,10 @@ async def update_invoice(
             if detail_id and detail_id in existing_detail_map:
                 # 修改现有明细
                 detail = existing_detail_map[detail_id]
-                # detail.totalamount = item.get("totalamount", 0)
-                # detail.department = item.get("department")
-                detail.totalamount = item["totalamount"]
-                detail.department = item["department"]
+                detail.totalamount = item.get("totalamount", None),
+                detail.department = item.get("department")
+                # detail.totalamount = item["totalamount"]
+                # detail.department = item["department"]
                 detail.modifytime = datetime.datetime.now()
                 detail.modifierid = int(user.id)
                 incoming_ids.add(detail_id)

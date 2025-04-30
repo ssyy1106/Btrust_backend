@@ -68,12 +68,9 @@ async def get_invoice_list(
     department: Optional[int] = None,
     status: Optional[int] = None,
     store: Optional[List[str]] = None,
-    supplier: Optional[List[int]] = None,
-    isdraft: Optional[bool] = False,
+    supplier: Optional[List[int]] = None
 ):
-    if isdraft is None:
-        isdraft = False
-    stmt = select(Invoice).where(Invoice.isdraft == isdraft).options(
+    stmt = select(Invoice).options(
         selectinload(Invoice.attachments),
         selectinload(Invoice.details),
         selectinload(Invoice.supplier),
