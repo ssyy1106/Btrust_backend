@@ -251,23 +251,20 @@ async def update_invoice(
     invoice = result.scalar_one_or_none()
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
-    if not invoice.isdraft and isdraft:
+    if invoice.status != 2 and status == 2:
         raise HTTPException(status_code=404, detail="Invoice can not be changed to draft from confirmed status")
 
-    if invoice.isdraft and isdraft:
-        # 仍为草稿，属于修改草稿行为
+    if invoice.status == 2 and status == 2:
         if "invoice:insert" not in user.authorize:
             raise HTTPException(status_code=403, detail="No permission to update draft")
-    elif invoice.isdraft and not isdraft:
-        # 草稿提交为正式
+    elif invoice.status == 2 and status != 2:
         if "invoice:insert" not in user.authorize:
             raise HTTPException(status_code=403, detail="No permission to submit draft")
-    elif not invoice.isdraft:
-        # 修改已确认发票
+    elif invoice.status != 2:
         if "invoice:update" not in user.authorize:
             raise HTTPException(status_code=403, detail="No permission to update confirmed invoice")
     # 非草稿时强制校验必要字段
-    if not isdraft:
+    if status != 2:
         missing = []
         if status is None:
             missing.append("status")
@@ -301,7 +298,7 @@ async def update_invoice(
     invoice.remark = remark
     invoice.modifytime = datetime.datetime.now()
     invoice.modifierid = int(user.id)
-    invoice.isdraft = isdraft
+    #invoice.isdraft = isdraft
     # ---------- 处理 InvoiceDetail ----------
     if details is not None:
         try:
