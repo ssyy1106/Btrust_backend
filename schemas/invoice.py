@@ -107,6 +107,7 @@ class InvoiceOutFull(BaseModel):
     createtime: Optional[datetime] = None
     remark: Optional[str]
     department_total_amount: Optional[float] = None
+    isdraft: Optional[bool]
 
     #supplier_name: Optional[str] = None
     class Config:

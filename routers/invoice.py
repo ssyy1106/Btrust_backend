@@ -64,6 +64,14 @@ def add_attachments(files, db, user, invoice):
         )
         db.add(attachment)
 
+def check_total_amount(detail_items, totalamount):
+    detail_total = sum(item.get("totalamount", 0) for item in detail_items)
+    if round(detail_total, 2) != round(totalamount, 2):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invoice totalamount ({totalamount}) does not match sum of details ({detail_total})"
+        )
+
 # @router.post("/")
 # async def create(invoice: InvoiceCreate, db: AsyncSession = Depends(get_db), user=Depends(verify_token)):
 #     return await crud_invoice.create_invoice(db, invoice, user)
@@ -80,7 +88,7 @@ async def create_invoice(
     #department: int= Form(...),
     files: List[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
-    #user=Depends(verify_token)
+    isdraft: bool = Form(False),
     user = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
 ):
     await check_store_supplier(db, store, supplier, user)
@@ -90,12 +98,7 @@ async def create_invoice(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON in 'details'")
     # 验证 detail 总金额与 invoice.totalamount 是否一致
-    detail_total = sum(item.get("totalamount", 0) for item in detail_items)
-    if round(detail_total, 2) != round(totalamount, 2):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invoice totalamount ({totalamount}) does not match sum of details ({detail_total})"
-        )
+    check_total_amount(detail_items, totalamount)
     # 创建发票
     invoice = Invoice(
         number=number,
@@ -109,7 +112,8 @@ async def create_invoice(
         creatorid=int(user.id),
         modifierid=int(user.id),
         store = store,
-        entrytime=entrytime
+        entrytime=entrytime,
+        isdraft = isdraft
     )
     db.add(invoice)
     await db.commit()
@@ -152,6 +156,7 @@ async def list_invoices(
     status: Optional[int] = Query(None, description="状态"),
     store: Optional[List[str]] = Query(None, description="门店（多个）"),
     supplier: Optional[List[int]] = Query(None, description="供应商ID（多个）"),
+    isdraft: Optional[bool] = Query(None, description="是否是草稿"),
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
     #user=Depends(verify_token),
@@ -168,6 +173,7 @@ async def list_invoices(
         status=status,
         store=store,
         supplier=supplier,
+        isdraft = isdraft
     )
 
 @router.get("/{invoice_id}", response_model=InvoiceOutFull)
@@ -199,10 +205,11 @@ async def update_invoice(
     invoicedate: date = Form(...),
     entrytime: date = Form(...),
     remark: str = Form(...),
+    isdraft: bool = Form(...),
     files: List[UploadFile] = File([]),
     keep_attachment_ids: List[int] = Form([]),
     db: AsyncSession = Depends(get_db),
-    user = Depends(PermissionChecker(required_roles=["invoice:update", "invoice:view"]))
+    user = Depends(PermissionChecker(required_roles=["invoice:view"]))
 ):
     await check_store_supplier(db, store, supplier, user)
     # 获取并验证发票
@@ -217,7 +224,21 @@ async def update_invoice(
     invoice = result.scalar_one_or_none()
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
-    
+    if not invoice.isdraft and isdraft:
+        raise HTTPException(status_code=404, detail="Invoice can not be changed to draft from confirmed status")
+
+    if invoice.isdraft and isdraft:
+        # 仍为草稿，属于修改草稿行为
+        if "invoice:insert" not in user.roles:
+            raise HTTPException(status_code=403, detail="No permission to update draft")
+    elif invoice.isdraft and not isdraft:
+        # 草稿提交为正式
+        if "invoice:insert" not in user.roles:
+            raise HTTPException(status_code=403, detail="No permission to submit draft")
+    elif not invoice.isdraft:
+        # 修改已确认发票
+        if "invoice:update" not in user.roles:
+            raise HTTPException(status_code=403, detail="No permission to update confirmed invoice")
     # 更新基本字段
     invoice.status = status
     invoice.supplierid = supplier
@@ -230,11 +251,14 @@ async def update_invoice(
     invoice.remark = remark
     invoice.modifytime = datetime.datetime.now()
     invoice.modifierid = int(user.id)
+    invoice.isdraft = isdraft
     # ---------- 处理 InvoiceDetail ----------
     try:
         parsed_details = json.loads(details)
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON in 'details'")
+    if not isdraft:
+        check_total_amount(parsed_details, totalamount)
     stmt = select(InvoiceDetail).where(InvoiceDetail.invoiceid == invoice_id)
     result = await db.execute(stmt)
     existing_details = result.scalars().all()

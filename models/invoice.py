@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey, JSON, Time, BigInteger 
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey, JSON, Time, BigInteger, Boolean
 from sqlalchemy.orm import relationship
 from database import Base
 import datetime
@@ -22,6 +22,7 @@ class Invoice(Base):
     #department = Column(Integer)
     store = Column(String)
     #supplier = Column(BigInteger)
+    isdraft = Column(Boolean)
     supplierid = Column(BigInteger, ForeignKey("supplier.id"))  # ✅ 加入供应商外键
 
     supplier = relationship("Supplier", back_populates="invoices", lazy="joined")  # ✅ 反向关系
