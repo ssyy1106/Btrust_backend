@@ -253,15 +253,15 @@ async def update_invoice(
 
     if invoice.isdraft and isdraft:
         # 仍为草稿，属于修改草稿行为
-        if "invoice:insert" not in user.roles:
+        if "invoice:insert" not in user.authorize:
             raise HTTPException(status_code=403, detail="No permission to update draft")
     elif invoice.isdraft and not isdraft:
         # 草稿提交为正式
-        if "invoice:insert" not in user.roles:
+        if "invoice:insert" not in user.authorize:
             raise HTTPException(status_code=403, detail="No permission to submit draft")
     elif not invoice.isdraft:
         # 修改已确认发票
-        if "invoice:update" not in user.roles:
+        if "invoice:update" not in user.authorize:
             raise HTTPException(status_code=403, detail="No permission to update confirmed invoice")
     # 非草稿时强制校验必要字段
     if not isdraft:
