@@ -284,7 +284,7 @@ async def update_invoice(
             missing.append("entrytime")
         if details is None:
             missing.append("details")
-        if not files:
+        if not files and not keep_attachment_ids:
             missing.append("files")
         if missing:
             raise HTTPException(status_code=422, detail=f"Missing required fields for confirmed invoice: {', '.join(missing)}")
