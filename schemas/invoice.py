@@ -67,7 +67,7 @@ class InvoiceOut(BaseModel):
 
 class InvoiceDetailOut(BaseModel):
     id: int
-    totalamount: float
+    totalamount: Optional[float] = None
     department: int
 
     class Config:
