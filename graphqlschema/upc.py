@@ -6,7 +6,7 @@ from graphqlschema.schema import UPC, UPCData, UPCSearchParameter
 def getUPC(id: str) -> UPC:
         Table, id_col, name_en, name_ch = 'OBJ_TAB', 'F01', 'F29', 'F255'
         sql = f"select SUBSTRING({id_col}, PATINDEX('%[^0]%', {id_col}+'.'), LEN({id_col})), {name_ch}, {name_en} from {Table} where SUBSTRING({id_col}, PATINDEX('%[^0]%', {id_col}+'.'), LEN({id_col}))='{id}'"
-        with getStoreDB('MT') as conn:
+        with getStoreDB('MS') as conn:
             with conn.cursor() as cursor:
                 try:
                     cursor.execute(sql)
@@ -25,7 +25,7 @@ def getUPCs(param: UPCSearchParameter) -> UPCData:
     id = ""
     if param:
         id = param.ID
-    with getStoreDB('MT') as conn:
+    with getStoreDB('MS') as conn:
         with conn.cursor() as cursor:
             # search from [OBJ_TAB]
             Table, id_col, name_en, name_ch = 'OBJ_TAB', 'F01', 'F29', 'F255'
