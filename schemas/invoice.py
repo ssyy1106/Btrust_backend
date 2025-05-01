@@ -122,4 +122,6 @@ class InvoiceOutFull(BaseModel):
 
 class InvoiceListResponse(BaseModel):
     total: int
+    total_amount: float
+    total_department_amount: float
     items: List[InvoiceOutFull]

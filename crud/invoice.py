@@ -104,6 +104,7 @@ async def get_invoice_list(
 
     result = await db.execute(stmt)
     invoices = result.scalars().unique().all()
+    total_amount = sum(inv.totalamount or 0 for inv in invoices)
     # 部门筛选逻辑：仅返回包含该部门的 invoice（可选）
     if department is not None:
         invoices = [inv for inv in invoices if any(d.department == department for d in inv.details)]
@@ -111,9 +112,11 @@ async def get_invoice_list(
             inv.department_total_amount = sum(
                 (d.totalamount or 0) for d in inv.details if d.department == department
             )
+        total_department_amount = sum(inv.department_total_amount or 0 for inv in invoices)
     else:
         for inv in invoices:
             inv.department_total_amount = None
+        total_department_amount = 0
 
     # Python层排序（仅限 department_total_amount）
     if sort_by == "department_total_amount":
@@ -128,7 +131,9 @@ async def get_invoice_list(
     total = len(invoices)
     return {
         "total": total,
-        "items": invoices[start:end]
+        "items": invoices[start:end],
+        "total_amount": total_amount,
+        "total_department_amount": total_department_amount
     }
 
 # 根据发票ID查询发票
