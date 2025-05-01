@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, Query, HTTPException, File, UploadFile, Form, status
 from datetime import date
 import datetime
-from typing import Optional, List
+from typing import Optional, List, Literal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from schemas.invoice import InvoiceStatus, InvoiceOutFull, SupplierCreate, SupplierOut
+from schemas.invoice import InvoiceStatus, InvoiceOutFull, SupplierCreate, SupplierOut, InvoiceListResponse
 from database import get_db
 from crud import invoice as crud_invoice
 from main import verify_token
@@ -172,7 +172,7 @@ async def create_invoice(
 #     end_date: Optional[date] = Query(None, description="end date"),
 #     db: AsyncSession = Depends(get_db), user=Depends(verify_token)):
 #     return await crud_invoice.get_invoice_list(db, start_date, end_date)
-@router.get("/", response_model=List[InvoiceOutFull])
+@router.get("/", response_model=List[InvoiceListResponse])
 async def list_invoices(
     invoice_start_date: Optional[date] = Query(None, description="发票开始日期"),
     invoice_end_date: Optional[date] = Query(None, description="发票结束日期"),
@@ -184,6 +184,13 @@ async def list_invoices(
     store: Optional[List[str]] = Query(None, description="门店（多个）"),
     supplier: Optional[List[int]] = Query(None, description="供应商ID（多个）"),
     #isdraft: Optional[bool] = Query(None, description="是否是草稿"),
+     # 分页参数
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(20, ge=1, le=100, description="每页条数"),
+    # 排序参数（字段名+方向）
+    sort_by: Optional[str] = Query(None, description="排序字段"),
+    sort_dir: Literal["asc", "desc"] = Query("asc", description="排序方向"),
+
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
     #user=Depends(verify_token),
@@ -199,7 +206,11 @@ async def list_invoices(
         department=department,
         status=status,
         store=store,
-        supplier=supplier
+        supplier=supplier,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_dir=sort_dir
     )
 
 @router.get("/{invoice_id}", response_model=InvoiceOutFull)

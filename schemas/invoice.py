@@ -119,3 +119,7 @@ class InvoiceOutFull(BaseModel):
     class Config:
         use_enum_values = True  # 输出 JSON 时显示 数字 0 1 2
         orm_mode = True
+
+class InvoiceListResponse(BaseModel):
+    total: int
+    items: List[InvoiceOutFull]
