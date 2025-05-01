@@ -172,7 +172,7 @@ async def create_invoice(
 #     end_date: Optional[date] = Query(None, description="end date"),
 #     db: AsyncSession = Depends(get_db), user=Depends(verify_token)):
 #     return await crud_invoice.get_invoice_list(db, start_date, end_date)
-@router.get("/", response_model=List[InvoiceListResponse])
+@router.get("/", response_model=InvoiceListResponse)
 async def list_invoices(
     invoice_start_date: Optional[date] = Query(None, description="发票开始日期"),
     invoice_end_date: Optional[date] = Query(None, description="发票结束日期"),
