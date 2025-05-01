@@ -103,14 +103,12 @@ async def get_invoice_list(
     stmt = stmt.order_by(Invoice.invoicedate.desc())
     result = await db.execute(stmt)
     invoices = result.scalars().all()
-
     # 部门筛选逻辑：仅返回包含该部门的 invoice（可选）
     if department is not None:
         invoices = [inv for inv in invoices if any(d.department == department for d in inv.details)]
-
         for inv in invoices:
             inv.department_total_amount = sum(
-                d.totalamount for d in inv.details if d.department == department
+                (d.totalamount or 0) for d in inv.details if d.department == department
             )
     else:
         for inv in invoices:
