@@ -4,7 +4,7 @@ from schemas.invoice import InvoiceCreate, SupplierCreate
 from sqlalchemy.future import select
 from typing import Optional, List
 from datetime import date
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, aliased
 from sqlalchemy import or_, and_, exists, select, desc, asc, func
 
 async def get_attachment(db: AsyncSession, attachment_id: int) -> InvoiceAttachment:
@@ -84,19 +84,25 @@ async def get_invoice_list(
     if supplier:
         stmt = stmt.where(Invoice.supplierid.in_(supplier))
 
+    SupplierAlias = aliased(Supplier)
     # 排序字段白名单
     order_fields = {
         "number": Invoice.number,
         "invoicedate": Invoice.invoicedate,
         "entrytime": Invoice.entrytime,
-        "supplierid": Invoice.supplierid,
+        "createtime": Invoice.createtime,
+        "suppliername": SupplierAlias.name,
         "store": Invoice.store,
         "totalamount": Invoice.totalamount,
         "status": Invoice.status,
         "department_total_amount": None  # Python层排序
     }
-    # SQL排序（如果不是department_total_amount）
-    if sort_by in order_fields and order_fields[sort_by] is not None:
+
+    if sort_by == "suppliername":
+        stmt = stmt.join(SupplierAlias, Invoice.supplier).order_by(
+            SupplierAlias.name.desc() if sort_dir == "desc" else SupplierAlias.name.asc()
+        )
+    elif sort_by in order_fields and order_fields[sort_by] is not None:
         order_column = order_fields[sort_by]
         stmt = stmt.order_by(order_column.desc() if sort_dir == "desc" else order_column.asc())
     else:
