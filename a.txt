@@ -1,0 +1,64 @@
+SELECT "SBO_BTRUST_LIVE"."OITM"."CodeBars" AS "BarCode",
+        "SBO_BTRUST_LIVE"."OITM"."OnHand" as "ItemTotalQty"
+        FROM "SBO_BTRUST_LIVE"."PMX_INVT" INNER JOIN "SBO_BTRUST_LIVE"."OITM" ON "PMX_INVT"."ItemCode" = "OITM"."ItemCode"
+        inner JOIN "SBO_BTRUST_LIVE"."PMX_ITRI" ON "SBO_BTRUST_LIVE"."PMX_INVT"."ItemTransactionalInfoKey" = "SBO_BTRUST_LIVE"."PMX_ITRI"."InternalKey"
+        INNER JOIN "SBO_BTRUST_LIVE"."PDN1" ON "SBO_BTRUST_LIVE"."OITM"."ItemCode" = "SBO_BTRUST_LIVE"."PDN1"."ItemCode"
+        INNER JOIN "SBO_BTRUST_LIVE"."OPDN" ON "SBO_BTRUST_LIVE"."PDN1"."DocEntry" = "SBO_BTRUST_LIVE"."OPDN"."DocEntry"
+        INNER JOIN  "SBO_BTRUST_LIVE"."PMX_INVD" ON "SBO_BTRUST_LIVE"."OPDN"."ObjType" = "SBO_BTRUST_LIVE"."PMX_INVD"."TransType"
+        AND "SBO_BTRUST_LIVE"."PDN1"."DocEntry" = "SBO_BTRUST_LIVE"."PMX_INVD"."DocEntry" AND "SBO_BTRUST_LIVE"."PDN1"."LineNum" = "SBO_BTRUST_LIVE"."PMX_INVD"."DocLineNum"
+        AND "SBO_BTRUST_LIVE"."PMX_INVD"."ItemTransactionalInfoKey" = "SBO_BTRUST_LIVE"."PMX_INVT"."ItemTransactionalInfoKey"
+        LEFT JOIN "SBO_BTRUST_LIVE"."OBTN" X on X."DistNumber" = "SBO_BTRUST_LIVE"."PMX_ITRI"."BatchNumber" and X."ItemCode" = "SBO_BTRUST_LIVE"."PMX_ITRI"."ItemCode"
+        LEFT JOIN "SBO_BTRUST_LIVE"."PMX_ITBA" on "SBO_BTRUST_LIVE"."PMX_ITBA"."BatchAttributeCode" = 'INNER_PACK'
+        and "SBO_BTRUST_LIVE"."PMX_ITBA"."ItriKey" = "SBO_BTRUST_LIVE"."PMX_ITRI"."InternalKey"
+        Left join "SBO_BTRUST_LIVE"."PMX_ITBA" ITBA_POUNDS on "SBO_BTRUST_LIVE"."PMX_ITBA"."BatchAttributeCode" = 'POUNDS'
+        and "SBO_BTRUST_LIVE"."PMX_ITBA"."ItriKey" = "SBO_BTRUST_LIVE"."PMX_ITRI"."InternalKey" Left join "SBO_BTRUST_LIVE"."PMX_ITBA" ITBA_KG
+        on "SBO_BTRUST_LIVE"."PMX_ITBA"."BatchAttributeCode" = 'KG' and "SBO_BTRUST_LIVE"."PMX_ITBA"."ItriKey" = "SBO_BTRUST_LIVE"."PMX_ITRI"."InternalKey"
+        left join "SBO_BTRUST_LIVE"."OITB" on "SBO_BTRUST_LIVE"."OITB"."ItmsGrpCod" = "SBO_BTRUST_LIVE"."OITM"."ItmsGrpCod"
+
+SELECT 
+    OITM."CodeBars" AS "BarCode",
+    X."DistNumber" AS "BatchNumber",
+    MAX(OITM."OnHand") AS "ItemTotalQty",
+    MAX(X."Quantity" - X."QuantOut") AS "BatchQuantity",
+    MAX(
+        CASE 
+            WHEN ITBA_INNER."AttributeValue" IS NULL 
+                 OR ITBA_INNER."AttributeValue" = '' 
+                 OR TO_BIGINT(ITBA_INNER."AttributeValue") = 0
+                 OR X."CostTotal" = 0 
+                 OR X."Quantity" = 0
+            THEN 0
+            ELSE TO_DECIMAL(X."CostTotal"/X."Quantity" * TO_DECIMAL(ITBA_INNER."AttributeValue", 8, 2), 8, 2)
+        END
+    ) AS "CostPerCase",
+    OITM."ItemCode"
+FROM SBO_BTRUST_LIVE.PMX_INVT 
+INNER JOIN SBO_BTRUST_LIVE.OITM 
+    ON PMX_INVT."ItemCode" = OITM."ItemCode" 
+INNER JOIN SBO_BTRUST_LIVE.PMX_ITRI 
+    ON PMX_INVT."ItemTransactionalInfoKey" = PMX_ITRI."InternalKey" 
+INNER JOIN SBO_BTRUST_LIVE.PDN1 
+    ON OITM."ItemCode" = PDN1."ItemCode" 
+INNER JOIN SBO_BTRUST_LIVE.OPDN 
+    ON PDN1."DocEntry" = OPDN."DocEntry" 
+INNER JOIN SBO_BTRUST_LIVE.PMX_INVD 
+    ON OPDN."ObjType" = PMX_INVD."TransType" 
+    AND PDN1."DocEntry" = PMX_INVD."DocEntry" 
+    AND PDN1."LineNum" = PMX_INVD."DocLineNum" 
+    AND PMX_INVD."ItemTransactionalInfoKey" = PMX_INVT."ItemTransactionalInfoKey" 
+LEFT JOIN SBO_BTRUST_LIVE.OBTN X 
+    ON X."DistNumber" = PMX_ITRI."BatchNumber" 
+    AND X."ItemCode" = PMX_ITRI."ItemCode" 
+LEFT JOIN SBO_BTRUST_LIVE.PMX_ITBA ITBA_INNER 
+    ON ITBA_INNER."BatchAttributeCode" = 'INNER_PACK' 
+    AND ITBA_INNER."ItriKey" = PMX_ITRI."InternalKey" 
+LEFT JOIN SBO_BTRUST_LIVE.OITB 
+    ON OITB."ItmsGrpCod" = OITM."ItmsGrpCod"
+GROUP BY 
+    OITM."CodeBars",
+    X."DistNumber",
+    OITM."ItemCode"
+ORDER BY "BarCode"
+LIMIT 3000;
+
+

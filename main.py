@@ -25,6 +25,9 @@ from helper import LoginShift, verify_token, create_jwt_token, verify_jwt_token,
 from graphqlschema.schema import UserInformation
 from routers import invoice, supplier, attachments
 from database import engine, Base
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
  
 #app = FastAPI()
 @asynccontextmanager
@@ -35,7 +38,12 @@ async def lifespan(app: FastAPI):
     yield
     # 应用关闭时执行（如有需要可以添加清理逻辑）
 
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(lifespan=lifespan)
+
+# 注册限流异常处理器
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ⭐ 注册全局异常处理器
 @app.exception_handler(Exception)
@@ -67,19 +75,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-# EXCLUDE_PATHS = ["/login", "/register", "/docs", "/redoc"]
-
-# @app.middleware("http")
-# async def verify_token(request: Request, call_next):
-#     if request.url.path in EXCLUDE_PATHS:
-#         return await call_next(request)
-#     if "Authorization" in request.headers:
-#         if verify_jwt_token( request.headers['Authorization'][7:] ):
-#             response = await call_next(request)
-#             return response
-#     return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 
 app.include_router(graphql_app, prefix="/graphql")
 configFile = 'config.ini'
@@ -181,7 +176,8 @@ async def monitor() -> Response | None:
     return await getResponse()
 
 @app.get("/token")
-async def token(user=Depends(verify_token)):
+@limiter.limit("5/minute")
+async def token(request: Request, user=Depends(verify_token)):
     return {"user": user}
 
 # Login Model
