@@ -9,8 +9,8 @@ from dependencies.permission import PermissionChecker
 router = APIRouter(prefix="/suppliers", tags=["Supplier"])
 
 @router.post("/", response_model=SupplierOut)
-#async def create_supplier(supplier: SupplierCreate, db: AsyncSession = Depends(get_db), user = Depends(PermissionChecker(required_roles=["invoice:insert", "invoice:view"]))):
-async def create_supplier(supplier: SupplierCreate, db: AsyncSession = Depends(get_db)):
+async def create_supplier(supplier: SupplierCreate, db: AsyncSession = Depends(get_db), user = Depends(PermissionChecker(required_roles=["invoice:insert", "invoice:view"]))):
+#async def create_supplier(supplier: SupplierCreate, db: AsyncSession = Depends(get_db)):
     try:
         # 调用crud_supplier创建供应商
         return await crud_supplier.create_supplier(db, supplier)
