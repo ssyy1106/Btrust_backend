@@ -12,10 +12,16 @@ def getDepartments(param: DepartmentSearchParameter) -> DepartmentData:
             try:
                 with open(os.path.join(os.path.dirname(__file__), "invoice_departments.json"), "r", encoding="utf-8") as f:
                     data = json.load(f)
-                departments = [
-                    Department(id=item["id"], name=item["name"])
-                    for item in data
-                ]
+                if id:
+                    departments = [
+                        Department(id=item["id"], name=item["name"])
+                        for item in data if item["id"] == id
+                    ]
+                else:
+                    departments = [
+                        Department(id=item["id"], name=item["name"])
+                        for item in data
+                    ]
                 return DepartmentData(departments=departments, items=len(departments))
             except Exception as e:
                 print(f"Error loading invoice departments: {e}")
