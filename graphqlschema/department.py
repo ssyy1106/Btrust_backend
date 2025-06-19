@@ -22,7 +22,7 @@ def getDepartments(param: DepartmentSearchParameter) -> DepartmentData:
                         Department(id=item["id"], name=item["name"])
                         for item in data
                     ]
-                return DepartmentData(departments=departments, items=len(departments))
+                return DepartmentData(departments=departments, items=len(data))
             except Exception as e:
                 print(f"Error loading invoice departments: {e}")
                 return DepartmentData(departments=[], items=0)
