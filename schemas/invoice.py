@@ -69,7 +69,7 @@ class InvoiceDetailOut(BaseModel):
     id: int
     totalamount: Optional[float] = None
     department: int
-
+    isreturn: Optional[bool] = None
     class Config:
         orm_mode = True
 

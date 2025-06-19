@@ -155,7 +155,8 @@ async def create_invoice(
             modifytime=datetime.datetime.now(),
             creatorid=int(user.id),
             modifierid=int(user.id),
-            status=0
+            status=0,
+            isreturn=item.get("isreturn", None)
         )
         db.add(detail)
     if files:
@@ -329,12 +330,13 @@ async def update_invoice(
             if detail_id and detail_id in existing_detail_map:
                 # 修改现有明细
                 detail = existing_detail_map[detail_id]
-                detail.totalamount = item.get("totalamount", None),
+                detail.totalamount = item.get("totalamount", None)
                 detail.department = item.get("department")
                 # detail.totalamount = item["totalamount"]
                 # detail.department = item["department"]
                 detail.modifytime = datetime.datetime.now()
                 detail.modifierid = int(user.id)
+                detail.isreturn = item.get("isreturn", None)
                 incoming_ids.add(detail_id)
             else:
                 # 新增明细
@@ -346,6 +348,7 @@ async def update_invoice(
                     modifytime=datetime.datetime.now(),
                     creatorid=int(user.id),
                     modifierid=int(user.id),
+                    isreturn=item.get("isreturn", None),
                     status=0
                 )
                 db.add(new_detail)

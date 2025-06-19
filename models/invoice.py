@@ -44,6 +44,7 @@ class InvoiceDetail(Base):
     status = Column(Integer, default=0)
     totalamount = Column(Float)
     department = Column(Integer)
+    isreturn = Column(Boolean)
 
     invoice = relationship("Invoice", back_populates="details", lazy="selectin")
 

@@ -240,7 +240,7 @@ def getDepartmentName(id: str) -> str:
                 return row[0]
             return ""
         except Exception as e:
-            print(e)
+            print(f"getDepartmentName err {e} id is {id}")
             return ""
         finally:
             cursor.close()
