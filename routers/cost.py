@@ -1,10 +1,9 @@
-from fastapi import APIRouter, UploadFile, HTTPException, Depends, File
+from fastapi import APIRouter, UploadFile, HTTPException, Depends, File, Query
 import pandas as pd
 from fastapi.responses import StreamingResponse
-import io
-import csv
+from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, asc, desc, func
 from dependencies.permission import PermissionChecker
 from models.cost import CostImport  # 你的模型文件
 from database import get_db_cost
@@ -185,3 +184,77 @@ async def upload_cost_xlsx(
     file_path.write_bytes(contents)
 
     return {"message": "导入完成并已更新现有记录", "saved_file": str(file_path)}
+
+@router.get("/list", summary="查询成本信息（支持筛选、分页、排序）")
+async def list_costs(
+    store: Optional[str] = Query(None, description="筛选门店，例如 MT, NY"),
+    department: Optional[str] = Query(None, description="筛选部门，例如 Donation, Grocery"),
+    month: Optional[str] = Query(None, description="筛选年月，格式 YYYY-MM"),
+    page: int = Query(1, ge=1, description="页码（从 1 开始）"),
+    page_size: int = Query(10, ge=1, le=100, description="每页数量（最多100）"),
+    sort_by: str = Query(
+        "month",
+        description="排序字段，可选 id, store, department, month, cost, created_at, updated_at",
+    ),
+    sort_order: str = Query(
+        "asc",
+        regex="^(asc|desc)$",
+        description="排序方向 asc 或 desc",
+    ),
+    db: AsyncSession = Depends(get_db_cost),
+    user=Depends(PermissionChecker(required_roles=["cost:search"])),
+):
+    # 先构造筛选条件，用于数据查询
+    data_stmt = select(CostImport)
+    if store:
+        data_stmt = data_stmt.where(CostImport.store == store)
+    if department:
+        data_stmt = data_stmt.where(CostImport.department == department)
+    if month:
+        data_stmt = data_stmt.where(CostImport.month == month)
+
+    # 构造计数查询，只统计符合条件的总行数
+    count_stmt = select(func.count()).select_from(CostImport)
+    if store:
+        count_stmt = count_stmt.where(CostImport.store == store)
+    if department:
+        count_stmt = count_stmt.where(CostImport.department == department)
+    if month:
+        count_stmt = count_stmt.where(CostImport.month == month)
+
+    count_result = await db.execute(count_stmt)
+    total = count_result.scalar() or 0
+
+    # 排序
+    sort_column = getattr(CostImport, sort_by)
+    data_stmt = data_stmt.order_by(
+        asc(sort_column) if sort_order == "asc" else desc(sort_column)
+    )
+
+    # 分页
+    offset = (page - 1) * page_size
+    data_stmt = data_stmt.offset(offset).limit(page_size)
+
+    result = await db.execute(data_stmt)
+    records = result.scalars().all()
+
+    total_pages = (total + page_size - 1) // page_size
+
+    return {
+        "total": total,
+        "total_pages": total_pages,
+        "current_page": page,
+        "page_size": page_size,
+        "items": [
+            {
+                "id": rec.id,
+                "store": rec.store,
+                "department": rec.department,
+                "month": rec.month,
+                "cost": float(rec.cost),
+                "created_at": rec.created_at,
+                "updated_at": rec.updated_at,
+            }
+            for rec in records
+        ],
+    }
