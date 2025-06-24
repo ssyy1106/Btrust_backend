@@ -53,11 +53,15 @@ async def download_cost_template(
     # store 开始范围：Reference!A2:A(n+1)
     store_start_row = 2
     store_end_row = store_start_row + len(valid_stores) - 1
-    store_range = f"Reference!A{store_start_row}:A{store_end_row}"
+    #store_range = f"Reference!A{store_start_row}:A{store_end_row}"
     # department 开始范围：Reference!A(len(valid_stores)+4) 到末尾
     dept_start_row = len(valid_stores) + 4
     dept_end_row = dept_start_row + len(valid_departments) - 1
-    dept_range = f"Reference!A{dept_start_row}:A{dept_end_row}"
+    #dept_range = f"Reference!A{dept_start_row}:A{dept_end_row}"
+    # ✅ 定义数据有效性范围 (绝对引用)
+    store_range = f"'Reference'!$A$2:$A${store_end_row}"
+    dept_range = f"'Reference'!$A${dept_start_row}:$A${dept_end_row}"
+
 
     # ✅ 创建数据验证对象
     store_validation = DataValidation(
@@ -79,10 +83,13 @@ async def download_cost_template(
     ws_data.add_data_validation(store_validation)
     ws_data.add_data_validation(dept_validation)
 
+    # ✅ 一次性添加整列范围
+    store_validation.add(f"A2:A500")
+    dept_validation.add(f"B2:B500")
     # ✅ 把验证应用到每一行
-    for row in range(2, 500):  # 500 行范围
-        store_validation.add(ws_data[f"A{row}"])
-        dept_validation.add(ws_data[f"B{row}"])
+    # for row in range(2, 500):  # 500 行范围
+    #     store_validation.add(ws_data[f"A{row}"])
+    #     dept_validation.add(ws_data[f"B{row}"])
 
     # ✅ 输出成字节流
     stream = BytesIO()
