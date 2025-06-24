@@ -1,7 +1,3 @@
-import fastapi.middleware
-import fastapi.middleware.cors
-import fastapi.middleware.httpsredirect
-import fastapi.middleware.wsgi
 from hdbcli import dbapi
 from fastapi import FastAPI, WebSocket, HTTPException, status, Request, Header, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -23,8 +19,8 @@ from mygraphql import graphql_app
 from pydantic import BaseModel
 from helper import LoginShift, verify_token, create_jwt_token, verify_jwt_token, get_user_information
 from graphqlschema.schema import UserInformation
-from routers import invoice, supplier, attachments
-from database import engine, Base
+from routers import invoice, supplier, attachments, cost
+from database import engine, Base_invoice, engine_cost, Base_cost
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -34,8 +30,13 @@ from slowapi.errors import RateLimitExceeded
 async def lifespan(app: FastAPI):
     # 应用启动时执行
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(Base_invoice.metadata.create_all)
     yield
+    # 应用启动时，两个数据库都创建表
+    async with engine.begin() as conn_invoice:
+        await conn_invoice.run_sync(Base_invoice.metadata.create_all)
+    async with engine_cost.begin() as conn_cost:
+        await conn_cost.run_sync(Base_cost.metadata.create_all)
     # 应用关闭时执行（如有需要可以添加清理逻辑）
 
 limiter = Limiter(key_func=get_remote_address)
@@ -53,6 +54,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": str(exc)},
     )
 
+app.include_router(cost.router)
 app.include_router(invoice.router)
 app.include_router(supplier.router)
 app.include_router(attachments.router)

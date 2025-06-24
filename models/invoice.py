@@ -1,12 +1,12 @@
 from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey, JSON, Time, BigInteger, Boolean
 from sqlalchemy.orm import relationship
-from database import Base
+from database import Base_invoice
 import datetime
 from pydantic import BaseModel
 from typing import List, Optional
 from schemas.invoice import InvoiceStatus
 
-class Invoice(Base):
+class Invoice(Base_invoice):
     __tablename__ = "invoice"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -32,7 +32,7 @@ class Invoice(Base):
     attachments = relationship("InvoiceAttachment", back_populates="invoice", lazy="selectin")
 
 
-class InvoiceDetail(Base):
+class InvoiceDetail(Base_invoice):
     __tablename__ = "invoicedetail"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -48,7 +48,7 @@ class InvoiceDetail(Base):
 
     invoice = relationship("Invoice", back_populates="details", lazy="selectin")
 
-class InvoiceAttachment(Base):
+class InvoiceAttachment(Base_invoice):
     __tablename__ = "invoiceattachment"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -67,7 +67,7 @@ class InvoiceAttachment(Base):
         return f"<InvoiceAttachment(id={self.id}, invoiceid={self.invoiceid}, path={self.path})>"
     
 
-class Supplier(Base):
+class Supplier(Base_invoice):
     __tablename__ = "supplier"
 
     id = Column(BigInteger, primary_key=True, index=True)

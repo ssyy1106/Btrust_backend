@@ -109,6 +109,17 @@ def getInvoiceConfig():
     raise Exception("Sorry, no invoice DB config")
 
 @functools.cache
+def getCostConfig():
+    if 'postgresqlcost' in CONFIG:
+        USERNAME = CONFIG['postgresqlcost']['username']
+        PASSWORD = CONFIG['postgresqlcost']['password']
+        HOST = CONFIG['postgresqlcost']['host']
+        DATABASE = CONFIG['postgresqlcost']['database']
+        PORT = CONFIG['postgresqlcost']['port']
+        return (USERNAME, PASSWORD, HOST, DATABASE, PORT)
+    raise Exception("Sorry, no cost DB config")
+
+@functools.cache
 def getStore():
     if 'stores' in CONFIG:
         stores = CONFIG['stores']['store'].split(",")
