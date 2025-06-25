@@ -252,6 +252,8 @@ class MonthPaymentData:
 class MonthSummary:
     totalamount: float
     items: int
+    totalcost: float  # 新增
+    grossprofit: float  # 新增
 
 @strawberry.type
 class MonthDetail:
@@ -262,6 +264,8 @@ class MonthDetail:
     idkind: str
     name: str
     transactions: int
+    cost: float  # 新增
+    grossprofit: float  # 新增
 
 @strawberry.type
 class MonthData:
