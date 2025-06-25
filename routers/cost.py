@@ -196,9 +196,13 @@ async def upload_cost_xlsx(
 async def list_costs(
     store: Optional[str] = Query(None, description="筛选门店，例如 MT, NY"),
     department: Optional[str] = Query(None, description="筛选部门，例如 Donation, Grocery"),
-    month: Optional[str] = Query(None, description="筛选年月，格式 YYYY-MM"),
+    month: Optional[str] = Query(
+        None,
+        regex=r"^\d{4}-(0[1-9]|1[0-2])$",
+        description="筛选年月，格式 YYYY-MM",
+    ),
     page: int = Query(1, ge=1, description="页码（从 1 开始）"),
-    page_size: int = Query(10, ge=1, le=100, description="每页数量（最多100）"),
+    page_size: int = Query(10, ge=1, le=1000000, description="每页数量（最多100）"),
     sort_by: str = Query(
         "month",
         description="排序字段，可选 id, store, department, month, cost, created_at, updated_at",
