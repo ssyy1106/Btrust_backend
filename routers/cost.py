@@ -14,6 +14,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from io import BytesIO
 from helper import getStore
 from graphqlschema.department import getDepartments
+import re
 
 router = APIRouter(prefix="/costs", tags=["Cost"])
 BASE_DIR = Path(__file__).parent.parent  # 退一级
@@ -145,6 +146,12 @@ async def upload_cost_xlsx(
             month = month_cell.strftime("%Y-%m")
         else:
             month = str(month_cell)[:7]
+        # ✅ 校验 month 格式
+        if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
+            raise HTTPException(
+                status_code=400,
+                detail=f"第{i}行: month 格式错误，应为 YYYY-MM，而不是 '{month}'"
+            )
         cost = row[col_idx["cost"]]
 
         if not store or not dept or not month or cost is None:
