@@ -242,8 +242,11 @@ def getMonthData(param: MonthSearchParameter) -> MonthData:
                         month, store_name, sale_amount, id_value, transactions = row
                         if kind == 'Department':
                             # 将部门ID转成部门英文名再取成本
-                            department_name = id_to_name.get(id_value, "")
-                            cost_amount = cost_map.get((store_name, month, department_name), 0.0)
+                            try:
+                                department_name = id_to_name.get(int(id_value), "")
+                                cost_amount = cost_map.get((store_name, month, department_name), 0.0)
+                            except:
+                                cost_amount = 0.0
                         else:
                             cost_amount = 0.0
 
@@ -263,7 +266,7 @@ def getMonthData(param: MonthSearchParameter) -> MonthData:
                         grossprofit=gross_profit,
                     )
                     if kind in ('Department', 'SubDepartment') and id_value.isdigit():
-                        detail.name = id_to_name.get(id_value, "")
+                        detail.name = id_to_name.get(int(id_value), "")
                     details.append(detail)
 
                 end = datetime.datetime.now()
