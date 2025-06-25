@@ -72,10 +72,10 @@ def getMonthData(param: MonthSearchParameter) -> MonthData:
                 # 🆕 Fetch cost data
                 if kind == 'Department':
                     cost_sql = f"""
-                        select store, month, department_name, sum(cost) as total_cost
+                        select store, month, department, sum(cost) as total_cost
                         from cost_imports
                         where month between '{from_month}' and '{to_month}' and store in {store}
-                        group by store, month, department_name
+                        group by store, month, department
                     """
                     cursor.execute(cost_sql)
                     cost_rows = cursor.fetchall()
