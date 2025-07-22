@@ -184,13 +184,19 @@ def getMonthData(param: MonthSearchParameter) -> MonthData:
                 cursor.execute(sql)
                 for row in cursor.fetchall():
                     products.append(Product(totalamount=row[0], upc=getUPC(row[1])))
-
+                # 从day_hour_aggregate中得到transactions数值，这样没有重复
                 sql = f"""
-                    select month, store, sum(total_amount) as total_amount, sum(transactions) as transactions
-                    from {table}
-                    where month between '{from_month}' and '{to_month}' and store in {store}
-                    group by store, month
+                    select left(day,7) as month, store, sum(amount_before_tax) as total_amount, sum(transactions) as transactions
+                    from day_hour_aggregate
+                    where left(day,7) between '{from_month}' and '{to_month}' and store in {store}
+                    group by store, left(day,7)
                 """
+                # sql = f"""
+                #     select month, store, sum(total_amount) as total_amount, sum(transactions) as transactions
+                #     from {table}
+                #     where month between '{from_month}' and '{to_month}' and store in {store}
+                #     group by store, month
+                # """
             else:
                 sql = f"""
                     select month, store, total_amount, {column}, transactions
