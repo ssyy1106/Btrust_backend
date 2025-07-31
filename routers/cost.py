@@ -21,6 +21,31 @@ BASE_DIR = Path(__file__).parent.parent  # 退一级
 UPLOAD_DIR = BASE_DIR / "uploads" / "costs"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+def parse_year_month(year_str: str, month_str: str) -> str:
+    """将 year 和 month 字符串合并为 YYYY-MM 格式，支持 '07' 或 'Jul' """
+    month_map = {
+        'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04',
+        'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08',
+        'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
+    }
+
+    if not re.fullmatch(r"\d{4}", year_str):
+        raise ValueError(f"年份格式错误: {year_str}")
+
+    month_str = month_str.strip().capitalize()
+
+    if month_str.isdigit():
+        if 1 <= int(month_str) <= 12:
+            month_num = month_str.zfill(2)
+        else:
+            raise ValueError(f"无效数字月份: {month_str}")
+    elif month_str in month_map:
+        month_num = month_map[month_str]
+    else:
+        raise ValueError(f"无效英文月份缩写: {month_str}")
+
+    return f"{year_str}-{month_num}"
+
 @router.get("/template", summary="下载成本录入模板（含限制）")
 async def download_cost_template(
     user=Depends(PermissionChecker(required_roles=["cost:download"])),
@@ -35,7 +60,8 @@ async def download_cost_template(
     # ✅ 先创建 Data sheet
     ws_data = wb.active
     ws_data.title = "Data"
-    ws_data.append(["store", "department", "month", "cost"])
+    # ws_data.append(["store", "department", "month", "cost"])
+    ws_data.append(["store", "department", "year", "month", "cost"])
 
     # ✅ 创建 Reference sheet
     ws_ref = wb.create_sheet(title="Reference")
@@ -109,26 +135,22 @@ async def upload_cost_xlsx(
     db: AsyncSession = Depends(get_db_cost),
     user=Depends(PermissionChecker(required_roles=["cost:insert"])),
 ):
-    # ✅ 检查扩展名
     if not file.filename.endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="请上传 xlsx 文件")
 
     contents = await file.read()
 
-    # ✅ 用 openpyxl 加载工作簿
     try:
         wb = load_workbook(BytesIO(contents), data_only=True)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"无法读取文件: {e}")
 
-    # ✅ 获取 Data sheet
     if "Data" not in wb.sheetnames:
         raise HTTPException(status_code=400, detail="缺少 Data sheet")
     ws = wb["Data"]
 
-    # ✅ 获取标题行并检查必需列
     header = [str(cell.value).strip().lower() for cell in next(ws.iter_rows(max_row=1))]
-    required_cols = {"store", "department", "month", "cost"}
+    required_cols = {"store", "department", "year", "month", "cost"}
     if not required_cols.issubset(header):
         raise HTTPException(status_code=400, detail=f"缺少必须列: {required_cols}")
 
@@ -136,42 +158,37 @@ async def upload_cost_xlsx(
     valid_stores = getStore()
     valid_departments = [item.name["en_us"] for item in getDepartments(None).departments]
 
-    # ✅ 遍历数据行
     for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-        store = str(row[col_idx["store"]]).strip() if row[col_idx["store"]] is not None else None
-        dept = str(row[col_idx["department"]]).strip() if row[col_idx["department"]] is not None else None
-        # month = str(row[col_idx["month"]]).strip() if row[col_idx["month"]] is not None else None
+        store = str(row[col_idx["store"]]).strip() if row[col_idx["store"]] else None
+        dept = str(row[col_idx["department"]]).strip() if row[col_idx["department"]] else None
+        year_cell = row[col_idx["year"]]
         month_cell = row[col_idx["month"]]
-        if isinstance(month_cell, (datetime.date, datetime.datetime)):
-            month = month_cell.strftime("%Y-%m")
-        else:
-            month = str(month_cell)[:7]
-        # ✅ 校验 month 格式
-        if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
-            raise HTTPException(
-                status_code=400,
-                detail=f"第{i}行: month 格式错误，应为 YYYY-MM，而不是 '{month}'"
-            )
         cost = row[col_idx["cost"]]
 
-        if not store or not dept or not month or cost is None:
-            continue  # 跳过空行
+        if not store or not dept or year_cell is None or month_cell is None or cost is None:
+            continue
+
+        year = str(year_cell).strip()
+        month = str(month_cell).strip()
+
+        try:
+            month_str = parse_year_month(year, month)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"第{i}行: {e}")
 
         if store not in valid_stores:
             raise HTTPException(status_code=400, detail=f"第{i}行: {store} 不是有效门店")
         if dept not in valid_departments:
             raise HTTPException(status_code=400, detail=f"第{i}行: {dept} 不是有效部门")
-
         try:
             cost = float(cost)
         except Exception:
             raise HTTPException(status_code=400, detail=f"第{i}行: cost 值无效 '{row[col_idx['cost']]}'")
 
-        # ✅ 判断数据库中是否有相同记录
         stmt = select(CostImport).where(
             CostImport.store == store,
             CostImport.department == dept,
-            CostImport.month == month,
+            CostImport.month == month_str,
         )
         result = await db.execute(stmt)
         existing = result.scalar_one_or_none()
@@ -183,7 +200,7 @@ async def upload_cost_xlsx(
             new_record = CostImport(
                 store=store,
                 department=dept,
-                month=month,
+                month=month_str,
                 cost=cost,
                 created_at=datetime.datetime.now(),
                 updated_at=datetime.datetime.now(),
@@ -192,12 +209,12 @@ async def upload_cost_xlsx(
 
     await db.commit()
 
-    # ✅ 持久化原始上传文件
     filename = f"{datetime.datetime.now():%Y%m%d%H%M%S}_{file.filename}"
     file_path = UPLOAD_DIR / filename
     file_path.write_bytes(contents)
 
     return {"message": "导入完成并已更新现有记录", "saved_file": str(file_path)}
+
 
 @router.get("/list", summary="查询成本信息（支持筛选、分页、排序）")
 async def list_costs(
