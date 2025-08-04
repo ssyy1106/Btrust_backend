@@ -1,0 +1,42 @@
+# class OrderSummary(models.Model):
+#     _name = "order.summary"
+#     _description = "Order Summary by Store and Product"
+#     _auto = False
+
+#     store_name = fields.Char(string="Store", readonly=True)
+#     product_name = fields.Char(string="Product", readonly=True)
+#     total_quantity = fields.Float(string="Total Quantity", readonly=True)
+#     #order_date = fields.Date(string="Order Date", readonly=True)  # 添加日期字段用于过滤
+#     order_date = fields.Datetime(string="Order Datetime", readonly=True)
+
+#     in_fixed_shift = fields.Boolean(string="In 16~16 Slot", compute="_compute_fixed_shift", store=False)
+
+#     @api.depends('order_date')
+#     def _compute_fixed_shift(self):
+#         now = fields.Datetime.context_timestamp(self, datetime.now())
+#         # Always calculate "yesterday 16:00 to today 16:00"
+#         today_16 = now.replace(hour=16, minute=0, second=0, microsecond=0)
+#         range_end = today_16
+#         range_start = today_16 - timedelta(days=1)
+#         for rec in self:
+#             rec.in_fixed_shift = range_start <= rec.order_date < range_end
+
+#     def init(self):
+#         self.env.cr.execute("DROP VIEW IF EXISTS %s" % self._table)
+#         self.env.cr.execute("""
+#             CREATE VIEW %s AS (
+#                 SELECT
+#                     row_number() OVER () as id,
+#                     rc.name as store_name,
+#                     pt.name->>'en_US' as product_name,
+#                     SUM(sol.product_uom_qty) as total_quantity,
+#                     so.date_order as order_date  -- ⬅️ 使用 datetime，不再是 date
+#                 FROM sale_order_line sol
+#                 JOIN sale_order so ON sol.order_id = so.id
+#                 JOIN res_company rc ON so.company_id = rc.id
+#                 JOIN product_product pp ON sol.product_id = pp.id
+#                 JOIN product_template pt ON pp.product_tmpl_id = pt.id
+#                 WHERE so.state IN ('sale', 'done')
+#                 GROUP BY rc.name, pt.name, so.date_order
+#             )
+#         """ % self._table)
