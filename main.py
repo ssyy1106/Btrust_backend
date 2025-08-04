@@ -54,11 +54,6 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": str(exc)},
     )
 
-app.include_router(cost.router)
-app.include_router(invoice.router)
-app.include_router(supplier.router)
-app.include_router(attachments.router)
-app.include_router(stock.router)
 origins = [
     "http://localhost:3000",
     "http://172.16.10.106:3000",
@@ -79,6 +74,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(cost.router)
+app.include_router(invoice.router)
+app.include_router(supplier.router)
+app.include_router(attachments.router)
+app.include_router(stock.router)
 
 app.include_router(graphql_app, prefix="/graphql")
 configFile = 'config.ini'

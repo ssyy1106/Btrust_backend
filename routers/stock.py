@@ -24,14 +24,17 @@ router = APIRouter(prefix="/stock", tags=["Stock"])
 
 # 用于记录操作日志
 async def log_operation(db: AsyncSession, api_name: str, request_data, response_data):
-    log = OperateLog(
-        api_name=api_name,
-        request_payload=jsonable_encoder(request_data),
-        response_payload=jsonable_encoder(response_data),
-        create_time=datetime.now()
-    )
-    db.add(log)
-    await db.commit()
+    try:
+        log = OperateLog(
+            api_name=api_name,
+            request_payload=jsonable_encoder(request_data),
+            response_payload=jsonable_encoder(response_data),
+            create_time=datetime.now()
+        )
+        db.add(log)
+        await db.commit()
+    except:
+        pass  # 失败也不抛出
 
 
 @router.post("/", response_model=StocktakeSessionOut)
