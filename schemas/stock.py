@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
 from datetime import datetime
 
 
@@ -12,6 +12,7 @@ class StocktakeItemBase(BaseModel):
 
 
 class StocktakeUpload(BaseModel):
+    id: str
     timestamp: datetime
     deviceId: str
     stocktake: List[StocktakeItemBase]
@@ -31,7 +32,7 @@ class StocktakeItemOut(BaseModel):
         orm_mode = True
 
 class StocktakeSessionWithItems(BaseModel):
-    id: int
+    id: str
     device_id: str
     timestamp: datetime
     create_time: datetime
@@ -42,7 +43,7 @@ class StocktakeSessionWithItems(BaseModel):
         orm_mode = True
 
 class StocktakeSessionOut(BaseModel):
-    id: int
+    id: str
     device_id: str
     timestamp: datetime
     create_time: datetime
@@ -55,7 +56,7 @@ class StocktakeSessionOut(BaseModel):
 class OperateLogOut(BaseModel):
     id: int
     api_name: str
-    request_payload: dict
+    request_payload: Dict[str, Any]
     response_payload: Optional[dict]
     create_time: datetime
 

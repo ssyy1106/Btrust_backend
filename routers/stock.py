@@ -37,8 +37,14 @@ async def log_operation(db: AsyncSession, api_name: str, request_data, response_
 @router.post("/", response_model=StocktakeSessionOut)
 async def upload_stocktake(data: StocktakeUpload, db: AsyncSession = Depends(get_db_stock)):
     try:
+        session_id = data.id
+
+        # 删除旧记录
+        await db.execute(delete(StocktakeItem).where(StocktakeItem.session_id == session_id))
+        await db.execute(delete(StocktakeSession).where(StocktakeSession.id == session_id))
         now = datetime.now()
         session = StocktakeSession(
+            id=session_id,
             device_id=data.deviceId,
             timestamp=data.timestamp,
             creator_id=0,
@@ -47,12 +53,11 @@ async def upload_stocktake(data: StocktakeUpload, db: AsyncSession = Depends(get
             update_time=now
         )
         db.add(session)
-        await db.flush()  # 获取 session.id
 
         for item in data.stocktake:
             db_item = StocktakeItem(
                 id=item.id,
-                session_id=session.id,
+                session_id=session_id,
                 location=item.location,
                 barcode=item.barcode,
                 qty=item.qty,
@@ -86,7 +91,7 @@ async def upload_stocktake(data: StocktakeUpload, db: AsyncSession = Depends(get
 
 @router.get("/", response_model=List[StocktakeSessionWithItems])
 async  def search_stocktake(
-    session_id: Optional[int] = Query(None),
+    session_id: Optional[str] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     db: AsyncSession = Depends(get_db_stock)
@@ -109,7 +114,7 @@ async  def search_stocktake(
 
 # 获取某个 session 的详细信息（含 items）
 @router.get("/{session_id}", response_model=StocktakeSessionOut)
-async def get_session_detail(session_id: int, db: AsyncSession = Depends(get_db_stock)):
+async def get_session_detail(session_id: str, db: AsyncSession = Depends(get_db_stock)):
     session_result = await db.execute(
         select(StocktakeSession).where(StocktakeSession.id == session_id)
     )
@@ -123,10 +128,10 @@ async def get_session_detail(session_id: int, db: AsyncSession = Depends(get_db_
 # 更新整个 session（先删除旧的 items，再插入新的）
 @router.put("/{session_id}", response_model=StocktakeSessionOut)
 async def update_session(
-    session_id: int,
     session_data: StocktakeUpload,
     db: AsyncSession = Depends(get_db_stock),
 ):
+    session_id = session_data.id
     # 查询 session
     session_result = await db.execute(
         select(StocktakeSession).where(StocktakeSession.id == session_id)
@@ -141,14 +146,15 @@ async def update_session(
     )
 
     # 更新 session 元数据
-    for field, value in session_data.model_dump(exclude_unset=True, exclude={"items"}).items():
+    for field, value in session_data.model_dump(exclude_unset=True, exclude={"stocktake"}).items():
         setattr(session, field, value)
     session.update_time = datetime.now()
 
     # 插入新 items
-    for item_data in session_data.items:
-        item = StocktakeItem(**item_data.model_dump(), session_id=session_id)
-        item.create_time = item.update_time = datetime.now()
+    for item_data in session_data.stocktake:
+        item_dict = item_data.model_dump()
+        item_dict["session_id"] = session_id
+        item = StocktakeItem(**item_dict)
         db.add(item)
 
     await db.commit()
@@ -159,7 +165,7 @@ async def update_session(
 
 # 删除整个 session（级联删除 items）
 @router.delete("/{session_id}")
-async def delete_session(session_id: int, db: AsyncSession = Depends(get_db_stock)):
+async def delete_session(session_id: str, db: AsyncSession = Depends(get_db_stock)):
     session_result = await db.execute(
         select(StocktakeSession).where(StocktakeSession.id == session_id)
     )

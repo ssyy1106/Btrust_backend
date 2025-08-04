@@ -1,0 +1,33 @@
+-- 主表：每次设备上传的盘点记录集合
+CREATE TABLE stocktake_session (
+    id UUID PRIMARY KEY,
+    device_id VARCHAR NOT NULL,
+    timestamp TIMESTAMP WITH TIME ZONE NOT NULL,         -- 前端上传时间
+    creator_id INTEGER,
+    modifier_id INTEGER,
+    create_time TIMESTAMP WITH TIME ZONE DEFAULT now(),  -- 后端接收时间
+    update_time TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE TABLE stocktake_item (
+    id INTEGER NOT NULL,  -- 前端提供的 id
+    session_id UUID NOT NULL REFERENCES stocktake_session(id) ON DELETE CASCADE,
+    location VARCHAR NOT NULL,
+    barcode VARCHAR NOT NULL,
+    qty INTEGER NOT NULL,
+    time TIMESTAMP WITH TIME ZONE NOT NULL,              -- 前端上传时间
+    creator_id INTEGER,
+    modifier_id INTEGER,
+    create_time TIMESTAMP WITH TIME ZONE DEFAULT now(),  -- 后端接收时间
+    update_time TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    PRIMARY KEY (session_id, id)  -- 联合主键
+);
+
+-- 操作日志表：记录每次 API 调用
+CREATE TABLE operate_log (
+    id SERIAL PRIMARY KEY,
+    api_name VARCHAR NOT NULL,                           -- 接口名，例如 "/stocktake/upload"
+    request_payload JSONB NOT NULL,                      -- 前端上传的完整数据
+    response_payload JSONB,                              -- 返回结果（可选）
+    create_time TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
