@@ -18,6 +18,7 @@ from database import get_db_stock
 import traceback
 from typing import Optional, List
 from fastapi.encoders import jsonable_encoder
+from uuid import UUID
 
 
 router = APIRouter(prefix="/stock", tags=["Stock"])
@@ -80,21 +81,23 @@ async def upload_stocktake(data: StocktakeUpload, db: AsyncSession = Depends(get
         return session
 
     except IntegrityError as e:
-        db.rollback()
+        await db.rollback()
         result = {"status": "error", "detail": "Duplicate ID or constraint violation", "info": str(e.orig)}
+        print(f"IntegrityError error: {result} e: {e}")
         await log_operation(db, "POST /", data.model_dump(), result)
         raise HTTPException(status_code=400, detail=result)
 
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         tb = traceback.format_exc()
         result = {"status": "error", "detail": str(e), "trace": tb}
+        print(f"Exception error: {result} e: {e}")
         await log_operation(db, "POST /", data.model_dump(), result)
         raise HTTPException(status_code=500, detail=result)
 
 @router.get("/", response_model=List[StocktakeSessionWithItems])
 async  def search_stocktake(
-    session_id: Optional[str] = Query(None),
+    session_id: Optional[UUID] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     db: AsyncSession = Depends(get_db_stock)
@@ -117,7 +120,7 @@ async  def search_stocktake(
 
 # 获取某个 session 的详细信息（含 items）
 @router.get("/{session_id}", response_model=StocktakeSessionOut)
-async def get_session_detail(session_id: str, db: AsyncSession = Depends(get_db_stock)):
+async def get_session_detail(session_id: UUID, db: AsyncSession = Depends(get_db_stock)):
     session_result = await db.execute(
         select(StocktakeSession).where(StocktakeSession.id == session_id)
     )

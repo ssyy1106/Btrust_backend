@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Any, Dict
 from datetime import datetime
+from uuid import UUID
 
 
 class StocktakeItemBase(BaseModel):
@@ -12,7 +13,7 @@ class StocktakeItemBase(BaseModel):
 
 
 class StocktakeUpload(BaseModel):
-    id: str
+    id: UUID
     timestamp: datetime
     deviceId: str
     stocktake: List[StocktakeItemBase]
@@ -24,7 +25,7 @@ class StocktakeItemOut(BaseModel):
     barcode: str
     qty: int
     time: datetime
-    session_id: int
+    session_id: UUID
     create_time: datetime
     update_time: datetime
 
@@ -32,7 +33,7 @@ class StocktakeItemOut(BaseModel):
         orm_mode = True
 
 class StocktakeSessionWithItems(BaseModel):
-    id: str
+    id: UUID
     device_id: str
     timestamp: datetime
     create_time: datetime
@@ -43,7 +44,7 @@ class StocktakeSessionWithItems(BaseModel):
         orm_mode = True
 
 class StocktakeSessionOut(BaseModel):
-    id: str
+    id: UUID
     device_id: str
     timestamp: datetime
     create_time: datetime

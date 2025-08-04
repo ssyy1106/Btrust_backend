@@ -2,6 +2,8 @@ from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from database import Base_stock
 import datetime
+from sqlalchemy.dialects.postgresql import UUID
+import uuid
 
 def utcnow():
     return datetime.datetime.now()
@@ -9,7 +11,7 @@ def utcnow():
 class StocktakeSession(Base_stock):
     __tablename__ = 'stocktake_session'
 
-    id = Column(String, primary_key=True, index=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     device_id = Column(String, nullable=False)
     timestamp = Column(DateTime(timezone=True), nullable=False)  # 前端上传时间
 
@@ -24,7 +26,7 @@ class StocktakeSession(Base_stock):
 class StocktakeItem(Base_stock):
     __tablename__ = 'stocktake_item'
 
-    session_id = Column(String, ForeignKey('stocktake_session.id', ondelete="CASCADE"), primary_key=True)
+    session_id = Column(UUID(as_uuid=True), ForeignKey('stocktake_session.id', ondelete="CASCADE"), primary_key=True)
     id = Column(Integer, primary_key=True)  # 来自前端
     
     location = Column(String, nullable=False)
