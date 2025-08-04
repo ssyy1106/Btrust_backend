@@ -9,7 +9,7 @@ def utcnow():
 class StocktakeSession(Base_stock):
     __tablename__ = 'stocktake_session'
 
-    id = Column(String, primary_key=True, index=True, index=True)
+    id = Column(String, primary_key=True, index=True)
     device_id = Column(String, nullable=False)
     timestamp = Column(DateTime(timezone=True), nullable=False)  # 前端上传时间
 
