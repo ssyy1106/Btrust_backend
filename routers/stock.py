@@ -153,7 +153,8 @@ async def get_stock_by_location(
             "time": item.time,
             "create_time": item.create_time,
         })
-
+    logout = {"status": "success", "location_data": location_data}
+    await log_operation(db, f"get /by-location", {"start_date": start_date, "end_date": end_date}, logout)
     return location_data
 
 @router.get("/by-location/export")
@@ -194,7 +195,8 @@ async def export_stock_by_location(
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
         file_path = tmp.name
         df.to_excel(file_path, index=False)
-
+    logout = {"status": "success", "data": data}
+    await log_operation(db, f"get /by-location/export", {"start_date": start_date, "end_date": end_date}, logout)
     return FileResponse(
         path=file_path,
         filename="stock_by_location.xlsx",
