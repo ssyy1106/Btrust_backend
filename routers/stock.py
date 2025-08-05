@@ -3,8 +3,8 @@ from fastapi import APIRouter, Depends, Query, HTTPException, File, UploadFile, 
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
-from fastapi.responses import JSONResponse
+from sqlalchemy import select, delete, and_
+from fastapi.responses import JSONResponse, FileResponse
 from datetime import datetime
 from models.stock import OperateLog, StocktakeSession, StocktakeItem
 from schemas.stock import (
@@ -12,13 +12,19 @@ from schemas.stock import (
     StocktakeUpload,
     StocktakeItemOut, 
     StocktakeItemBase, 
-    StocktakeSessionWithItems
+    StocktakeSessionWithItems,
+    StockByLocationResponse
 )
+from collections import defaultdict
 from database import get_db_stock
 import traceback
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from fastapi.encoders import jsonable_encoder
 from uuid import UUID
+from helper import log_and_save
+import pandas as pd
+import os
+import tempfile
 
 
 router = APIRouter(prefix="/stock", tags=["Stock"])
@@ -26,6 +32,7 @@ router = APIRouter(prefix="/stock", tags=["Stock"])
 # 用于记录操作日志
 async def log_operation(db: AsyncSession, api_name: str, request_data, response_data):
     try:
+        log_and_save('INFO', f"api_name: {api_name} request_data: {request_data} response_data: {response_data}")
         log = OperateLog(
             api_name=api_name,
             request_payload=jsonable_encoder(request_data),
@@ -118,6 +125,82 @@ async  def search_stocktake(
     await log_operation(db, f"get /", {"session_id": session_id, "start_date": start_date, "end_date": end_date}, logout)
     return sessions
 
+@router.get("/by-location", response_model=StockByLocationResponse)
+async def get_stock_by_location(
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+    db: AsyncSession = Depends(get_db_stock)
+):
+    conditions = []
+    if start_date:
+        conditions.append(StocktakeItem.time >= start_date)
+    if end_date:
+        conditions.append(StocktakeItem.time <= end_date)
+
+    stmt = select(StocktakeItem)
+    if conditions:
+        stmt = stmt.where(and_(*conditions))
+
+    result = await db.execute(stmt)
+    items = result.scalars().all()
+
+    location_data = defaultdict(list)
+    for item in items:
+        location_data[item.location].append({
+            "session_id": str(item.session_id),
+            "barcode": item.barcode,
+            "qty": item.qty,
+            "time": item.time,
+            "create_time": item.create_time,
+        })
+
+    return location_data
+
+@router.get("/by-location/export")
+async def export_stock_by_location(
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+    db: AsyncSession = Depends(get_db_stock)
+):
+    conditions = []
+    if start_date:
+        conditions.append(StocktakeItem.time >= start_date)
+    if end_date:
+        conditions.append(StocktakeItem.time <= end_date)
+
+    stmt = select(StocktakeItem)
+    if conditions:
+        stmt = stmt.where(and_(*conditions))
+
+    result = await db.execute(stmt)
+    items = result.scalars().all()
+
+    if not items:
+        raise HTTPException(status_code=404, detail="No data found for the given time range.")
+
+    data = [{
+        "Location": item.location,
+        "Barcode": item.barcode,
+        "Quantity": item.qty,
+        "Item Time": item.time.replace(tzinfo=None),         # 去掉时区
+        "Session ID": str(item.session_id),
+        "Created At": item.create_time.replace(tzinfo=None),  # 去掉时区
+    } for item in items]
+
+    df = pd.DataFrame(data)
+    df.sort_values(by=["Location", "Item Time"], inplace=True)
+
+    # ✅ 使用 tempfile 创建临时文件路径
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+        file_path = tmp.name
+        df.to_excel(file_path, index=False)
+
+    return FileResponse(
+        path=file_path,
+        filename="stock_by_location.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
 # 获取某个 session 的详细信息（含 items）
 @router.get("/{session_id}", response_model=StocktakeSessionOut)
 async def get_session_detail(session_id: UUID, db: AsyncSession = Depends(get_db_stock)):
@@ -191,3 +274,5 @@ async def delete_session(session_id: str, db: AsyncSession = Depends(get_db_stoc
     result = {"status": "deleted", "session_id": session_id}
     await log_operation(db, f"delete /{session_id}", {"session_id": session_id}, result)
     return result
+
+

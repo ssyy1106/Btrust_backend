@@ -4,6 +4,15 @@ from datetime import datetime
 from uuid import UUID
 
 
+class StockByLocationItem(BaseModel):
+    session_id: str
+    barcode: str
+    qty: int
+    time: datetime
+    create_time: datetime
+
+StockByLocationResponse = Dict[str, List[StockByLocationItem]]
+
 class StocktakeItemBase(BaseModel):
     id: int
     location: str
