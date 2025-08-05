@@ -192,9 +192,9 @@ async def export_stock_by_location(
         "Location": item.location,
         "Barcode": item.barcode,
         "Quantity": item.qty,
-        "Item Time": item.time.replace(tzinfo=None),         # 去掉时区
+        "Stock Take Date": item.time.replace(tzinfo=None),         # 去掉时区
         # "Session ID": str(item.session_id),
-        "Created At": item.create_time.replace(tzinfo=None),  # 去掉时区
+        "Upload Date": item.create_time.replace(tzinfo=None),  # 去掉时区
     } for item in items]
 
     df = pd.DataFrame(data)
