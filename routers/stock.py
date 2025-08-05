@@ -198,7 +198,7 @@ async def export_stock_by_location(
     } for item in items]
 
     df = pd.DataFrame(data)
-    df.sort_values(by=["Location", "Item Time"], inplace=True)
+    df.sort_values(by=["Location", "Stock Take Date"], inplace=True)
 
     # ✅ 使用 tempfile 创建临时文件路径
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
