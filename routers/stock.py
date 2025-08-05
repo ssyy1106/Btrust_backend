@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, and_
 from fastapi.responses import JSONResponse, FileResponse
-from datetime import datetime
+from datetime import datetime, timedelta
 from models.stock import OperateLog, StocktakeSession, StocktakeItem
 from schemas.stock import (
     StocktakeSessionOut,
@@ -116,6 +116,9 @@ async  def search_stocktake(
     if start_date:
         stmt = stmt.where(StocktakeSession.timestamp >= start_date)
     if end_date:
+        # 如果 end_date 没有时分秒，则添加 1 天再减 1 微秒，变成当日 23:59:59.999999
+        if end_date.time() == datetime.min.time():
+            end_date = end_date + timedelta(days=1) - timedelta(microseconds=1)
         stmt = stmt.where(StocktakeSession.timestamp <= end_date)
 
     stmt = stmt.order_by(StocktakeSession.timestamp.desc())
@@ -135,6 +138,9 @@ async def get_stock_by_location(
     if start_date:
         conditions.append(StocktakeItem.time >= start_date)
     if end_date:
+        # 如果 end_date 没有时分秒，则添加 1 天再减 1 微秒，变成当日 23:59:59.999999
+        if end_date.time() == datetime.min.time():
+            end_date = end_date + timedelta(days=1) - timedelta(microseconds=1)
         conditions.append(StocktakeItem.time <= end_date)
 
     stmt = select(StocktakeItem)
@@ -167,6 +173,9 @@ async def export_stock_by_location(
     if start_date:
         conditions.append(StocktakeItem.time >= start_date)
     if end_date:
+        # 如果 end_date 没有时分秒，则添加 1 天再减 1 微秒，变成当日 23:59:59.999999
+        if end_date.time() == datetime.min.time():
+            end_date = end_date + timedelta(days=1) - timedelta(microseconds=1)
         conditions.append(StocktakeItem.time <= end_date)
 
     stmt = select(StocktakeItem)
@@ -184,7 +193,7 @@ async def export_stock_by_location(
         "Barcode": item.barcode,
         "Quantity": item.qty,
         "Item Time": item.time.replace(tzinfo=None),         # 去掉时区
-        "Session ID": str(item.session_id),
+        # "Session ID": str(item.session_id),
         "Created At": item.create_time.replace(tzinfo=None),  # 去掉时区
     } for item in items]
 
