@@ -24,19 +24,22 @@ from database import engine, Base_invoice, engine_cost, Base_cost
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from init_db import init_db
  
 #app = FastAPI()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 应用启动时执行
-    async with engine.begin() as conn:
-        await conn.run_sync(Base_invoice.metadata.create_all)
+    await init_db()
     yield
-    # 应用启动时，两个数据库都创建表
-    async with engine.begin() as conn_invoice:
-        await conn_invoice.run_sync(Base_invoice.metadata.create_all)
-    async with engine_cost.begin() as conn_cost:
-        await conn_cost.run_sync(Base_cost.metadata.create_all)
+    # async with engine.begin() as conn:
+    #     await conn.run_sync(Base_invoice.metadata.create_all)
+    # yield
+    # # 应用启动时，两个数据库都创建表
+    # async with engine.begin() as conn_invoice:
+    #     await conn_invoice.run_sync(Base_invoice.metadata.create_all)
+    # async with engine_cost.begin() as conn_cost:
+    #     await conn_cost.run_sync(Base_cost.metadata.create_all)
     # 应用关闭时执行（如有需要可以添加清理逻辑）
 
 limiter = Limiter(key_func=get_remote_address)
