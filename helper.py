@@ -120,15 +120,15 @@ def getStockConfig():
     raise Exception("Sorry, no stock DB config")
 
 @functools.cache
-def getPickUpConfig():
-    if 'postgresqlpickup' in CONFIG:
-        USERNAME = CONFIG['postgresqlpickup']['username']
-        PASSWORD = CONFIG['postgresqlpickup']['password']
-        HOST = CONFIG['postgresqlpickup']['host']
-        DATABASE = CONFIG['postgresqlpickup']['database']
-        PORT = CONFIG['postgresqlpickup']['port']
+def getOdooConfig():
+    if 'postgresqlodoo' in CONFIG:
+        USERNAME = CONFIG['postgresqlodoo']['username']
+        PASSWORD = CONFIG['postgresqlodoo']['password']
+        HOST = CONFIG['postgresqlodoo']['host']
+        DATABASE = CONFIG['postgresqlodoo']['database']
+        PORT = CONFIG['postgresqlodoo']['port']
         return (USERNAME, PASSWORD, HOST, DATABASE, PORT)
-    raise Exception("Sorry, no pickup DB config")
+    raise Exception("Sorry, no odoo DB config")
 
 @functools.cache
 def getStoreStockConfig():

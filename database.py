@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
-from helper import getInvoiceConfig, getCostConfig, getStockConfig, getPickUpConfig, getStoreStockConfig
+from helper import getInvoiceConfig, getCostConfig, getStockConfig, getOdooConfig, getStoreStockConfig
 
 (USERNAME, PASSWORD, HOST, DATABASE, PORT) = getInvoiceConfig()
 DATABASE_URL_INVOICE = f"postgresql+asyncpg://{USERNAME}:{PASSWORD}@{HOST}:{PORT}/{DATABASE}"
@@ -35,15 +35,15 @@ async def get_db_stock():
     async with AsyncSessionLocal_stock() as session:
         yield session
 
-(USERNAME, PASSWORD, HOST, DATABASE, PORT) = getPickUpConfig()
-DATABASE_URL_PICKUP = f"postgresql+asyncpg://{USERNAME}:{PASSWORD}@{HOST}:{PORT}/{DATABASE}"
-engine_pickup = create_async_engine(DATABASE_URL_PICKUP, echo=True)
-AsyncSessionLocal_pickup = sessionmaker(bind=engine_pickup, class_=AsyncSession, expire_on_commit=False)
+(USERNAME, PASSWORD, HOST, DATABASE, PORT) = getOdooConfig()
+DATABASE_URL_ODOO = f"postgresql+asyncpg://{USERNAME}:{PASSWORD}@{HOST}:{PORT}/{DATABASE}"
+engine_odoo = create_async_engine(DATABASE_URL_ODOO, echo=True)
+AsyncSessionLocal_odoo = sessionmaker(bind=engine_odoo, class_=AsyncSession, expire_on_commit=False)
 
-Base_pickup = declarative_base()
+Base_odoo = declarative_base()
 
-async def get_db_pickup():
-    async with AsyncSessionLocal_pickup() as session:
+async def get_db_odoo():
+    async with AsyncSessionLocal_odoo() as session:
         yield session
 
 (USERNAME, PASSWORD, HOST, DATABASE, PORT) = getStoreStockConfig()

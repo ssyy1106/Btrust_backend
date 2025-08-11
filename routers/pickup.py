@@ -6,8 +6,9 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dependencies.permission import PermissionChecker
-from models.pickup import SaleOrder, SaleOrderLine, ProductProduct, ResCompany
-from database import get_db_pickup
+from models.pickup import SaleOrder, SaleOrderLine, ResCompany
+from models.product import ProductProduct
+from database import get_db_odoo
 from schemas.pickup import (
     StoreQuantity,
     PickupItem,
@@ -27,7 +28,7 @@ async def get_pickup_summary(
     start_date: Optional[str] = Query(default_factory=default_start, description="起始日期 YYYY-MM-DD"),
     end_date: Optional[str] = Query(default_factory=default_end, description="结束日期 YYYY-MM-DD"),
     shift_hour: int = Query(16, ge=0, le=23, description="班次开始小时"),
-    db: AsyncSession = Depends(get_db_pickup),
+    db: AsyncSession = Depends(get_db_odoo),
     user = Depends(PermissionChecker(required_roles=["pickup:search", "pickup:view"]))
 ):
     # 需要增加user的store筛选，但是现在bos系统和登录系统的store名称不同，暂时不加处理
