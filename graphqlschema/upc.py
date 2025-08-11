@@ -4,7 +4,7 @@ from graphqlschema.schema import UPC, UPCData, UPCSearchParameter
 
 @functools.cache
 def getUPC(id: str) -> UPC:
-        Table, id_col, name_en, name_ch = 'OBJ_TAB', 'F01', 'F29', 'F255'
+        Table, id_col, name_en, name_ch = 'OBJ_TAB', 'F01', 'F29', 'F1940'
         sql = f"select SUBSTRING({id_col}, PATINDEX('%[^0]%', {id_col}+'.'), LEN({id_col})), {name_ch}, {name_en} from {Table} where SUBSTRING({id_col}, PATINDEX('%[^0]%', {id_col}+'.'), LEN({id_col}))='{id}'"
         with getStoreDB('MS') as conn:
             with conn.cursor() as cursor:
@@ -28,7 +28,7 @@ def getUPCs(param: UPCSearchParameter) -> UPCData:
     with getStoreDB('MS') as conn:
         with conn.cursor() as cursor:
             # search from [OBJ_TAB]
-            Table, id_col, name_en, name_ch = 'OBJ_TAB', 'F01', 'F29', 'F255'
+            Table, id_col, name_en, name_ch = 'OBJ_TAB', 'F01', 'F29', 'F1940'
             try:
                 items = 0
                 sql = f"select count(1) from {Table}"

@@ -120,6 +120,28 @@ def getStockConfig():
     raise Exception("Sorry, no stock DB config")
 
 @functools.cache
+def getPickUpConfig():
+    if 'postgresqlpickup' in CONFIG:
+        USERNAME = CONFIG['postgresqlpickup']['username']
+        PASSWORD = CONFIG['postgresqlpickup']['password']
+        HOST = CONFIG['postgresqlpickup']['host']
+        DATABASE = CONFIG['postgresqlpickup']['database']
+        PORT = CONFIG['postgresqlpickup']['port']
+        return (USERNAME, PASSWORD, HOST, DATABASE, PORT)
+    raise Exception("Sorry, no pickup DB config")
+
+@functools.cache
+def getStoreStockConfig():
+    if 'postgresqlstorestock' in CONFIG:
+        USERNAME = CONFIG['postgresqlstorestock']['username']
+        PASSWORD = CONFIG['postgresqlstorestock']['password']
+        HOST = CONFIG['postgresqlstorestock']['host']
+        DATABASE = CONFIG['postgresqlstorestock']['database']
+        PORT = CONFIG['postgresqlstorestock']['port']
+        return (USERNAME, PASSWORD, HOST, DATABASE, PORT)
+    raise Exception("Sorry, no storestock DB config")
+
+@functools.cache
 def getCostConfig():
     if 'postgresqlcost' in CONFIG:
         USERNAME = CONFIG['postgresqlcost']['username']
