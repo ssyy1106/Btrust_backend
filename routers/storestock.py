@@ -42,7 +42,8 @@ async def update_stock(
             .values(
                 quantity=entry.quantity,
                 update_time=now,
-                modifier_id=int(user.id)
+                modifier_id=int(user.id),
+                modifier_name=user.realname
             )
             .returning(StoreStock.id)
         )
@@ -54,7 +55,8 @@ async def update_stock(
                     store=store,
                     quantity=entry.quantity,
                     update_time=now,
-                    modifier_id=int(user.id)
+                    modifier_id=int(user.id),
+                    modifier_name=user.realname
                 )
             )
     await db.commit()
@@ -88,7 +90,8 @@ async def get_stock(
                 store=row.store,
                 quantity=row.quantity,
                 update_time=row.update_time,
-                modifier_id=row.modifier_id
+                modifier_id=row.modifier_id,
+                modifier_name=row.modifier_name
             )
         )
     

@@ -14,6 +14,7 @@ class StockEntry(BaseModel):
     quantity: int
     update_time: datetime
     modifier_id: int
+    modifier_name: Optional[str]
 
 class StockItem(BaseModel):
     itemCode: str

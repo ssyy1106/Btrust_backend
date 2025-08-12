@@ -1,1 +1,200 @@
-pandas 和 openpyxl
+# -*- coding: utf-8 -*-
+
+from odoo import models, fields, api
+from hdbcli import dbapi
+from odoo.tools import config
+
+
+class sap(models.Model):
+    _name = 'cron.sap'
+    _description = 'cron_sap_onhand.cron_sap_onhand'
+
+    name = fields.Char()
+    on_hand = fields.Integer()
+    description = fields.Text()
+    
+    def get_hana_stock(self, cursor, hana_schema):
+        sqlstr = """SELECT 
+                        OITM."CodeBars" AS "BarCode",
+                        X."DistNumber" AS "BatchNumber",
+                        MAX(OITM."OnHand") AS "ItemTotalQty",
+                        MAX(X."Quantity" - X."QuantOut") AS "BatchQuantity",
+                        MAX(
+                            CASE 
+                                WHEN ITBA_INNER."AttributeValue" IS NULL 
+                                    OR ITBA_INNER."AttributeValue" = '' 
+                                    OR TO_BIGINT(ITBA_INNER."AttributeValue") = 0
+                                    OR X."CostTotal" = 0 
+                                    OR X."Quantity" = 0
+                                THEN 0
+                                ELSE TO_DECIMAL(X."CostTotal"/X."Quantity" * TO_DECIMAL(ITBA_INNER."AttributeValue", 8, 2), 8, 2)
+                            END
+                        ) AS "CostPerCase",
+                        OITM."ItemCode",
+                        OPDN."CardCode" AS "VendorCode",
+                        OPDN."CardName" AS "VendorName"
+                    FROM SBO_BTRUST_LIVE.PMX_INVT 
+                    INNER JOIN SBO_BTRUST_LIVE.OITM 
+                        ON PMX_INVT."ItemCode" = OITM."ItemCode" 
+                    INNER JOIN SBO_BTRUST_LIVE.PMX_ITRI 
+                        ON PMX_INVT."ItemTransactionalInfoKey" = PMX_ITRI."InternalKey" 
+                    INNER JOIN SBO_BTRUST_LIVE.PDN1 
+                        ON OITM."ItemCode" = PDN1."ItemCode" 
+                    INNER JOIN SBO_BTRUST_LIVE.OPDN 
+                        ON PDN1."DocEntry" = OPDN."DocEntry" 
+                    INNER JOIN SBO_BTRUST_LIVE.PMX_INVD 
+                        ON OPDN."ObjType" = PMX_INVD."TransType" 
+                        AND PDN1."DocEntry" = PMX_INVD."DocEntry" 
+                        AND PDN1."LineNum" = PMX_INVD."DocLineNum" 
+                        AND PMX_INVD."ItemTransactionalInfoKey" = PMX_INVT."ItemTransactionalInfoKey" 
+                    LEFT JOIN SBO_BTRUST_LIVE.OBTN X 
+                        ON X."DistNumber" = PMX_ITRI."BatchNumber" 
+                        AND X."ItemCode" = PMX_ITRI."ItemCode" 
+                    LEFT JOIN SBO_BTRUST_LIVE.PMX_ITBA ITBA_INNER 
+                        ON ITBA_INNER."BatchAttributeCode" = 'INNER_PACK' 
+                        AND ITBA_INNER."ItriKey" = PMX_ITRI."InternalKey" 
+                    LEFT JOIN SBO_BTRUST_LIVE.OITB 
+                        ON OITB."ItmsGrpCod" = OITM."ItmsGrpCod"
+                    GROUP BY 
+                        OITM."CodeBars",
+                        X."DistNumber",
+                        OITM."ItemCode",
+                        OPDN."CardCode",
+                        OPDN."CardName"
+            """
+        #print(sqlstr)
+        cursor.execute(sqlstr)
+        res = cursor.fetchall()
+        dic_hana_barcode_stock = {}
+        for stock in res:
+            #dic_hana_barcode_stock[(stock[0], stock[1])] = (stock[3], stock[4], stock[5])
+            dic_hana_barcode_stock[(stock[5], stock[1])] = (stock[3], stock[4], stock[6], stock[7])
+            # if stock[5] == 'G000020':
+            #     print(f"G000020: {stock}")
+        return dic_hana_barcode_stock
+       
+    def get_local_stock(self):
+        # get all internal warehouse locations
+        locations = self.env['stock.location'].search([('usage', '=', 'internal'), ('active', '=', True)])
+        location_ids = [location.id for location in locations]
+        products = self.env['product.product'].search([('active', '=', True), ('barcode', '!=', None)])
+        dic_barcode_productid = {}
+        for product in products:
+            dic_barcode_productid[product.default_code] = product.id
+        return (dic_barcode_productid, location_ids)
+    
+    def get_config(self):
+        # get config from odoo.conf
+        hana_host = config['hana_host']
+        hana_port = config['hana_port']
+        hana_user = config['hana_user']
+        hana_pwd = config['hana_pwd']
+        hana_schema = config['hana_schema']
+        return (hana_host, hana_port, hana_user, hana_pwd, hana_schema)
+
+    def cron_method(self):
+        try:
+            hana_host, hana_port, hana_user, hana_pwd, hana_schema = self.get_config()
+        except:
+            self.create({'on_hand': 500, 'description': 'get config info failed'})
+            return
+
+        self.create({'on_hand': 100, 'description': 'log begin'})
+        conn = None
+        cursor = None
+
+        try:
+            conn = dbapi.connect(
+                address=hana_host,
+                port=hana_port,
+                user=hana_user,
+                password=hana_pwd
+            )
+            cursor = conn.cursor()
+
+            # 1. SAP 数据
+            dic_hana_barcode_stock = self.get_hana_stock(cursor, hana_schema)
+
+            # 2. 本地数据
+            dic_itemcode_productid, locations = self.get_local_stock()
+            update_items = 0
+
+            # 3. 建立 SAP 批次集合：{(item_code, batch_number)}
+            sap_batch_set = set(dic_hana_barcode_stock.keys())
+
+            # 4. 遍历本地所有产品的批次，清理 SAP 中不存在的批次库存
+            for item_code, product_id in dic_itemcode_productid.items():
+                if not product_id:
+                    continue
+                product = self.env['product.product'].browse(product_id)
+                lots = self.env['stock.lot'].search([('product_id', '=', product_id)])
+
+                for lot in lots:
+                    batch_key = (item_code, lot.name)
+                    if batch_key not in sap_batch_set:
+                        # 该批次不在 SAP 中，设为 0
+                        quants = self.env['stock.quant'].search([
+                            ('product_id', '=', product_id),
+                            ('lot_id', '=', lot.id),
+                            ('location_id.usage', '=', 'internal'),
+                            ('quantity', '!=', 0)
+                        ])
+                        for quant in quants:
+                            quant.quantity = 0
+                            quant.reserved_quantity = 0
+
+            # 5. 正常同步 SAP 数据
+            for (item_code, batch_number), (quantity, price, vendor_code, vendor_name) in dic_hana_barcode_stock.items():
+                if item_code in dic_itemcode_productid:
+                    product_id = dic_itemcode_productid[item_code]
+                    if not product_id:
+                        continue
+                    product = self.env['product.product'].browse(product_id)
+
+                    # 查找或创建批次
+                    lot = self.env['stock.lot'].search([
+                        ('name', '=', batch_number),
+                        ('product_id', '=', product_id)
+                    ], limit=1)
+
+                    if lot:
+                        lot.cost_price = price
+                        lot.vendor_code = vendor_code
+                        lot.vendor_name = vendor_name
+                    else:
+                        lot = self.env['stock.lot'].create({
+                            'name': batch_number,
+                            'product_id': product_id,
+                            'cost_price': price,
+                            'vendor_code': vendor_code,
+                            'vendor_name': vendor_name,
+                        })
+
+                    default_location_id = self.env.ref('stock.stock_location_stock').id
+                    quant = self.env['stock.quant'].search([
+                        ('product_id', '=', product_id),
+                        ('lot_id', '=', lot.id),
+                        ('location_id', '=', default_location_id)
+                    ], limit=1)
+
+                    if quant:
+                        quant.quantity = quantity
+                    else:
+                        self.env['stock.quant'].create({
+                            'product_id': product_id,
+                            'lot_id': lot.id,
+                            'location_id': default_location_id,
+                            'quantity': quantity,
+                        })
+
+                    update_items += 1
+
+            self.create({'on_hand': 900, 'description': f'log end updates: {update_items}'})
+        except Exception as e:
+            self.create({'on_hand': 500, 'description': 'error is: ' + str(e)})
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+

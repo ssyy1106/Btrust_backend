@@ -11,3 +11,4 @@ class StoreStock(Base_storestock):
     quantity = Column(Integer, nullable=False)
     update_time = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     modifier_id = Column(BigInteger, nullable=False)
+    modifier_name = Column(String, nullable=True)  # 新增保存用户名字段
