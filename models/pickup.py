@@ -8,6 +8,9 @@ class SaleOrder(Base_odoo):
     date_order = Column(DateTime)
     state = Column(String)  # e.g. 'sale' for confirmed
     company_id = Column(Integer)
+    user_id = Column(Integer, ForeignKey('res_users.id'))  # 下单用户ID
+
+    user = relationship("ResUsers", lazy='joined')
 
 class SaleOrderLine(Base_odoo):
     __tablename__ = 'sale_order_line'

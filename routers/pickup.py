@@ -9,6 +9,7 @@ from helper import getStoreNameOdoo
 from dependencies.permission import PermissionChecker
 from models.pickup import SaleOrder, SaleOrderLine, ResCompany
 from models.product import ProductProduct
+from models.user import ResUsers
 from database import get_db_odoo
 from schemas.pickup import (
     StoreQuantity,
@@ -46,13 +47,29 @@ async def get_pickup_summary(
         )
         .join(SaleOrder, SaleOrderLine.order_id == SaleOrder.id)
         .join(ProductProduct, SaleOrderLine.product_id == ProductProduct.id)
-        .join(ResCompany, SaleOrder.company_id == ResCompany.id)
+        .join(ResUsers, SaleOrder.user_id == ResUsers.id)  # 关联用户
+        .join(ResCompany, ResUsers.company_id == ResCompany.id)  # 关联用户所属公司
         .where(SaleOrder.date_order >= start_dt)
         .where(SaleOrder.date_order < end_dt)
         .where(SaleOrder.state == 'sale')
         .where(ProductProduct.default_code.isnot(None))
         .group_by(ProductProduct.default_code, ResCompany.name)
     )
+    # stmt = (
+    #     select(
+    #         ProductProduct.default_code,
+    #         ResCompany.name.label("company_name"),
+    #         func.sum(SaleOrderLine.product_uom_qty).label("total_quantity")
+    #     )
+    #     .join(SaleOrder, SaleOrderLine.order_id == SaleOrder.id)
+    #     .join(ProductProduct, SaleOrderLine.product_id == ProductProduct.id)
+    #     .join(ResCompany, SaleOrder.company_id == ResCompany.id)
+    #     .where(SaleOrder.date_order >= start_dt)
+    #     .where(SaleOrder.date_order < end_dt)
+    #     .where(SaleOrder.state == 'sale')
+    #     .where(ProductProduct.default_code.isnot(None))
+    #     .group_by(ProductProduct.default_code, ResCompany.name)
+    # )
 
     result = await db.execute(stmt)
     rows = result.all()
