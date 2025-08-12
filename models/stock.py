@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, BigInteger
 from sqlalchemy.orm import relationship
 from database import Base_stock
 import datetime
@@ -15,8 +15,8 @@ class StocktakeSession(Base_stock):
     device_id = Column(String, nullable=False)
     timestamp = Column(DateTime(timezone=True), nullable=False)  # 前端上传时间
 
-    creator_id = Column(Integer, nullable=True)
-    modifier_id = Column(Integer, nullable=True)
+    creator_id = Column(BigInteger, nullable=True)
+    modifier_id = Column(BigInteger, nullable=True)
     create_time = Column(DateTime(timezone=True), default=utcnow)
     update_time = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -34,8 +34,8 @@ class StocktakeItem(Base_stock):
     qty = Column(Integer, nullable=False)
     time = Column(DateTime(timezone=True), nullable=False)  # 前端上传时间
 
-    creator_id = Column(Integer, nullable=True)
-    modifier_id = Column(Integer, nullable=True)
+    creator_id = Column(BigInteger, nullable=True)
+    modifier_id = Column(BigInteger, nullable=True)
     create_time = Column(DateTime(timezone=True), default=utcnow)
     update_time = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

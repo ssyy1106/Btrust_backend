@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Column, Integer, String, DateTime, BigInteger
 from database import Base_storestock
 from sqlalchemy.sql import func
 
@@ -10,4 +10,4 @@ class StoreStock(Base_storestock):
     store = Column(String, nullable=False, index=True)
     quantity = Column(Integer, nullable=False)
     update_time = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    modifier_id = Column(Integer, nullable=False)
+    modifier_id = Column(BigInteger, nullable=False)

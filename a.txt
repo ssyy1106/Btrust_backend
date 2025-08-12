@@ -62,3 +62,40 @@ ORDER BY "BarCode"
 LIMIT 3000;
 
 
+SELECT
+    T1."ItemCode",
+    T0."ItemName",
+    T0."FrgnName",
+    T0."U_XX_SizeDesc",
+    T0."CodeBars",
+    CAST(T0."NumInBuy" AS INT) AS "UNIT IN CASE",
+
+    CONCAT(CONCAT(T0."U_XX_SubDept", ' - '), T3."U_XX_SubDept") AS "Sub Dept",
+    CONCAT(CONCAT(T0."U_XX_Category", ' - '), T4."U_XX_Description") AS "Category",
+    T1."OnHand" / T0."NumInBuy" as "STOCK QTY",
+    T0."BuyUnitMsr"
+FROM
+"SBO_BTRUST_LIVE"."OITM"  T0
+INNER JOIN "SBO_BTRUST_LIVE"."OITW"  T1 ON T0."ItemCode" = T1."ItemCode"
+LEFT JOIN "SBO_BTRUST_LIVE"."@XX_SUBDEPT"  T3 ON T0."U_XX_SubDept" = T3."Code"
+LEFT JOIN "SBO_BTRUST_LIVE"."@XX_CATEGORIES"  T4 ON T0."U_XX_Category" = T4."Code"
+
+--INNER JOIN OBCD T6 ON T0."ItemCode" = T6."ItemCode"
+left JOIN "SBO_BTRUST_LIVE"."ITM12" T7 ON T0."ItemCode" = T7."ItemCode" and t7."UomType" = 'I'
+left JOIN "SBO_BTRUST_LIVE"."OBCD"  T8 ON t7."BcdEntDft" = T8."BcdEntry"
+left JOIN "SBO_BTRUST_LIVE"."ITM12" T9 ON T0."PUoMEntry" = T9."UomEntry"
+WHERE
+    T1."WhsCode" = 'Main' AND  T1."OnHand" >= '0.01' and  T0."ItemCode" = 'G000915'
+GROUP BY
+    T1."ItemCode",
+    T0."ItemName",
+    T0."FrgnName",
+    T0."U_XX_SizeDesc",
+    T0."CodeBars",
+    T0."NumInBuy",
+    T0."U_XX_SubDept",
+    T3."U_XX_SubDept",
+    T0."U_XX_Category",
+    T4."U_XX_Description",
+    T1."OnHand",
+    T0."BuyUnitMsr"
