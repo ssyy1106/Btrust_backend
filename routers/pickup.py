@@ -5,6 +5,7 @@ from collections import defaultdict
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helper import getStoreNameOdoo
 from dependencies.permission import PermissionChecker
 from models.pickup import SaleOrder, SaleOrderLine, ResCompany
 from models.product import ProductProduct
@@ -61,7 +62,7 @@ async def get_pickup_summary(
     for default_code, store_name, qty in rows:
         if default_code is None:
             continue  # 跳过无 default_code 的产品
-        pickup_dict[default_code].append(StoreQuantity(store=store_name, quantity=int(qty)))
+        pickup_dict[default_code].append(StoreQuantity(store=getStoreNameOdoo(store_name), quantity=int(qty)))
 
     pickup_items = [PickupItem(itemCode=code, orders=orders) for code, orders in pickup_dict.items()]
     return PickupSummaryResponse(pickupItems=pickup_items)
