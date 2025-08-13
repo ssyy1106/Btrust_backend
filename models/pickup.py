@@ -9,8 +9,10 @@ class SaleOrder(Base_odoo):
     state = Column(String)  # e.g. 'sale' for confirmed
     company_id = Column(Integer)
     user_id = Column(Integer, ForeignKey('res_users.id'))  # 下单用户ID
+    partner_id = Column(Integer, ForeignKey('res_partner.id'))
 
     user = relationship("ResUsers", lazy='joined')
+    partner = relationship("ResPartner", lazy='joined')
 
 class SaleOrderLine(Base_odoo):
     __tablename__ = 'sale_order_line'

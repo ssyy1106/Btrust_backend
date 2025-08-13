@@ -53,9 +53,8 @@ async def get_pickup_summary(
         )
         .join(SaleOrder, SaleOrderLine.order_id == SaleOrder.id)
         .join(ProductProduct, SaleOrderLine.product_id == ProductProduct.id)
-        .join(ResUsers, SaleOrder.user_id == ResUsers.id)                # 用户
-        .join(ResPartner, ResUsers.partner_id == ResPartner.id)          # 用户联系人
-        .outerjoin(ParentPartner, ResPartner.parent_id == ParentPartner.id)  # 父联系人
+        .join(ResPartner, SaleOrder.partner_id == ResPartner.id)          # 直接关联订单partner
+        .outerjoin(ParentPartner, ResPartner.parent_id == ParentPartner.id)
         .where(SaleOrder.date_order >= start_dt)
         .where(SaleOrder.date_order < end_dt)
         .where(SaleOrder.state == 'sale')
@@ -70,11 +69,10 @@ async def get_pickup_summary(
     for default_code, partner_name, parent_name, qty in rows:
         if default_code is None:
             continue
-        # 收集 partner_name + parent_name 到一个 list（去掉 None）
         store_names = [n for n in [partner_name, parent_name] if n]
         pickup_dict[default_code].append(
             StoreQuantity(
-                store = getStoreNameOdoo(store_names),
+                store=getStoreNameOdoo(store_names),
                 quantity=int(qty)
             )
         )
