@@ -336,7 +336,7 @@ def getStoreName(id: str) -> str:
             return []
 
 @functools.cache
-def getStoreNameOdoo(names: str) -> str:
+def getStoreNameOdoo(names: list) -> str:
     stores = {"terra": "TE", "mississauga": "MS", "north": "NY", "montreal": "MT"}
     for k, v in stores.items():
         for name in names:
