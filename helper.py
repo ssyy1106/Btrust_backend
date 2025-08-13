@@ -336,12 +336,13 @@ def getStoreName(id: str) -> str:
             return []
 
 @functools.cache
-def getStoreNameOdoo(name: str) -> str:
+def getStoreNameOdoo(names: str) -> str:
     stores = {"terra": "TE", "mississauga": "MS", "north": "NY", "montreal": "MT"}
     for k, v in stores.items():
-        if k in name.lower():
-            return v
-    return name
+        for name in names:
+            if k in name.lower():
+                return v
+    return names[0] if names else ""
 
 @functools.cache
 def getStoreWithId(departmentId: int) -> str:

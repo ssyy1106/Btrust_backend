@@ -25,8 +25,8 @@ class SaleOrderLine(Base_odoo):
 #     id = Column(Integer, primary_key=True)
 #     default_code = Column(String)
 
-class ResCompany(Base_odoo):
-    __tablename__ = 'res_company'
-    id = Column(Integer, primary_key=True)
-    name = Column(String)
+# class ResCompany(Base_odoo):
+#     __tablename__ = 'res_company'
+#     id = Column(Integer, primary_key=True)
+#     name = Column(String)
 

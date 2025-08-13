@@ -1,3 +1,4 @@
+#G000915 FRZ001343 
 SELECT "SBO_BTRUST_LIVE"."OITM"."CodeBars" AS "BarCode",
         "SBO_BTRUST_LIVE"."OITM"."OnHand" as "ItemTotalQty"
         FROM "SBO_BTRUST_LIVE"."PMX_INVT" INNER JOIN "SBO_BTRUST_LIVE"."OITM" ON "PMX_INVT"."ItemCode" = "OITM"."ItemCode"

@@ -4,10 +4,13 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
+from models.partner import ResPartner
 from helper import getStoreNameOdoo
 from dependencies.permission import PermissionChecker
-from models.pickup import SaleOrder, SaleOrderLine, ResCompany
+from models.pickup import SaleOrder, SaleOrderLine
+from models.user import ResCompany
 from models.product import ProductProduct
 from models.user import ResUsers
 from database import get_db_odoo
@@ -38,48 +41,45 @@ async def get_pickup_summary(
     start_dt = datetime.strptime(start_date, "%Y-%m-%d") + timedelta(hours=shift_hour)
     end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1, hours=shift_hour - 24)
 
-    # 构造异步查询
+    # 给父级 partner 创建别名
+    ParentPartner = aliased(ResPartner)
+
     stmt = (
         select(
             ProductProduct.default_code,
-            ResCompany.name.label("company_name"),
+            ResPartner.name.label("partner_name"),
+            ParentPartner.name.label("parent_partner_name"),
             func.sum(SaleOrderLine.product_uom_qty).label("total_quantity")
         )
         .join(SaleOrder, SaleOrderLine.order_id == SaleOrder.id)
         .join(ProductProduct, SaleOrderLine.product_id == ProductProduct.id)
-        .join(ResUsers, SaleOrder.user_id == ResUsers.id)  # 关联用户
-        .join(ResCompany, ResUsers.company_id == ResCompany.id)  # 关联用户所属公司
+        .join(ResUsers, SaleOrder.user_id == ResUsers.id)                # 用户
+        .join(ResPartner, ResUsers.partner_id == ResPartner.id)          # 用户联系人
+        .outerjoin(ParentPartner, ResPartner.parent_id == ParentPartner.id)  # 父联系人
         .where(SaleOrder.date_order >= start_dt)
         .where(SaleOrder.date_order < end_dt)
         .where(SaleOrder.state == 'sale')
         .where(ProductProduct.default_code.isnot(None))
-        .group_by(ProductProduct.default_code, ResCompany.name)
+        .group_by(ProductProduct.default_code, ResPartner.name, ParentPartner.name)
     )
-    # stmt = (
-    #     select(
-    #         ProductProduct.default_code,
-    #         ResCompany.name.label("company_name"),
-    #         func.sum(SaleOrderLine.product_uom_qty).label("total_quantity")
-    #     )
-    #     .join(SaleOrder, SaleOrderLine.order_id == SaleOrder.id)
-    #     .join(ProductProduct, SaleOrderLine.product_id == ProductProduct.id)
-    #     .join(ResCompany, SaleOrder.company_id == ResCompany.id)
-    #     .where(SaleOrder.date_order >= start_dt)
-    #     .where(SaleOrder.date_order < end_dt)
-    #     .where(SaleOrder.state == 'sale')
-    #     .where(ProductProduct.default_code.isnot(None))
-    #     .group_by(ProductProduct.default_code, ResCompany.name)
-    # )
 
     result = await db.execute(stmt)
     rows = result.all()
 
-    # 聚合结果
     pickup_dict = defaultdict(list)
-    for default_code, store_name, qty in rows:
+    for default_code, partner_name, parent_name, qty in rows:
         if default_code is None:
-            continue  # 跳过无 default_code 的产品
-        pickup_dict[default_code].append(StoreQuantity(store=getStoreNameOdoo(store_name), quantity=int(qty)))
+            continue
+        # 收集 partner_name + parent_name 到一个 list（去掉 None）
+        store_names = [n for n in [partner_name, parent_name] if n]
+        pickup_dict[default_code].append(
+            StoreQuantity(
+                store = getStoreNameOdoo(store_names),
+                quantity=int(qty)
+            )
+        )
 
-    pickup_items = [PickupItem(itemCode=code, orders=orders) for code, orders in pickup_dict.items()]
+    pickup_items = [
+        PickupItem(itemCode=code, orders=orders) for code, orders in pickup_dict.items()
+    ]
     return PickupSummaryResponse(pickupItems=pickup_items)
