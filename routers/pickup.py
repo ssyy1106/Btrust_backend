@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Query, Depends
 from sqlalchemy import func, select, update, insert
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
+from dateutil import parser
 
 from models.partner import ResPartner
 from helper import getStoreNameOdoo
@@ -22,26 +23,30 @@ from schemas.pickup import (
 
 router = APIRouter(prefix="/pickup", tags=["PickUp"])
 
+# 默认值函数：返回 ISO8601 带本地时区
 def default_start():
-    return (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+    return (datetime.now().astimezone() - timedelta(days=1)).isoformat()
 
 def default_end():
-    return datetime.now().strftime('%Y-%m-%d')
+    return datetime.now().astimezone().isoformat()
 
 @router.get("/pickup-summary", response_model=PickupSummaryResponse)
 async def get_pickup_summary(
-    start_date: Optional[str] = Query(default_factory=default_start, description="起始日期 YYYY-MM-DD"),
-    end_date: Optional[str] = Query(default_factory=default_end, description="结束日期 YYYY-MM-DD"),
+    start_date: Optional[str] = Query(default_factory=default_start, description="起始日期 ISO8601 带时区"),
+    end_date: Optional[str] = Query(default_factory=default_end, description="结束日期 ISO8601 带时区"),
     shift_hour: int = Query(16, ge=0, le=23, description="班次开始小时"),
-    db: AsyncSession = Depends(get_db_odoo),
+    db = Depends(get_db_odoo),
     user = Depends(PermissionChecker(required_roles=["pickup:search", "pickup:view"]))
 ):
-    # 需要增加user的store筛选，但是现在bos系统和登录系统的store名称不同，暂时不加处理
-    # 计算时间范围
-    start_dt = datetime.strptime(start_date, "%Y-%m-%d") + timedelta(hours=shift_hour)
-    end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1, hours=shift_hour - 24)
+    # 解析带时区时间并加 shift_hour
+    start_dt_local = parser.isoparse(start_date) + timedelta(hours=shift_hour)
+    end_dt_local = parser.isoparse(end_date) + timedelta(days=1, hours=shift_hour - 24)
 
-    # 给父级 partner 创建别名
+    # 转换为 UTC naive，和 Odoo date_order 对齐
+    start_dt_utc = start_dt_local.astimezone(timezone.utc).replace(tzinfo=None)
+    end_dt_utc = end_dt_local.astimezone(timezone.utc).replace(tzinfo=None)
+
+    # 父级 partner 别名
     ParentPartner = aliased(ResPartner)
 
     stmt = (
@@ -53,10 +58,10 @@ async def get_pickup_summary(
         )
         .join(SaleOrder, SaleOrderLine.order_id == SaleOrder.id)
         .join(ProductProduct, SaleOrderLine.product_id == ProductProduct.id)
-        .join(ResPartner, SaleOrder.partner_id == ResPartner.id)          # 直接关联订单partner
+        .join(ResPartner, SaleOrder.partner_id == ResPartner.id)
         .outerjoin(ParentPartner, ResPartner.parent_id == ParentPartner.id)
-        .where(SaleOrder.date_order >= start_dt)
-        .where(SaleOrder.date_order < end_dt)
+        .where(SaleOrder.date_order >= start_dt_utc)
+        .where(SaleOrder.date_order < end_dt_utc)
         .where(SaleOrder.state == 'sale')
         .where(ProductProduct.default_code.isnot(None))
         .group_by(ProductProduct.default_code, ResPartner.name, ParentPartner.name)
