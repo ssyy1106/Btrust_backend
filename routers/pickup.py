@@ -12,7 +12,7 @@ from helper import getStoreNameOdoo
 from dependencies.permission import PermissionChecker
 from models.pickup import SaleOrder, SaleOrderLine
 from models.user import ResCompany
-from models.product import ProductProduct
+from models.product import ProductProduct, ProductTemplate
 from models.user import ResUsers
 from database import get_db_odoo
 from schemas.pickup import (
@@ -58,8 +58,12 @@ async def get_pickup_summary(
         )
         .join(SaleOrder, SaleOrderLine.order_id == SaleOrder.id)
         .join(ProductProduct, SaleOrderLine.product_id == ProductProduct.id)
+        .join(ProductTemplate, ProductProduct.product_tmpl_id == ProductTemplate.id)
         .join(ResPartner, SaleOrder.partner_id == ResPartner.id)
         .outerjoin(ParentPartner, ResPartner.parent_id == ParentPartner.id)
+        # 排除 Delivery/服务类产品
+        # .where(ProductProduct.id != 1)                      # 排除 Delivery_007
+        .where(ProductTemplate.type != 'service')           # 排除所有服务类产品
         .where(SaleOrder.date_order >= start_dt_utc)
         .where(SaleOrder.date_order < end_dt_utc)
         .where(SaleOrder.state == 'sale')

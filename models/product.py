@@ -20,6 +20,7 @@ class ProductTemplate(Base_odoo):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(JSONB)
     categ_id = Column(Integer, ForeignKey("product_category.id"))
+    type = Column(String)  # 'product', 'consu', 'service'
 
     category = relationship("ProductCategory", backref="templates")
 
