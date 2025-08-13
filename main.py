@@ -19,7 +19,7 @@ from mygraphql import graphql_app
 from pydantic import BaseModel
 from helper import LoginShift, verify_token, create_jwt_token, verify_jwt_token, get_user_information
 from graphqlschema.schema import UserInformation
-from routers import invoice, supplier, attachments, cost, stock, pickup, storestock, product
+from routers import invoice, supplier, attachments, cost, stock, pickup, storestock, product, download
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -68,7 +68,9 @@ origins = [
     "http://172.16.30.8:8200",
     "http://172.16.10.81:3000",
     "https://172.16.30.8:8501",
-    "https://172.16.30.8:8502"
+    "https://172.16.30.8:8502",
+    "http://172.16.30.8:8601/",
+    "http://172.16.30.8:8600/"
 ]
 
 app.add_middleware(
@@ -87,6 +89,7 @@ app.include_router(stock.router)
 app.include_router(pickup.router)
 app.include_router(storestock.router)
 app.include_router(product.router)
+app.include_router(download.router)
 
 app.include_router(graphql_app, prefix="/graphql")
 configFile = 'config.ini'

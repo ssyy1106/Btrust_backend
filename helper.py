@@ -1,4 +1,5 @@
 import getopt
+from hdbcli import dbapi
 import logging
 import sys
 import datetime
@@ -242,6 +243,18 @@ def getShiftDB():
         return conn
     except Exception as e:
         return None
+
+def getHanaDB():
+    try:
+        conn = dbapi.connect(
+            address=CONFIG['Hana']['address'],
+            port=CONFIG['Hana']['port'],
+            user=CONFIG['Hana']['user'],
+            password=CONFIG['Hana']['password']
+        )
+        return conn, CONFIG['Hana']['schema']
+    except Exception as e:
+        return None, None
 
 @functools.cache
 def getStoreDBConfig(store: str):
