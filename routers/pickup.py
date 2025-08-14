@@ -1,25 +1,20 @@
 from fastapi import APIRouter, Query, Depends
-from sqlalchemy import func, select, update, insert
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 from typing import Optional
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
 from dateutil import parser
 
 from models.partner import ResPartner
+from models.pickup import SaleOrder, SaleOrderLine
+from models.product import ProductProduct, ProductTemplate, ProductCategory, StockQuant
+from models.user import ResUsers
 from helper import getStoreNameOdoo
 from dependencies.permission import PermissionChecker
-from models.pickup import SaleOrder, SaleOrderLine
-from models.user import ResCompany
-from models.product import ProductProduct, ProductTemplate
-from models.user import ResUsers
 from database import get_db_odoo
-from schemas.pickup import (
-    StoreQuantity,
-    PickupItem,
-    PickupSummaryResponse
-)
+from schemas.pickup import PickupItem, StoreQuantity, PickupSummaryResponse
 
 router = APIRouter(prefix="/pickup", tags=["PickUp"])
 
@@ -35,7 +30,8 @@ async def get_pickup_summary(
     start_date: Optional[str] = Query(default_factory=default_start, description="起始日期 ISO8601 带时区"),
     end_date: Optional[str] = Query(default_factory=default_end, description="结束日期 ISO8601 带时区"),
     shift_hour: int = Query(16, ge=0, le=23, description="班次开始小时"),
-    db = Depends(get_db_odoo),
+    categoryIds: Optional[list[int]] = Query(None, description="按分类 ID 过滤，多值用逗号分隔"),
+    db: AsyncSession = Depends(get_db_odoo),
     user = Depends(PermissionChecker(required_roles=["pickup:search", "pickup:view"]))
 ):
     # 解析带时区时间并加 shift_hour
@@ -49,33 +45,59 @@ async def get_pickup_summary(
     # 父级 partner 别名
     ParentPartner = aliased(ResPartner)
 
+    # 子查询：每个 product 的总库存
+    stock_subq = (
+        select(
+            StockQuant.product_id,
+            func.sum(StockQuant.quantity).label("total_stock")
+        )
+        .group_by(StockQuant.product_id)
+        .subquery()
+    )
+
     stmt = (
         select(
             ProductProduct.default_code,
+            ProductTemplate.name.label("product_name"),
+            ProductCategory.name.label("category_name"),
             ResPartner.name.label("partner_name"),
             ParentPartner.name.label("parent_partner_name"),
-            func.sum(SaleOrderLine.product_uom_qty).label("total_quantity")
+            func.sum(SaleOrderLine.product_uom_qty).label("total_quantity"),
+            stock_subq.c.total_stock
         )
         .join(SaleOrder, SaleOrderLine.order_id == SaleOrder.id)
         .join(ProductProduct, SaleOrderLine.product_id == ProductProduct.id)
         .join(ProductTemplate, ProductProduct.product_tmpl_id == ProductTemplate.id)
+        .join(ProductCategory, ProductTemplate.categ_id == ProductCategory.id)
         .join(ResPartner, SaleOrder.partner_id == ResPartner.id)
         .outerjoin(ParentPartner, ResPartner.parent_id == ParentPartner.id)
-        # 排除 Delivery/服务类产品
-        # .where(ProductProduct.id != 1)                      # 排除 Delivery_007
-        .where(ProductTemplate.type != 'service')           # 排除所有服务类产品
+        .outerjoin(stock_subq, stock_subq.c.product_id == ProductProduct.id)
+        .where(ProductTemplate.type != 'service')
         .where(SaleOrder.date_order >= start_dt_utc)
         .where(SaleOrder.date_order < end_dt_utc)
         .where(SaleOrder.state == 'sale')
         .where(ProductProduct.default_code.isnot(None))
-        .group_by(ProductProduct.default_code, ResPartner.name, ParentPartner.name)
+    )
+
+    # 分类过滤
+    if categoryIds:
+        stmt = stmt.where(ProductTemplate.categ_id.in_(categoryIds))
+
+    stmt = stmt.group_by(
+        ProductProduct.default_code,
+        ProductTemplate.name,
+        ProductCategory.name,
+        ResPartner.name,
+        ParentPartner.name,
+        stock_subq.c.total_stock
     )
 
     result = await db.execute(stmt)
     rows = result.all()
 
+    # 按商品汇总每个门店
     pickup_dict = defaultdict(list)
-    for default_code, partner_name, parent_name, qty in rows:
+    for default_code, product_name, category_name, partner_name, parent_name, qty, total_stock in rows:
         if default_code is None:
             continue
         store_names = [n for n in [partner_name, parent_name] if n]
@@ -86,7 +108,15 @@ async def get_pickup_summary(
             )
         )
 
+    # 构建返回对象
     pickup_items = [
-        PickupItem(itemCode=code, orders=orders) for code, orders in pickup_dict.items()
+        PickupItem(
+            itemCode=code,
+            orders=orders,
+            totalStock=int(next((r[6] for r in rows if r[0] == code and r[6] is not None), 0)),
+            categoryName=next((r[2] for r in rows if r[0] == code), None)
+        )
+        for code, orders in pickup_dict.items()
     ]
+
     return PickupSummaryResponse(pickupItems=pickup_items)

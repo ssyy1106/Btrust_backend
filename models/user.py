@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, ForeignKey
 from sqlalchemy.orm import relationship
 from database import Base_odoo  # 你的Base模型定义
-from .partner import ResPartner 
+#from .partner import ResPartner 
 
 class ResUsers(Base_odoo):
     __tablename__ = 'res_users'

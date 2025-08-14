@@ -93,18 +93,6 @@ def fetch_hana_stock(cursor, schema):
             "UnitsPerCase": stock[5],  # UnitsPerCase 每箱件数
         }
     return dic_hana_barcode_stock
-    # dic_hana_stock = {
-    #     (r[7], r[1]): {
-    #         "QuantityUnits": r[2],
-    #         "QuantityCase": r[3],
-    #         "CostPerCase": r[4],
-    #         "VendorCode": r[8],
-    #         "VendorName": r[9],
-    #         "UnitsPerCase": r[5]
-    #     }
-    #     for r in res
-    # }
-    # return dic_hana_stock
 
 @router.get("/sap-stock/export", summary="导出SAP库存Excel")
 async def export_sap_stock():
@@ -136,5 +124,7 @@ async def export_sap_stock():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
     finally:
-        cursor.close()
-        conn.close()
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()

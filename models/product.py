@@ -1,8 +1,14 @@
 # models/product.py
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, Float
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from database import Base_odoo
+
+class StockQuant(Base_odoo):
+    __tablename__ = "stock_quant"
+    id = Column(Integer, primary_key=True)
+    product_id = Column(Integer, ForeignKey("product_product.id"), index=True)
+    quantity = Column(Float)
 
 class ProductCategory(Base_odoo):
     __tablename__ = "product_category"
