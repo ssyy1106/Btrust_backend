@@ -102,7 +102,7 @@ async def upload_stocktake(data: StocktakeUpload, db: AsyncSession = Depends(get
         await log_operation(db, "POST /", data.model_dump(), result)
         raise HTTPException(status_code=500, detail=result)
 
-@router.get("/", response_model=List[StocktakeSessionWithItems])
+@router.get("", response_model=List[StocktakeSessionWithItems])
 async  def search_stocktake(
     session_id: Optional[UUID] = Query(None),
     start_date: Optional[datetime] = Query(None),

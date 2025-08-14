@@ -13,7 +13,7 @@ from schemas.product import ProductListResponse, ProductCategoryResponse
 
 router = APIRouter(prefix="/product", tags=["Product"])
 
-@router.get("/", summary="获取过去几天下过订单或有库存无订单的产品信息", response_model=ProductListResponse)
+@router.get("", summary="获取过去几天下过订单或有库存无订单的产品信息", response_model=ProductListResponse)
 async def get_products(
     days: Optional[int] = Query(7, description="过去几天的订单，默认7天"),
     categoryId: Optional[int] = Query(None, description="按分类 ID 过滤"),
