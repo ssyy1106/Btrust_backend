@@ -25,6 +25,8 @@ class ProductBase(BaseModel):
     barcode: Optional[str] = None
     categoryId: Optional[int] = None
     categoryName: Optional[str] = None
+    orderCount: Optional[int] = None     # 新增
+    stockQty: Optional[float] = None     # 新增，库存可能是小数
 
     class Config:
         orm_mode = True
