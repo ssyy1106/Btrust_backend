@@ -16,30 +16,28 @@ router = APIRouter(prefix="/product", tags=["Product"])
 @router.get("", summary="获取过去几天下过订单或有库存无订单的产品信息", response_model=ProductListResponse)
 async def get_products(
     days: Optional[int] = Query(7, description="过去几天的订单，默认7天，-1表示不限时间"),
-    categoryId: Optional[int] = Query(None, description="按分类 ID 过滤，-1表示全部分类，不传表示fruit/veg"),
+    categoryIds: Optional[List[int]] = Query(None, description="按分类 ID 过滤，可传多个，-1表示全部分类，不传表示fruit/veg"),
     noorder: Optional[bool] = Query(False, description="是否返回有库存但无订单的商品"),
+    limit: int = Query(50, ge=1, le=500, description="每页条数，默认50，最大500"),
+    offset: int = Query(0, ge=0, description="偏移量，用于分页"),
     db: AsyncSession = Depends(get_db_odoo)
 ):
-    # 如果 days != -1 才计算时间
+    # 时间过滤
     if days is not None and days != -1:
         start_dt = datetime.now() - timedelta(days=days)
     else:
-        start_dt = None  # 不限制时间
+        start_dt = None
 
-    # 分类条件
-    if categoryId is None:
-        # 不传 → 只筛 fruit/veg
+    # 分类过滤
+    if categoryIds is None:
         category_filter = or_(
             ProductCategory.name.ilike('%fruit%'),
             ProductCategory.name.ilike('%veg%')
         )
-    elif categoryId != -1:
-        # 传具体 ID
-        category_filter = ProductTemplate.categ_id == categoryId
-    else:
-        print('here')
-        # -1 → 不筛选
+    elif -1 in categoryIds:
         category_filter = None
+    else:
+        category_filter = ProductTemplate.categ_id.in_(categoryIds)
 
     # 子查询：库存
     stock_subq = (
@@ -52,7 +50,7 @@ async def get_products(
 
     # 子查询：订单
     order_conditions = [SaleOrder.state == 'sale']
-    if start_dt:
+    if days != -1 and start_dt:
         order_conditions.append(SaleOrder.date_order >= start_dt)
 
     order_subq = (
@@ -74,8 +72,8 @@ async def get_products(
             ProductTemplate.name,
             ProductTemplate.categ_id,
             ProductCategory.name.label("category_name"),
-            order_subq.c.order_count,
-            stock_subq.c.stock_qty
+            func.coalesce(order_subq.c.order_count, 0).label("order_count"),
+            func.coalesce(stock_subq.c.stock_qty, 0).label("stock_qty")
         )
         .join(ProductTemplate, ProductProduct.product_tmpl_id == ProductTemplate.id)
         .join(ProductCategory, ProductTemplate.categ_id == ProductCategory.id, isouter=True)
@@ -93,16 +91,26 @@ async def get_products(
                    .where(order_subq.c.order_count.is_(None)) \
                    .order_by(stock_subq.c.stock_qty.desc())
     else:
-        stmt = stmt.where(order_subq.c.order_count.is_not(None)) \
-                   .order_by(order_subq.c.order_count.desc())
+        if days != -1:
+            # days!=-1 的情况只显示有订单产品
+            stmt = stmt.where(order_subq.c.order_count > 0) \
+                       .order_by(order_subq.c.order_count.desc())
+        else:
+            # days=-1 → 显示所有产品，按订单数降序
+            stmt = stmt.order_by(func.coalesce(order_subq.c.order_count, 0).desc())
 
-    # 执行
+    # --- 总数 ---
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total_result = await db.execute(count_stmt)
+    total = total_result.scalar() or 0
+
+    # --- 分页 ---
+    stmt = stmt.limit(limit).offset(offset)
     result = await db.execute(stmt)
     rows = result.all()
 
     products = []
     for r in rows:
-        # 处理 name JSON
         if isinstance(r.name, str):
             try:
                 parsed = json.loads(r.name)
@@ -125,7 +133,7 @@ async def get_products(
             "stockQty": float(r.stock_qty or 0)
         })
 
-    return {"products": products}
+    return {"total": total, "products": products}
 
 
 @router.get("/category", summary="获取产品分类信息", response_model=ProductCategoryResponse)

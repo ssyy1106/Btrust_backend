@@ -33,4 +33,5 @@ class ProductBase(BaseModel):
 
 
 class ProductListResponse(BaseModel):
+    total: int
     products: List[ProductBase]
