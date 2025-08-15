@@ -9,7 +9,7 @@ class StoreQuantity(BaseModel):
 class PickupItem(BaseModel):
     itemCode: str
     orders: List[StoreQuantity]
-    totalStock: Optional[int] = None
+    stockAtHQ: Optional[int] = None
     categoryName: Optional[str] = None
 
 class PickupSummaryResponse(BaseModel):
