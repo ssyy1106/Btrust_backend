@@ -36,11 +36,13 @@ async def get_pickup_summary(
     db_storestock: AsyncSession = Depends(get_db_storestock),
     user = Depends(PermissionChecker(required_roles=["pickup:search", "pickup:view"]))
 ):
-    # 时间转换
     start_dt_local = parser.isoparse(start_date) + timedelta(hours=shift_hour)
     end_dt_local = parser.isoparse(end_date) + timedelta(days=1, hours=shift_hour - 24)
     start_dt_utc = start_dt_local.astimezone(timezone.utc).replace(tzinfo=None)
     end_dt_utc = end_dt_local.astimezone(timezone.utc).replace(tzinfo=None)
+
+    # 父级 partner 别名
+    ParentPartner = aliased(ResPartner)
 
     # 总库存子查询
     stock_subq = (
@@ -58,14 +60,16 @@ async def get_pickup_summary(
             SaleOrderLine.product_id,
             ResPartner.id.label("partner_id"),
             ResPartner.name.label("partner_name"),
+            ParentPartner.name.label("parent_partner_name"),
             func.sum(SaleOrderLine.product_uom_qty).label("order_quantity")
         )
         .join(SaleOrder, SaleOrderLine.order_id == SaleOrder.id)
         .join(ResPartner, SaleOrder.partner_id == ResPartner.id)
+        .outerjoin(ParentPartner, ResPartner.parent_id == ParentPartner.id)
         .where(SaleOrder.state == 'sale')
         .where(SaleOrder.date_order >= start_dt_utc)
         .where(SaleOrder.date_order < end_dt_utc)
-        .group_by(SaleOrderLine.product_id, ResPartner.id, ResPartner.name)
+        .group_by(SaleOrderLine.product_id, ResPartner.id, ResPartner.name, ParentPartner.name)
         .subquery()
     )
 
@@ -78,8 +82,8 @@ async def get_pickup_summary(
             ProductTemplate.categ_id,
             ProductCategory.name.label("category_name"),
             func.coalesce(stock_subq.c.total_stock, 0).label("total_stock"),
-            order_subq.c.partner_id,
             order_subq.c.partner_name,
+            order_subq.c.parent_partner_name,
             func.coalesce(order_subq.c.order_quantity, 0).label("order_quantity")
         )
         .join(ProductTemplate, ProductProduct.product_tmpl_id == ProductTemplate.id)
@@ -119,14 +123,12 @@ async def get_pickup_summary(
         if not r.default_code:
             continue
         pickup_dict[r.default_code].append(r)
-
-        if r.partner_name and r.order_quantity:
-            store_code = getStoreNameOdoo([r.partner_name])
-            orders_dict[r.default_code][store_code] += int(r.order_quantity or 0)
+        store_names = [n for n in [r.partner_name, r.parent_partner_name] if n]
+        store_code = getStoreNameOdoo(store_names)
+        orders_dict[r.default_code][store_code] += int(r.order_quantity or 0)
 
     pickup_items = []
     for item_code, product_rows in pickup_dict.items():
-        # 使用第一行解析 name
         raw_name = product_rows[0].product_name
         if isinstance(raw_name, str):
             try:
@@ -139,10 +141,8 @@ async def get_pickup_summary(
         else:
             name_dict = {"en_US": str(raw_name)}
 
-        # orders 列表
         orders_list = [{"store": store, "quantity": qty} for store, qty in orders_dict[item_code].items()]
 
-        # storeStock 列表
         store_stock_entries = [
             {
                 "store": s.store,
