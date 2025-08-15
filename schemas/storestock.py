@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime
 
 # 更新库存的请求
@@ -12,13 +12,15 @@ class StockUpdateEntry(BaseModel):
 class StockEntry(BaseModel):
     store: str
     quantity: int
-    update_time: datetime
-    modifier_id: int
-    modifier_name: Optional[str]
+    update_time: Optional[datetime] = None
+    modifier_id: Optional[int] = None
+    modifier_name: Optional[str] = None
+    last_order_date: Optional[datetime] = None
 
 class StockItem(BaseModel):
     itemCode: str
     stock: List[StockEntry]
+    name: Optional[Dict[str,str]] = None
 
 class StockResponse(BaseModel):
     stockEntries: List[StockItem]
