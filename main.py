@@ -19,7 +19,7 @@ from mygraphql import graphql_app
 from pydantic import BaseModel
 from helper import LoginShift, verify_token, create_jwt_token, verify_jwt_token, get_user_information
 from graphqlschema.schema import UserInformation
-from routers import invoice, supplier, attachments, cost, stock, pickup, storestock, product, download
+from routers import invoice, supplier, attachments, cost, stock, pickup, storestock, product, download, storepickup
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -90,6 +90,7 @@ app.include_router(pickup.router)
 app.include_router(storestock.router)
 app.include_router(product.router)
 app.include_router(download.router)
+app.include_router(storepickup.router)
 
 app.include_router(graphql_app, prefix="/graphql")
 configFile = 'config.ini'

@@ -30,7 +30,7 @@ async def get_pickup_summary(
     start_date: Optional[str] = Query(default_factory=default_start, description="起始日期 ISO8601 带时区"),
     end_date: Optional[str] = Query(default_factory=default_end, description="结束日期 ISO8601 带时区"),
     shift_hour: int = Query(16, ge=0, le=23, description="班次开始小时"),
-    categoryIds: Optional[List[int]] = Query(None, description="按分类 ID 过滤，多值用逗号分隔，自动包含子孙分类"),
+    categoryIds: Optional[List[int]] = Query(None, description="按分类 ID 过滤，多值用逗号分隔"),
     order: bool = Query(True, description="是否只筛选有订单的产品"),
     db_odoo: AsyncSession = Depends(get_db_odoo),
     db_storestock: AsyncSession = Depends(get_db_storestock),
@@ -41,6 +41,7 @@ async def get_pickup_summary(
     start_dt_utc = start_dt_local.astimezone(timezone.utc).replace(tzinfo=None)
     end_dt_utc = end_dt_local.astimezone(timezone.utc).replace(tzinfo=None)
 
+    # 父级 partner 别名
     ParentPartner = aliased(ResPartner)
 
     # 总库存子查询
@@ -53,7 +54,7 @@ async def get_pickup_summary(
         .subquery()
     )
 
-    # 订单子查询
+    # 订单子查询：按 product_id + partner_id 聚合数量
     order_subq = (
         select(
             SaleOrderLine.product_id,
@@ -93,29 +94,14 @@ async def get_pickup_summary(
         .where(ProductProduct.default_code.isnot(None))
     )
 
-    # --- 递归查询 categoryIds 的子孙分类 ---
     if categoryIds:
-        Category = ProductCategory
-        base_cte = select(Category.id, Category.parent_id).where(Category.id.in_(categoryIds)).cte(name="category_cte", recursive=True)
-        category_alias = aliased(base_cte)
-        category_child = aliased(Category)
-        recursive_cte = base_cte.union_all(
-            select(category_child.id, category_child.parent_id)
-            .where(category_child.parent_id == category_alias.c.id)
-        )
-        all_cat_result = await db_odoo.execute(select(recursive_cte.c.id))
-        all_category_ids = [row[0] for row in all_cat_result.all()]
-        stmt = stmt.where(ProductTemplate.categ_id.in_(all_category_ids))
+        stmt = stmt.where(ProductTemplate.categ_id.in_(categoryIds))
 
-    # 订单过滤逻辑
     if order:
         stmt = stmt.where(order_subq.c.order_quantity.isnot(None))
     else:
-        # order=False 时显示有库存但没有订单的产品
-        stmt = stmt.where(
-            (func.coalesce(order_subq.c.order_quantity, 0) == 0) &
-            (func.coalesce(stock_subq.c.total_stock, 0) > 0)
-        )
+        stmt = stmt.where(func.coalesce(order_subq.c.order_quantity, 0) == 0)
+        stmt = stmt.where(stock_subq.c.total_stock > 0)
 
     result = await db_odoo.execute(stmt)
     rows = result.all()
@@ -129,9 +115,9 @@ async def get_pickup_summary(
     )
     storestock_list = storestock_rows.scalars().all()
 
-    # 构建 pickup_items
+    # 按 product 构建 orders 和 storeStock
     pickup_dict = defaultdict(list)
-    orders_dict = defaultdict(lambda: defaultdict(int))
+    orders_dict = defaultdict(lambda: defaultdict(int))  # {item_code: {store: quantity}}
 
     for r in rows:
         if not r.default_code:

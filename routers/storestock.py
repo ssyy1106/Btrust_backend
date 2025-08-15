@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Query, Depends, HTTPException
-from sqlalchemy import func, select, update, insert
+from sqlalchemy import func, select, update, insert, or_
 from datetime import datetime, timedelta
 from collections import defaultdict
 from typing import Optional, List, Dict
@@ -11,7 +11,7 @@ from models.partner import ResPartner
 from dependencies.permission import PermissionChecker
 from models.storestock import StoreStock
 from models.pickup import SaleOrder, SaleOrderLine
-from models.product import ProductProduct, ProductTemplate
+from models.product import ProductProduct, ProductTemplate, ProductCategory
 from database import get_db_storestock, get_db_odoo
 from helper import getStoreNameOdoo
 from schemas.storestock import (
@@ -100,13 +100,22 @@ async def get_stock(
     end_dt = datetime.now()
     start_dt = end_dt - timedelta(days=days)
 
-    # 获取最近 days 天有订单的 item_code + 订单人的 store
+    # -----------------------------
+    # 1️⃣ 获取最近 days 天订单且属于 fruit/veg category 的 item
+    # -----------------------------
+    ParentCategory = aliased(ProductCategory)
     ParentPartner = aliased(ResPartner)
+
+    category_filter = or_(
+        ProductCategory.name.ilike('%fruit%'),
+        ProductCategory.name.ilike('%veg%'),
+        ParentCategory.name.ilike('%fruit%'),
+        ParentCategory.name.ilike('%veg%')
+    )
+
     stmt_order = (
         select(
             ProductProduct.default_code.label("item_code"),
-            ResPartner.name.label("partner_name"),
-            ParentPartner.name.label("parent_partner_name"),
             ProductTemplate.name.label("product_name"),
             func.max(SaleOrder.date_order).label("last_order_date")
         )
@@ -114,34 +123,37 @@ async def get_stock(
         .join(SaleOrder, SaleOrderLine.order_id == SaleOrder.id)
         .join(ProductProduct, SaleOrderLine.product_id == ProductProduct.id)
         .join(ProductTemplate, ProductProduct.product_tmpl_id == ProductTemplate.id)
-        .join(ResPartner, SaleOrder.partner_id == ResPartner.id)
-        .outerjoin(ParentPartner, ResPartner.parent_id == ParentPartner.id)
+        .outerjoin(ProductCategory, ProductTemplate.categ_id == ProductCategory.id)
+        .outerjoin(ParentCategory, ProductCategory.parent_id == ParentCategory.id)
         .where(SaleOrder.state == 'sale')
         .where(SaleOrder.date_order >= start_dt)
         .where(SaleOrder.date_order < end_dt)
-        .group_by(ProductProduct.default_code, ResPartner.name, ParentPartner.name, ProductTemplate.name)
+        .where(category_filter)
+        .group_by(ProductProduct.default_code, ProductTemplate.name)
     )
+
     order_result = await db_odoo.execute(stmt_order)
     order_rows = order_result.all()
 
-    # 构建订单映射和名称映射
-    item_store_map = defaultdict(dict)  # {item_code: {store_code: last_order_date}}
-    item_name_map = {}  # {item_code: name_dict}
-    all_item_codes = set()
-
-    for row in order_rows:
-        store_code = getStoreNameOdoo([row.partner_name, row.parent_partner_name])
-        all_item_codes.add(row.item_code)
-        if store_code in store:
-            item_store_map[row.item_code][store_code] = row.last_order_date
-        if row.item_code not in item_name_map:
-            item_name_map[row.item_code] = parse_product_name(row.product_name)
-
-    if not all_item_codes:
+    if not order_rows:
         return StockResponse(stockEntries=[])
 
-    # 查询 storestock 库的库存
-    stmt_stock = select(StoreStock).where(StoreStock.store.in_(store), StoreStock.item_code.in_(all_item_codes))
+    # 统计所有 item_code 最近订单日期
+    item_last_order_map: Dict[str, datetime] = {}
+    item_name_map: Dict[str, Dict[str,str]] = {}
+    for row in order_rows:
+        item_code = row.item_code
+        last_order_date = row.last_order_date
+        if item_code not in item_last_order_map or (last_order_date and last_order_date > item_last_order_map[item_code]):
+            item_last_order_map[item_code] = last_order_date
+        item_name_map[item_code] = parse_product_name(row.product_name)
+
+    item_codes_from_order = list(item_last_order_map.keys())
+
+    # -----------------------------
+    # 2️⃣ 从 storestock 获取库存
+    # -----------------------------
+    stmt_stock = select(StoreStock).where(StoreStock.store.in_(store), StoreStock.item_code.in_(item_codes_from_order))
     result_stock = await db_store.execute(stmt_stock)
     stock_rows = result_stock.scalars().all()
 
@@ -155,32 +167,22 @@ async def get_stock(
             modifier_name=r.modifier_name
         )
 
-    # 构建返回数据
+    # -----------------------------
+    # 3️⃣ 合并返回
+    # -----------------------------
     stock_items = []
-    for item_code in all_item_codes:
+    for item_code in item_codes_from_order:
         stock_list = []
         name = item_name_map.get(item_code)
+        last_order_date = item_last_order_map.get(item_code)
         for s in store:
-            last_order_date = item_store_map.get(item_code, {}).get(s)
             entry = stock_map.get(item_code, {}).get(
                 s,
-                StockEntry(
-                    store=s,
-                    quantity=0,
-                    update_time=None,
-                    modifier_id=None,
-                    modifier_name=None
-                )
+                StockEntry(store=s, quantity=0, update_time=None, modifier_id=None, modifier_name=None)
             )
             entry_dict = entry.dict()
             entry_dict["last_order_date"] = last_order_date
             stock_list.append(StockEntry(**entry_dict))
-        stock_items.append(
-            StockItem(
-                itemCode=item_code,
-                name=name,
-                stock=stock_list
-            )
-        )
+        stock_items.append(StockItem(itemCode=item_code, name=name, stock=stock_list))
 
     return StockResponse(stockEntries=stock_items)
