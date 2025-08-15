@@ -1,283 +1,147 @@
-# -*- coding: utf-8 -*-
-from fastapi import APIRouter, Query, Depends, HTTPException
+from fastapi import APIRouter, Query, Depends
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
-from typing import Optional, Dict, List, Any, Iterable
-from sqlalchemy.orm import aliased
+from typing import Optional
 from dateutil import parser
+import json
 
-from models import ResPartner
+from models.partner import ResPartner
+from models.pickup import SaleOrder, SaleOrderLine
+from models.product import ProductProduct, ProductTemplate, ProductCategory, StockQuant
+from models.user import ResUsers
 from helper import getStoreNameOdoo
 from dependencies.permission import PermissionChecker
-from models.pickup import SaleOrder, SaleOrderLine
-from models.product import ProductProduct, ProductTemplate
 from database import get_db_odoo
-from schemas.pickup import (
-    StoreQuantity,
-    BatchInfo,
-    PickupItem,
-    PickupSummaryResponse
-)
-
-# HANA
-from hdbcli import dbapi
-from helper import getHanaDB
+from schemas.pickup import PickupItem, StoreQuantity, PickupSummaryResponse
 
 router = APIRouter(prefix="/pickup", tags=["PickUp"])
 
-# ---------- 时区默认 ----------
+# 默认值函数：返回 ISO8601 带本地时区
 def default_start():
     return (datetime.now().astimezone() - timedelta(days=1)).isoformat()
 
 def default_end():
     return datetime.now().astimezone().isoformat()
 
-# ---------- HANA 连接 ----------
-def get_hana_connection():
-    try:
-        conn, schema = getHanaDB()
-        if not conn:
-            raise HTTPException(status_code=500, detail="HANA connect failed: empty connection")
-        return conn, conn.cursor(), schema
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"HANA connect failed: {str(e)}")
-
-# ---------- 从 SAP/HANA 拉取批次+库位库存 ----------
-def fetch_hana_stock_by_item_codes(cursor, schema: str, item_codes: Iterable[str]) -> Dict[str, List[Dict[str, Any]]]:
-    """
-    返回结构:
-    {
-        "ITEM001": [
-            {
-                "BatchNumber": "B001",
-                "Location": "A-01-01",
-                "QuantityUnits": 120,
-                "QuantityCase": 10,
-                "UnitsPerCase": 12,
-                "CostPerCase": 25.50,
-                "VendorCode": "V0001",
-                "VendorName": "Some Vendor"
-            },
-            ...
-        ],
-        ...
-    }
-    说明：
-    - 批次与库位维度展开（同一个批次可能分布在多个库位）
-    - UnitsPerCase 来自 Produmex 批属性表 PMX_ITBA (INNER_PACK)
-    - QuantityUnits 来自 SAP B1 标准表 OBBQ（按批+库位的可用量）
-    - Location 来自 OBIN.BinCode（若未启用仓位，则为 NULL）
-    """
-    codes = list({c for c in item_codes if c})
-    if not codes:
-        return {}
-
-    # 构建安全的 IN 子句
-    escaped_codes = [c.replace("'", "''") for c in codes]  # 单引号转义
-    in_list = ",".join(f"'{c}'" for c in escaped_codes)
-
-    sql = f"""
-        SELECT 
-                OITM."CodeBars" AS "BarCode",
-                X."DistNumber" AS "BatchNumber",
-                MAX(X."Quantity" - X."QuantOut") AS "BatchQuantity", -- 件数
-                MAX(
-                    CASE 
-                        WHEN ITBA_INNER."AttributeValue" IS NULL 
-                            OR ITBA_INNER."AttributeValue" = '' 
-                            OR TO_BIGINT(ITBA_INNER."AttributeValue") = 0
-                        THEN 0
-                        ELSE FLOOR((X."Quantity" - X."QuantOut") / TO_BIGINT(ITBA_INNER."AttributeValue"))
-                    END
-                ) AS "BatchQuantity", -- 箱数
-                MAX(
-                    CASE 
-                        WHEN ITBA_INNER."AttributeValue" IS NULL 
-                            OR ITBA_INNER."AttributeValue" = '' 
-                            OR TO_BIGINT(ITBA_INNER."AttributeValue") = 0
-                            OR X."CostTotal" = 0 
-                            OR X."Quantity" = 0
-                        THEN 0
-                        ELSE TO_DECIMAL(X."CostTotal"/X."Quantity" * TO_DECIMAL(ITBA_INNER."AttributeValue", 8, 2), 8, 2)
-                    END
-                ) AS "CostPerCase",
-                MAX(TO_BIGINT(ITBA_INNER."AttributeValue")) AS "UnitsPerCase", -- 每箱件数
-                OITM."ItemCode",
-                OPDN."CardCode" AS "VendorCode",
-                OPDN."CardName" AS "VendorName",
-                MAX(OITM."OnHand") AS "ItemTotalQty"    -- 总件数 暂时不用
-            FROM SBO_BTRUST_LIVE.PMX_INVT 
-            INNER JOIN SBO_BTRUST_LIVE.OITM 
-                ON PMX_INVT."ItemCode" = OITM."ItemCode" 
-            INNER JOIN SBO_BTRUST_LIVE.PMX_ITRI 
-                ON PMX_INVT."ItemTransactionalInfoKey" = PMX_ITRI."InternalKey" 
-            INNER JOIN SBO_BTRUST_LIVE.PDN1 
-                ON OITM."ItemCode" = PDN1."ItemCode" 
-            INNER JOIN SBO_BTRUST_LIVE.OPDN 
-                ON PDN1."DocEntry" = OPDN."DocEntry" 
-            INNER JOIN SBO_BTRUST_LIVE.PMX_INVD 
-                ON OPDN."ObjType" = PMX_INVD."TransType" 
-                AND PDN1."DocEntry" = PMX_INVD."DocEntry" 
-                AND PDN1."LineNum" = PMX_INVD."DocLineNum" 
-                AND PMX_INVD."ItemTransactionalInfoKey" = PMX_INVT."ItemTransactionalInfoKey" 
-            LEFT JOIN SBO_BTRUST_LIVE.OBTN X 
-                ON X."DistNumber" = PMX_ITRI."BatchNumber" 
-                AND X."ItemCode" = PMX_ITRI."ItemCode" 
-            LEFT JOIN SBO_BTRUST_LIVE.PMX_ITBA ITBA_INNER 
-                ON ITBA_INNER."BatchAttributeCode" = 'INNER_PACK' 
-                AND ITBA_INNER."ItriKey" = PMX_ITRI."InternalKey" 
-            LEFT JOIN SBO_BTRUST_LIVE.OITB 
-                ON OITB."ItmsGrpCod" = OITM."ItmsGrpCod"
-            where SBO_BTRUST_LIVE.OITM."ItemCode" IN ({in_list})
-            GROUP BY 
-                OITM."CodeBars",
-                X."DistNumber",
-                OITM."ItemCode",
-                OPDN."CardCode",
-                OPDN."CardName"
-    """
-
-    cursor.execute(sql)
-    rows = cursor.fetchall()
-
-    # 组装 Python 结构
-    data: Dict[str, List[Dict[str, Any]]] = {}
-    for (
-        item_code,
-        batch_number,
-        location,
-        qty_units,
-        units_per_case_str,
-        cost_per_case,
-        vendor_code,
-        vendor_name
-    ) in rows:
-        # 规整/容错
-        try:
-            units_per_case = int(units_per_case_str) if units_per_case_str and units_per_case_str.isdigit() else 0
-        except Exception:
-            units_per_case = 0
-
-        qty_units = int(qty_units or 0)
-        qty_cases = (qty_units // units_per_case) if units_per_case > 0 else 0
-
-        data.setdefault(item_code, []).append({
-            "BatchNumber": batch_number or "",
-            "Location": location,
-            "QuantityUnits": qty_units,
-            "QuantityCase": qty_cases,
-            "UnitsPerCase": units_per_case,
-            "CostPerCase": float(cost_per_case or 0),
-            "VendorCode": vendor_code,
-            "VendorName": vendor_name,
-        })
-    return data
-
-# ---------- 主接口：整合 Odoo + SAP ----------
 @router.get("/pickup-summary", response_model=PickupSummaryResponse)
 async def get_pickup_summary(
     start_date: Optional[str] = Query(default_factory=default_start, description="起始日期 ISO8601 带时区"),
     end_date: Optional[str] = Query(default_factory=default_end, description="结束日期 ISO8601 带时区"),
     shift_hour: int = Query(16, ge=0, le=23, description="班次开始小时"),
-    db = Depends(get_db_odoo),
+    categoryIds: Optional[list[int]] = Query(None, description="按分类 ID 过滤，多值用逗号分隔"),
+    db: AsyncSession = Depends(get_db_odoo),
     user = Depends(PermissionChecker(required_roles=["pickup:search", "pickup:view"]))
 ):
-    """
-    返回：按 itemCode(default_code) 汇总的订货信息 + SAP 库存（总件数/总箱数 + 批次/库位明细）
-    """
-    # 1) 处理时间窗口（本地时区 + shift）
+    # 解析带时区时间并加 shift_hour
     start_dt_local = parser.isoparse(start_date) + timedelta(hours=shift_hour)
     end_dt_local = parser.isoparse(end_date) + timedelta(days=1, hours=shift_hour - 24)
 
-    # 转换成 UTC naive（与 Odoo datetime 字段对齐）
+    # 转换为 UTC naive，和 Odoo date_order 对齐
     start_dt_utc = start_dt_local.astimezone(timezone.utc).replace(tzinfo=None)
     end_dt_utc = end_dt_local.astimezone(timezone.utc).replace(tzinfo=None)
 
-    # 2) Odoo 查询：按 default_code（对应 SAP ItemCode） & 门店汇总订货
+    # 父级 partner 别名
     ParentPartner = aliased(ResPartner)
+
+    # 子查询：每个 product 的总库存
+    stock_subq = (
+        select(
+            StockQuant.product_id,
+            func.sum(StockQuant.quantity).label("total_stock")
+        )
+        .group_by(StockQuant.product_id)
+        .subquery()
+    )
+
     stmt = (
         select(
+            ProductProduct.id,
             ProductProduct.default_code,
+            ProductTemplate.name.label("product_name"),
+            ProductTemplate.categ_id,
+            ProductCategory.name.label("category_name"),
             ResPartner.name.label("partner_name"),
             ParentPartner.name.label("parent_partner_name"),
-            func.sum(SaleOrderLine.product_uom_qty).label("total_quantity")
+            func.sum(SaleOrderLine.product_uom_qty).label("total_quantity"),
+            stock_subq.c.total_stock
         )
         .join(SaleOrder, SaleOrderLine.order_id == SaleOrder.id)
         .join(ProductProduct, SaleOrderLine.product_id == ProductProduct.id)
         .join(ProductTemplate, ProductProduct.product_tmpl_id == ProductTemplate.id)
+        .join(ProductCategory, ProductTemplate.categ_id == ProductCategory.id)
         .join(ResPartner, SaleOrder.partner_id == ResPartner.id)
         .outerjoin(ParentPartner, ResPartner.parent_id == ParentPartner.id)
-        .where(ProductTemplate.type != 'service')            # 排除服务类
+        .outerjoin(stock_subq, stock_subq.c.product_id == ProductProduct.id)
+        .where(ProductTemplate.type != 'service')
         .where(SaleOrder.date_order >= start_dt_utc)
         .where(SaleOrder.date_order < end_dt_utc)
         .where(SaleOrder.state == 'sale')
         .where(ProductProduct.default_code.isnot(None))
-        .group_by(ProductProduct.default_code, ResPartner.name, ParentPartner.name)
+    )
+
+    # 分类过滤
+    if categoryIds:
+        stmt = stmt.where(ProductTemplate.categ_id.in_(categoryIds))
+
+    stmt = stmt.group_by(
+        ProductProduct.id,
+        ProductProduct.default_code,
+        ProductTemplate.name,
+        ProductTemplate.categ_id,
+        ProductCategory.name,
+        ResPartner.name,
+        ParentPartner.name,
+        stock_subq.c.total_stock
     )
 
     result = await db.execute(stmt)
     rows = result.all()
 
-    # 3) 整理 Odoo 订货结构 + 需要查询的 item_code 集合
-    odoo_agg: Dict[str, Dict[str, Any]] = defaultdict(lambda: {"orders": []})
-    item_codes: set = set()
-
-    for default_code, partner_name, parent_name, qty in rows:
-        if not default_code:
+    # 按商品汇总每个门店
+    pickup_dict = defaultdict(list)
+    for r in rows:
+        default_code = r.default_code
+        if default_code is None:
             continue
-        store_names = [n for n in [partner_name, parent_name] if n]
-        odoo_agg[default_code]["orders"].append(
-            StoreQuantity(store=getStoreNameOdoo(store_names), quantity=int(qty or 0))
-        )
-        item_codes.add(default_code)
-
-    # 若没有任何订货，直接返回空
-    if not item_codes:
-        return PickupSummaryResponse(pickupItems=[])
-
-    # 4) 从 HANA 拉库存/批次/库位明细（只按需要的 ItemCode 过滤，避免全表扫描）
-    conn, cursor, schema = get_hana_connection()
-    try:
-        hana_map = fetch_hana_stock_by_item_codes(cursor, schema, item_codes)
-    finally:
-        try:
-            cursor.close()
-            conn.close()
-        except Exception:
-            pass
-
-    # 5) 合并为最终返回结构
-    pickup_items: List[PickupItem] = []
-    for code in odoo_agg.keys():
-        batches_raw = hana_map.get(code, [])
-        # 统计总件数/总箱数
-        total_units = sum(int(b.get("QuantityUnits", 0)) for b in batches_raw)
-        total_cases = sum(int(b.get("QuantityCase", 0)) for b in batches_raw)
-
-        # 转换为 BatchInfo
-        batches = [
-            BatchInfo(
-                batchNumber=b.get("BatchNumber") or "",
-                location=b.get("Location"),
-                unitsPerCase=int(b.get("UnitsPerCase", 0)),
-                quantityUnits=int(b.get("QuantityUnits", 0)),
-                quantityCases=int(b.get("QuantityCase", 0)),
-                costPerCase=float(b.get("CostPerCase", 0) or 0),
-                vendorCode=b.get("VendorCode"),
-                vendorName=b.get("VendorName"),
+        store_names = [n for n in [r.partner_name, r.parent_partner_name] if n]
+        pickup_dict[default_code].append(
+            StoreQuantity(
+                store=getStoreNameOdoo(store_names),
+                quantity=int(r.total_quantity or 0)
             )
-            for b in batches_raw
-            if b.get("BatchNumber")  # 仅收集有批号的记录
-        ]
+        )
+
+    # 构建返回对象，解析 name 字段为 dict
+    pickup_items = []
+
+    for code, orders in pickup_dict.items():
+        row = next((r for r in rows if r.default_code == code), None)
+        if not row:
+            continue
+
+        raw_name = row.product_name
+        # 解析 name 字段
+        if isinstance(raw_name, str):
+            try:
+                parsed = json.loads(raw_name)
+                name_dict = parsed if isinstance(parsed, dict) else {"en_US": raw_name}
+            except json.JSONDecodeError:
+                name_dict = {"en_US": raw_name}
+        elif isinstance(raw_name, dict):
+            name_dict = raw_name
+        else:
+            name_dict = {"en_US": str(raw_name)}
 
         pickup_items.append(
             PickupItem(
                 itemCode=code,
-                orders=odoo_agg[code]["orders"],
-                totalStockUnits=total_units,
-                totalStockCases=total_cases,
-                batches=batches
+                name=name_dict,
+                orders=orders,
+                stockAtHQ=int(row.total_stock or 0),
+                categoryName=row.category_name
             )
         )
 

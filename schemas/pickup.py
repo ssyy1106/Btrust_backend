@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
-from typing import List, Optional
+from typing import List, Optional, Dict
 from pydantic import BaseModel
+
+class StoreStockEntry(BaseModel):
+    store: str
+    quantity: int
+    modifierName: Optional[str] = None
+    updateTime: Optional[str] = None
 
 class StoreQuantity(BaseModel):
     store: str
@@ -11,6 +17,8 @@ class PickupItem(BaseModel):
     orders: List[StoreQuantity]
     stockAtHQ: Optional[int] = None
     categoryName: Optional[str] = None
+    name: Dict[str, str]  # { "en_US": "...", "zh_CN": "...", "zh_TW": "..." }
+    storeStock: List[StoreStockEntry] = []
 
 class PickupSummaryResponse(BaseModel):
     pickupItems: List[PickupItem]
