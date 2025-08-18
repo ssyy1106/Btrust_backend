@@ -34,7 +34,7 @@ async def get_pickup_summary(
     categoryIds: Optional[List[int]] = Query(None, description="按分类 ID 过滤，多值用逗号分隔，自动包含子孙分类"),
     order: bool = Query(True, description="是否只筛选有订单的产品"),
     page: int = Query(1, ge=1, description="页码，从 1 开始"),
-    page_size: int = Query(50, ge=1, le=200, description="每页条数"),
+    page_size: int = Query(50, ge=1, le=99999, description="每页条数"),
     db_odoo: AsyncSession = Depends(get_db_odoo),
     db_storestock: AsyncSession = Depends(get_db_storestock),
     user = Depends(PermissionChecker(required_roles=["pickup:search", "pickup:view"]))
