@@ -10,6 +10,8 @@ class SaleOrder(Base_odoo):
     company_id = Column(Integer)
     user_id = Column(Integer, ForeignKey('res_users.id'))  # 下单用户ID
     partner_id = Column(Integer, ForeignKey('res_partner.id'))
+    name = Column(String)
+    note = Column(String)
 
     user = relationship("ResUsers", lazy='joined')
     partner = relationship("ResPartner", lazy='joined')

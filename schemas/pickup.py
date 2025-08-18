@@ -8,13 +8,23 @@ class StoreStockEntry(BaseModel):
     modifierName: Optional[str] = None
     updateTime: Optional[str] = None
 
-class StoreQuantity(BaseModel):
+# class StoreQuantity(BaseModel):
+#     store: str
+#     quantity: int
+class OrderDetail(BaseModel):
+    name: str
+    date_order: str
+    note: Optional[str]
+
+class StoreOrder(BaseModel):
     store: str
     quantity: int
+    detail: Optional[List[OrderDetail]] = None   # 只有 order=True 时才有
 
 class PickupItem(BaseModel):
     itemCode: str
-    orders: List[StoreQuantity]
+    orders: List[StoreOrder]
+    # orders: List[StoreQuantity]
     stockAtHQ: Optional[int] = None
     categoryName: Optional[str] = None
     name: Dict[str, str]  # { "en_US": "...", "zh_CN": "...", "zh_TW": "..." }

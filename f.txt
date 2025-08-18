@@ -33,6 +33,8 @@ async def get_pickup_summary(
     shift_hour: int = Query(16, ge=0, le=23, description="班次开始小时"),
     categoryIds: Optional[List[int]] = Query(None, description="按分类 ID 过滤，多值用逗号分隔，自动包含子孙分类"),
     order: bool = Query(True, description="是否只筛选有订单的产品"),
+    page: int = Query(1, ge=1, description="页码，从 1 开始"),
+    page_size: int = Query(50, ge=1, le=200, description="每页条数"),
     db_odoo: AsyncSession = Depends(get_db_odoo),
     db_storestock: AsyncSession = Depends(get_db_storestock),
     user = Depends(PermissionChecker(required_roles=["pickup:search", "pickup:view"]))
@@ -94,7 +96,7 @@ async def get_pickup_summary(
         .where(ProductProduct.default_code.isnot(None))
     )
 
-    # --- 递归查询 categoryIds 的子孙分类 ---
+    # --- 分类过滤 ---
     if categoryIds:
         Category = ProductCategory
         base_cte = select(Category.id, Category.parent_id).where(Category.id.in_(categoryIds)).cte(name="category_cte", recursive=True)
@@ -112,25 +114,29 @@ async def get_pickup_summary(
     if order:
         stmt = stmt.where(order_subq.c.order_quantity.isnot(None))
     else:
-        # order=False 时显示有库存但没有订单的产品
         stmt = stmt.where(
             (func.coalesce(order_subq.c.order_quantity, 0) == 0) &
             (func.coalesce(stock_subq.c.total_stock, 0) > 0)
         )
 
+    # 先统计总数
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total_result = await db_odoo.execute(count_stmt)
+    total = total_result.scalar() or 0
+
+    # 分页
+    stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+
     result = await db_odoo.execute(stmt)
     rows = result.all()
 
-    # 获取所有 item_codes
+    # 下面逻辑保持不变（构建返回数据）
     item_codes = list({r.default_code for r in rows if r.default_code})
-
-    # 查询 storestock
     storestock_rows = await db_storestock.execute(
         select(StoreStock).where(StoreStock.item_code.in_(item_codes))
     )
     storestock_list = storestock_rows.scalars().all()
 
-    # 构建 pickup_items
     pickup_dict = defaultdict(list)
     orders_dict = defaultdict(lambda: defaultdict(int))
 
@@ -157,7 +163,6 @@ async def get_pickup_summary(
             name_dict = {"en_US": str(raw_name)}
 
         orders_list = [{"store": store, "quantity": qty} for store, qty in orders_dict[item_code].items()]
-
         store_stock_entries = [
             {
                 "store": s.store,
@@ -179,4 +184,12 @@ async def get_pickup_summary(
             )
         )
 
-    return PickupSummaryResponse(pickupItems=pickup_items)
+    return {
+        "pickupItems": pickup_items,
+        "pagination": {
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "pages": ceil(total / page_size) if page_size else 1
+        }
+    }

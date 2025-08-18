@@ -16,7 +16,7 @@ from models.storestock import StoreStock
 from helper import getStoreNameOdoo
 from dependencies.permission import PermissionChecker
 from database import get_db_odoo, get_db_storestock
-from schemas.pickup import PickupItem, StoreQuantity, PickupSummaryResponse
+from schemas.pickup import PickupItem, PickupSummaryResponse, StoreOrder, OrderDetail
 
 router = APIRouter(prefix="/pickup", tags=["PickUp"])
 
@@ -46,7 +46,7 @@ async def get_pickup_summary(
 
     ParentPartner = aliased(ResPartner)
 
-    # 总库存子查询
+    # --- 总库存子查询 ---
     stock_subq = (
         select(
             StockQuant.product_id,
@@ -56,7 +56,7 @@ async def get_pickup_summary(
         .subquery()
     )
 
-    # 订单子查询
+    # --- 订单汇总子查询 ---
     order_subq = (
         select(
             SaleOrderLine.product_id,
@@ -75,7 +75,7 @@ async def get_pickup_summary(
         .subquery()
     )
 
-    # 主查询
+    # --- 主查询 ---
     stmt = (
         select(
             ProductProduct.id,
@@ -110,7 +110,7 @@ async def get_pickup_summary(
         all_category_ids = [row[0] for row in all_cat_result.all()]
         stmt = stmt.where(ProductTemplate.categ_id.in_(all_category_ids))
 
-    # 订单过滤逻辑
+    # --- 订单过滤逻辑 ---
     if order:
         stmt = stmt.where(order_subq.c.order_quantity.isnot(None))
     else:
@@ -119,24 +119,25 @@ async def get_pickup_summary(
             (func.coalesce(stock_subq.c.total_stock, 0) > 0)
         )
 
-    # 先统计总数
+    # --- 总数 ---
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total_result = await db_odoo.execute(count_stmt)
     total = total_result.scalar() or 0
 
-    # 分页
+    # --- 分页 ---
     stmt = stmt.limit(page_size).offset((page - 1) * page_size)
 
     result = await db_odoo.execute(stmt)
     rows = result.all()
 
-    # 下面逻辑保持不变（构建返回数据）
+    # --- 查询 storestock ---
     item_codes = list({r.default_code for r in rows if r.default_code})
     storestock_rows = await db_storestock.execute(
         select(StoreStock).where(StoreStock.item_code.in_(item_codes))
     )
     storestock_list = storestock_rows.scalars().all()
 
+    # --- 汇总订单数量 ---
     pickup_dict = defaultdict(list)
     orders_dict = defaultdict(lambda: defaultdict(int))
 
@@ -148,6 +149,38 @@ async def get_pickup_summary(
         store_code = getStoreNameOdoo(store_names)
         orders_dict[r.default_code][store_code] += int(r.order_quantity or 0)
 
+    # --- 如果需要订单明细 ---
+    orders_detail_dict = defaultdict(lambda: defaultdict(list))
+    if order:
+        order_detail_subq = (
+            select(
+                SaleOrderLine.product_id,
+                ResPartner.name.label("partner_name"),
+                ParentPartner.name.label("parent_partner_name"),
+                SaleOrder.name.label("order_name"),
+                SaleOrder.date_order.label("date_order"),
+                SaleOrder.note.label("note"),
+                SaleOrderLine.product_uom_qty.label("line_qty")
+            )
+            .join(SaleOrder, SaleOrderLine.order_id == SaleOrder.id)
+            .join(ResPartner, SaleOrder.partner_id == ResPartner.id)
+            .outerjoin(ParentPartner, ResPartner.parent_id == ParentPartner.id)
+            .where(SaleOrder.state == 'sale')
+            .where(SaleOrder.date_order >= start_dt_utc)
+            .where(SaleOrder.date_order < end_dt_utc)
+        )
+        detail_result = await db_odoo.execute(order_detail_subq)
+        detail_rows = detail_result.all()
+        for d in detail_rows:
+            store_names = [n for n in [d.partner_name, d.parent_partner_name] if n]
+            store_code = getStoreNameOdoo(store_names)
+            orders_detail_dict[d.product_id][store_code].append({
+                "name": d.order_name,
+                "date_order": d.date_order.isoformat() if d.date_order else None,
+                "note": d.note
+            })
+
+    # --- 构建返回数据 ---
     pickup_items = []
     for item_code, product_rows in pickup_dict.items():
         raw_name = product_rows[0].product_name
@@ -162,7 +195,19 @@ async def get_pickup_summary(
         else:
             name_dict = {"en_US": str(raw_name)}
 
-        orders_list = [{"store": store, "quantity": qty} for store, qty in orders_dict[item_code].items()]
+        # 构建 orders
+        orders_list = []
+        for store, qty in orders_dict[item_code].items():
+            detail_list = None
+            if order:
+                detail_list = orders_detail_dict[product_rows[0].id][store]
+            orders_list.append({
+                "store": store,
+                "quantity": qty,
+                "detail": detail_list
+            })
+
+        # 构建门店库存
         store_stock_entries = [
             {
                 "store": s.store,
