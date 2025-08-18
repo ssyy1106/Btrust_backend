@@ -20,8 +20,15 @@ class PickupItem(BaseModel):
     name: Dict[str, str]  # { "en_US": "...", "zh_CN": "...", "zh_TW": "..." }
     storeStock: List[StoreStockEntry] = []
 
+class Pagination(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
 class PickupSummaryResponse(BaseModel):
     pickupItems: List[PickupItem]
+    pagination: Pagination
 
 # class StoreQuantity(BaseModel):
 #     store: str
