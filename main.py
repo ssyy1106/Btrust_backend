@@ -72,7 +72,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 #     "http://172.16.30.8:8601",
 #     "http://172.16.30.8:8600"
 # ]
-config_env = Config(".env")
+config_env = Config(".env", encoding="utf-8")
 origins = config_env("CORS_ORIGINS", cast=lambda v: [s.strip() for s in v.split(",")])
 
 app.add_middleware(
