@@ -183,6 +183,7 @@ async def get_stock(
             entry_dict = entry.dict()
             entry_dict["last_order_date"] = last_order_date
             stock_list.append(StockEntry(**entry_dict))
-        stock_items.append(StockItem(itemCode=item_code or "", name=name, stock=stock_list))
+        if item_code is not None:
+            stock_items.append(StockItem(itemCode=item_code, name=name, stock=stock_list))
 
     return StockResponse(stockEntries=stock_items)
