@@ -9,6 +9,7 @@ dist/
 
 uploads/
 thumbnails/
+venv/
 
 # Compiled Java class files
 *.class
