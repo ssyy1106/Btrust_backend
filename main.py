@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-import fastapi
+from starlette.config import Config
 import pyodbc
 import logging
 import configparser
@@ -56,22 +56,24 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": str(exc)},
     )
 
-origins = [
-    "http://localhost:3000",
-    "http://172.16.10.106:3000",
-    "http://localhost",
-    "http://localhost:8000",
-    "http://172.16.30.8:8000",
-    "http://172.16.30.8",
-    "http://172.16.30.8:81",
-    "http://172.16.30.8:82",
-    "http://172.16.30.8:8200",
-    "http://172.16.10.81:3000",
-    "https://172.16.30.8:8501",
-    "https://172.16.30.8:8502",
-    "http://172.16.30.8:8601/",
-    "http://172.16.30.8:8600/"
-]
+# origins = [
+#     "http://localhost:3000",
+#     "http://172.16.10.106:3000",
+#     "http://localhost",
+#     "http://localhost:8000",
+#     "http://172.16.30.8:8000",
+#     "http://172.16.30.8",
+#     "http://172.16.30.8:81",
+#     "http://172.16.30.8:82",
+#     "http://172.16.30.8:8200",
+#     "http://172.16.10.81:3000",
+#     "https://172.16.30.8:8501",
+#     "https://172.16.30.8:8502",
+#     "http://172.16.30.8:8601",
+#     "http://172.16.30.8:8600"
+# ]
+config_env = Config(".env")
+origins = config_env("CORS_ORIGINS", cast=lambda v: [s.strip() for s in v.split(",")])
 
 app.add_middleware(
     CORSMiddleware,
