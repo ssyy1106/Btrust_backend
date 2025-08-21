@@ -6,8 +6,8 @@ from uuid import UUID
 
 class ProductInfoOut(BaseModel):
     barcode: str
-    name_ch: Optional[str]
-    name_en: Optional[str]
+    name_ch: Optional[str] = None
+    name_en: Optional[str] = None
 
     class Config:
         orm_mode = True
@@ -15,8 +15,8 @@ class ProductInfoOut(BaseModel):
 class StockByLocationItem(BaseModel):
     session_id: str
     barcode: str
-    name_ch: Optional[str]
-    name_en: Optional[str]
+    name_ch: Optional[str] = None
+    name_en: Optional[str] = None
     qty: int
     time: datetime
     create_time: datetime
