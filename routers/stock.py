@@ -219,6 +219,40 @@ async def export_stock_by_location(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
+# -------------------- 下载模板 --------------------
+@router.get("/product/template")
+async def download_product_template():
+    df = pd.DataFrame(columns=["barcode", "name_ch", "name_en"])
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+        file_path = tmp.name
+        df.to_excel(file_path, index=False)
+    return FileResponse(file_path, filename="product_template.xlsx", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+# -------------------- 上传产品信息 --------------------
+@router.post("/product/upload")
+async def upload_product_info(file: UploadFile = File(...), db: AsyncSession = Depends(get_db_stock)):
+    try:
+        df = pd.read_excel(file.file)
+        if not {"barcode", "name_ch", "name_en"}.issubset(df.columns):
+            raise HTTPException(status_code=400, detail="Columns must include barcode, name_ch, name_en")
+
+        for _, row in df.iterrows():
+            stmt = select(ProductInfo).where(ProductInfo.barcode == row['barcode'])
+            result = await db.execute(stmt)
+            product = result.scalar_one_or_none()
+            if product:
+                product.name_ch = row.get("name_ch")
+                product.name_en = row.get("name_en")
+            else:
+                db.add(ProductInfo(barcode=row['barcode'], name_ch=row.get("name_ch"), name_en=row.get("name_en")))
+        await db.commit()
+        return {"status": "success", "count": len(df)}
+
+    except Exception as e:
+        await db.rollback()
+        tb = traceback.format_exc()
+        raise HTTPException(status_code=500, detail=f"{str(e)}\n{tb}")
+    
 # 获取某个 session 的详细信息（含 items）
 @router.get("/{session_id}", response_model=StocktakeSessionOut)
 async def get_session_detail(session_id: UUID, db: AsyncSession = Depends(get_db_stock)):
