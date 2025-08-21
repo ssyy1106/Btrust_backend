@@ -50,18 +50,19 @@ async def log_operation(db: AsyncSession, api_name: str, request_data, response_
 async def upload_stocktake(data: StocktakeUpload, db: AsyncSession = Depends(get_db_stock)):
     try:
         session_id = data.id
-        user_id = data.user_id
+        #user_id = data.user_id
 
         # 删除旧记录
         await db.execute(delete(StocktakeItem).where(StocktakeItem.session_id == session_id))
         await db.execute(delete(StocktakeSession).where(StocktakeSession.id == session_id))
         now = datetime.now()
+        session_creator = data.stocktake[0].user_id if data.stocktake else "system"
         session = StocktakeSession(
             id=session_id,
             device_id=data.deviceId,
             timestamp=data.timestamp,
-            creator_id=user_id,
-            modifier_id=user_id,
+            creator_id=str(session_creator),
+            modifier_id=str(session_creator),
             create_time=now,
             update_time=now
         )
@@ -75,8 +76,8 @@ async def upload_stocktake(data: StocktakeUpload, db: AsyncSession = Depends(get
                 barcode=item.barcode,
                 qty=item.qty,
                 time=item.time,
-                creator_id=user_id,
-                modifier_id=user_id,
+                creator_id=str(item.user_id),
+                modifier_id=str(item.user_id),
                 create_time=now,
                 update_time=now
             )

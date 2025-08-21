@@ -29,13 +29,14 @@ class StocktakeItemBase(BaseModel):
     barcode: str
     qty: int
     time: datetime
+    user_id: str   # 每条 item 自己的用户 ID
 
 
 class StocktakeUpload(BaseModel):
     id: UUID
     timestamp: datetime
     deviceId: str
-    user_id: str   # 新增，必填
+    #user_id: str   # 新增，必填
     stocktake: List[StocktakeItemBase]
 
 
@@ -73,6 +74,8 @@ class StocktakeSessionOut(BaseModel):
     id: UUID
     device_id: str
     timestamp: datetime
+    creator_id: Optional[str]
+    modifier_id: Optional[str]
     create_time: datetime
     update_time: datetime
 
