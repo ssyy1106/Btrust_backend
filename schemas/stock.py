@@ -20,6 +20,8 @@ class StockByLocationItem(BaseModel):
     qty: int
     time: datetime
     create_time: datetime
+    creator_id: Optional[str] = None
+    modifier_id: Optional[str] = None
 
 StockByLocationResponse = Dict[str, List[StockByLocationItem]]
 

@@ -164,6 +164,8 @@ async def get_stock_by_location(
             "qty": item.qty,
             "time": item.time,
             "create_time": item.create_time,
+            "creator_id": item.creator_id,
+            "modifier_id": item.modifier_id,
         })
     logout = {"status": "success", "location_data": location_data}
     await log_operation(db, f"get /by-location", {"start_date": start_date, "end_date": end_date}, logout)
@@ -190,7 +192,7 @@ async def export_stock_by_location(
         stmt = stmt.where(and_(*conditions))
 
     result = await db.execute(stmt)
-    rows = result.scalars().all()
+    rows = result.all()
 
     if not rows:
         raise HTTPException(status_code=404, detail="No data found for the given time range.")
@@ -203,6 +205,8 @@ async def export_stock_by_location(
         "Quantity": item.qty,
         "Stock Take Date": item.time.replace(tzinfo=None),         # 去掉时区
         "Upload Date": item.create_time.replace(tzinfo=None),  # 去掉时区
+        "creator_id": item.creator_id,
+        "modifier_id": item.modifier_id,
     } for item, product in rows]
 
     df = pd.DataFrame(data)
