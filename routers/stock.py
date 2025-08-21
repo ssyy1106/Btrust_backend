@@ -152,7 +152,7 @@ async def get_stock_by_location(
         stmt = stmt.where(and_(*conditions))
 
     result = await db.execute(stmt)
-    items = result.scalars().all()
+    items = result.all()
 
     location_data = defaultdict(list)
     for item, product in items:
