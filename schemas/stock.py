@@ -44,8 +44,8 @@ class StocktakeItemOut(BaseModel):
     id: int
     location: str
     barcode: str
-    name_ch: Optional[str]
-    name_en: Optional[str]
+    name_ch: Optional[str] = None
+    name_en: Optional[str] = None
     qty: int
     time: datetime
     session_id: UUID
