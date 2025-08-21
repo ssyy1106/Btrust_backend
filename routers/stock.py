@@ -6,14 +6,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, and_
 from fastapi.responses import JSONResponse, FileResponse
 from datetime import datetime, timedelta
-from models.stock import OperateLog, StocktakeSession, StocktakeItem
+from models.stock import OperateLog, StocktakeSession, StocktakeItem, ProductInfo
 from schemas.stock import (
     StocktakeSessionOut,
     StocktakeUpload,
     StocktakeItemOut, 
     StocktakeItemBase, 
     StocktakeSessionWithItems,
-    StockByLocationResponse
+    StockByLocationResponse,
+    ProductInfoOut
 )
 from collections import defaultdict
 from database import get_db_stock
@@ -49,6 +50,7 @@ async def log_operation(db: AsyncSession, api_name: str, request_data, response_
 async def upload_stocktake(data: StocktakeUpload, db: AsyncSession = Depends(get_db_stock)):
     try:
         session_id = data.id
+        user_id = data.user_id
 
         # 删除旧记录
         await db.execute(delete(StocktakeItem).where(StocktakeItem.session_id == session_id))
@@ -58,8 +60,8 @@ async def upload_stocktake(data: StocktakeUpload, db: AsyncSession = Depends(get
             id=session_id,
             device_id=data.deviceId,
             timestamp=data.timestamp,
-            creator_id=0,
-            modifier_id=0,
+            creator_id=user_id,
+            modifier_id=user_id,
             create_time=now,
             update_time=now
         )
@@ -73,8 +75,8 @@ async def upload_stocktake(data: StocktakeUpload, db: AsyncSession = Depends(get
                 barcode=item.barcode,
                 qty=item.qty,
                 time=item.time,
-                creator_id=0,
-                modifier_id=0,
+                creator_id=user_id,
+                modifier_id=user_id,
                 create_time=now,
                 update_time=now
             )
@@ -143,7 +145,8 @@ async def get_stock_by_location(
             end_date = end_date + timedelta(days=1) - timedelta(microseconds=1)
         conditions.append(StocktakeItem.time <= end_date)
 
-    stmt = select(StocktakeItem)
+    #stmt = select(StocktakeItem)
+    stmt = select(StocktakeItem, ProductInfo).outerjoin(ProductInfo, StocktakeItem.barcode == ProductInfo.barcode)
     if conditions:
         stmt = stmt.where(and_(*conditions))
 
@@ -151,10 +154,12 @@ async def get_stock_by_location(
     items = result.scalars().all()
 
     location_data = defaultdict(list)
-    for item in items:
+    for item, product in items:
         location_data[item.location].append({
             "session_id": str(item.session_id),
             "barcode": item.barcode,
+            "name_ch": product.name_ch if product else None,
+            "name_en": product.name_en if product else None,
             "qty": item.qty,
             "time": item.time,
             "create_time": item.create_time,
@@ -178,24 +183,26 @@ async def export_stock_by_location(
             end_date = end_date + timedelta(days=1) - timedelta(microseconds=1)
         conditions.append(StocktakeItem.time <= end_date)
 
-    stmt = select(StocktakeItem)
+    #stmt = select(StocktakeItem)
+    stmt = select(StocktakeItem, ProductInfo).outerjoin(ProductInfo, StocktakeItem.barcode == ProductInfo.barcode)
     if conditions:
         stmt = stmt.where(and_(*conditions))
 
     result = await db.execute(stmt)
-    items = result.scalars().all()
+    rows = result.scalars().all()
 
-    if not items:
+    if not rows:
         raise HTTPException(status_code=404, detail="No data found for the given time range.")
 
     data = [{
         "Location": item.location,
         "Barcode": item.barcode,
+        "Name CH": product.name_ch if product else None,
+        "Name EN": product.name_en if product else None,
         "Quantity": item.qty,
         "Stock Take Date": item.time.replace(tzinfo=None),         # 去掉时区
-        # "Session ID": str(item.session_id),
         "Upload Date": item.create_time.replace(tzinfo=None),  # 去掉时区
-    } for item in items]
+    } for item, product in rows]
 
     df = pd.DataFrame(data)
     df.sort_values(by=["Location", "Stock Take Date"], inplace=True)

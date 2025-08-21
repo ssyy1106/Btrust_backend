@@ -15,8 +15,8 @@ class StocktakeSession(Base_stock):
     device_id = Column(String, nullable=False)
     timestamp = Column(DateTime(timezone=True), nullable=False)  # 前端上传时间
 
-    creator_id = Column(BigInteger, nullable=True)
-    modifier_id = Column(BigInteger, nullable=True)
+    creator_id = Column(String, nullable=True)
+    modifier_id = Column(String, nullable=True)
     create_time = Column(DateTime(timezone=True), default=utcnow)
     update_time = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -34,8 +34,8 @@ class StocktakeItem(Base_stock):
     qty = Column(Integer, nullable=False)
     time = Column(DateTime(timezone=True), nullable=False)  # 前端上传时间
 
-    creator_id = Column(BigInteger, nullable=True)
-    modifier_id = Column(BigInteger, nullable=True)
+    creator_id = Column(String, nullable=True)
+    modifier_id = Column(String, nullable=True)
     create_time = Column(DateTime(timezone=True), default=utcnow)
     update_time = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -50,3 +50,11 @@ class OperateLog(Base_stock):
     request_payload = Column(JSON, nullable=False)
     response_payload = Column(JSON, nullable=True)
     create_time = Column(DateTime(timezone=True), default=utcnow)
+
+class ProductInfo(Base_stock):
+    __tablename__ = "product_info"
+
+    barcode = Column(String, primary_key=True)
+    name_ch = Column(String, nullable=True)
+    name_en = Column(String, nullable=True)
+    
