@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import List, Optional, Any, Dict
 from datetime import datetime
 from uuid import UUID
@@ -75,8 +75,9 @@ class StocktakeSessionWithItems(BaseModel):
     update_time: datetime
     items: List[StocktakeItemOut]
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True) 
+    # class Config:
+    #     orm_mode = True
 
 class StocktakeSummaryResponse(BaseModel):
     pickupItems: List[StocktakeSessionWithItems]
