@@ -9,8 +9,7 @@ class ProductInfoOut(BaseModel):
     name_ch: Optional[str] = None
     name_en: Optional[str] = None
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 class StockByLocationItem(BaseModel):
     session_id: str
@@ -111,3 +110,7 @@ class OperateLogOut(BaseModel):
 
     class Config:
         orm_mode = True
+
+class ProductInfoResponse(BaseModel):
+    products: list[ProductInfoOut]
+    pagination: Pagination

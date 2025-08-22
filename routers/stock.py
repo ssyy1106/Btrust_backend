@@ -18,7 +18,8 @@ from schemas.stock import (
     ProductInfoOut,
     StocktakeSummaryResponse,
     Pagination,
-    StocktakeItemSummaryResponse
+    StocktakeItemSummaryResponse,
+    ProductInfoResponse
 )
 from collections import defaultdict
 from database import get_db_stock
@@ -493,6 +494,55 @@ async def upload_product_info(file: UploadFile = File(...), db: AsyncSession = D
         await db.rollback()
         tb = traceback.format_exc()
         raise HTTPException(status_code=500, detail=f"{str(e)}\n{tb}")
+
+@router.get("/product/list", response_model=ProductInfoResponse)
+async def list_products(
+    barcode: Optional[str] = Query(None, description="按条码模糊查询"),
+    name: Optional[str] = Query(None, description="按中英文品名模糊查询"),
+    page: int = Query(1, ge=1, description="页码，从1开始"),
+    page_size: int = Query(50, ge=1, le=99999, description="每页数量"),
+    db: AsyncSession = Depends(get_db_stock)
+):
+    try:
+        conditions = []
+        if barcode:
+            conditions.append(ProductInfo.barcode.ilike(f"%{barcode}%"))
+        if name:
+            conditions.append(
+                or_(
+                    ProductInfo.name_ch.ilike(f"%{name}%"),
+                    ProductInfo.name_en.ilike(f"%{name}%")
+                )
+            )
+
+        # 主查询
+        stmt = select(ProductInfo)
+        if conditions:
+            stmt = stmt.where(*conditions)
+
+        # 获取总数
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        result_count = await db.execute(count_stmt)
+        total = result_count.scalar() or 0
+
+        # 分页查询
+        stmt = stmt.order_by(ProductInfo.barcode.asc()) \
+                   .offset((page - 1) * page_size) \
+                   .limit(page_size)
+        result = await db.execute(stmt)
+        products = result.scalars().all()
+
+        return ProductInfoResponse(
+            products=[ProductInfoOut.model_validate(p) for p in products],
+            pagination=Pagination(
+                total=total,
+                page=page,
+                page_size=page_size,
+                pages=ceil(total / page_size) if page_size else 1
+            )
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     
 # 获取某个 session 的详细信息（含 items）
 @router.get("/{session_id}", response_model=StocktakeSessionOut)
