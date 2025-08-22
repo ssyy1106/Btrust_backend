@@ -479,14 +479,15 @@ async def upload_product_info(file: UploadFile = File(...), db: AsyncSession = D
             raise HTTPException(status_code=400, detail="Columns must include barcode, name_ch, name_en")
 
         for _, row in df.iterrows():
-            stmt = select(ProductInfo).where(ProductInfo.barcode == row['barcode'])
+            barcode_str = str(row['barcode'])  # 强制转换为字符串
+            stmt = select(ProductInfo).where(ProductInfo.barcode == barcode_str)
             result = await db.execute(stmt)
             product = result.scalar_one_or_none()
             if product:
                 product.name_ch = row.get("name_ch")
                 product.name_en = row.get("name_en")
             else:
-                db.add(ProductInfo(barcode=row['barcode'], name_ch=row.get("name_ch"), name_en=row.get("name_en")))
+                db.add(ProductInfo(barcode=barcode_str, name_ch=row.get("name_ch"), name_en=row.get("name_en")))
         await db.commit()
         return {"status": "success", "count": len(df)}
 
