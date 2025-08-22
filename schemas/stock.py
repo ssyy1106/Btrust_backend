@@ -56,8 +56,9 @@ class StocktakeItemOut(BaseModel):
     create_time: datetime
     update_time: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True) 
+    # class Config:
+    #     orm_mode = True
 
 class Pagination(BaseModel):
     total: int
