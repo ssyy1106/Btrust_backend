@@ -113,6 +113,8 @@ async  def search_stocktake(
     session_id: Optional[UUID] = Query(None),
     stock_take_start_date: Optional[datetime] = Query(None),
     stock_take_end_date: Optional[datetime] = Query(None),
+    upload_start_date: Optional[datetime] = Query(None),
+    upload_end_date: Optional[datetime] = Query(None),
     location: Optional[str] = Query(None, description="按库位模糊查询"),
     barcode: Optional[str] = Query(None, description="按条码精确查询"),
     item_name: Optional[str] = Query(None, description="按中英文品名模糊查询"),
@@ -121,97 +123,123 @@ async  def search_stocktake(
     page_size: int = Query(20, ge=1, le=99999, description="每页数量"),
     db: AsyncSession = Depends(get_db_stock)
 ):
-    # 🔹 先查 session
-    session_stmt = select(StocktakeSession)
+    # 基础查询: session + items + product
+    stmt = (
+        select(StocktakeSession)
+        .options(selectinload(StocktakeSession.items))  # 预加载 items
+    )
+
+    # session 级别条件
+    session_conditions = []
     if session_id:
-        session_stmt = session_stmt.where(StocktakeSession.id == session_id)
-
-    # 计算总数（基于 session）
-    count_stmt = select(func.count()).select_from(session_stmt.subquery())
-    result_count = await db.execute(count_stmt)
-    total = result_count.scalar() or 0
-
-    # 分页后的 session
-    session_stmt = session_stmt.order_by(StocktakeSession.timestamp.desc()) \
-                               .offset((page - 1) * page_size) \
-                               .limit(page_size)
-    result = await db.execute(session_stmt)
-    sessions = result.scalars().unique().all()
-
-    # 🔹 再查 item（用筛选条件）
-    item_conditions = []
+        session_conditions.append(StocktakeSession.id == session_id)
     if stock_take_start_date:
-        item_conditions.append(StocktakeItem.time >= stock_take_start_date)
+        session_conditions.append(StocktakeSession.timestamp >= stock_take_start_date)
     if stock_take_end_date:
         if stock_take_end_date.time() == datetime.min.time():
             stock_take_end_date = stock_take_end_date + timedelta(days=1) - timedelta(microseconds=1)
-        item_conditions.append(StocktakeItem.time <= stock_take_end_date)
-    if location:
-        item_conditions.append(StocktakeItem.location.ilike(f"%{location}%"))
-    if barcode:
-        item_conditions.append(StocktakeItem.barcode.ilike(f"%{barcode}%"))
-    if creator_id:
-        item_conditions.append(StocktakeItem.creator_id.ilike(f"%{creator_id}%"))
-    if item_name:
-        item_conditions.append(
-            or_(
-                ProductInfo.name_ch.ilike(f"%{item_name}%"),
-                ProductInfo.name_en.ilike(f"%{item_name}%"),
-            )
-        )
+        session_conditions.append(StocktakeSession.timestamp <= stock_take_end_date)
+    if session_conditions:
+        stmt = stmt.where(and_(*session_conditions))
 
-    # 🔹 查询所有符合条件的 items
-    item_stmt = (
-        select(StocktakeItem)
-        .join(ProductInfo, StocktakeItem.barcode == ProductInfo.barcode, isouter=True)
-    )
-    if item_conditions:
-        item_stmt = item_stmt.where(and_(*item_conditions))
+    # 获取总数
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total = (await db.execute(count_stmt)).scalar() or 0
 
-    result_items = await db.execute(item_stmt)
-    filtered_items = result_items.scalars().all()
+    # 分页
+    stmt = stmt.order_by(StocktakeSession.timestamp.desc()) \
+               .offset((page - 1) * page_size) \
+               .limit(page_size)
 
-    # 🔹 把 items 按 session_id 分组
-    items_by_session = defaultdict(list)
-    for item in filtered_items:
-        items_by_session[item.session_id].append(item)
+    sessions = (await db.execute(stmt)).scalars().unique().all()
 
-    # 🔹 替换 session.items 为过滤后的结果
-    filtered_sessions = []
-    for session in sessions:
-        if session.id in items_by_session:
-            session.items = items_by_session[session.id]
-            filtered_sessions.append(session)
+    # 处理 item 过滤
+    pickupItems = []
+    for s in sessions:
+        filtered_items = []
+        for i in s.items:
+            # item 级别筛选
+            if upload_start_date and i.create_time < upload_start_date:
+                continue
+            if upload_end_date:
+                if upload_end_date.time() == datetime.min.time():
+                    upload_end_date = upload_end_date + timedelta(days=1) - timedelta(microseconds=1)
+                if i.create_time > upload_end_date:
+                    continue
+            if location and location.lower() not in i.location.lower():
+                continue
+            if barcode and barcode != i.barcode:
+                continue
+            if creator_id and creator_id.lower() not in (i.creator_id or "").lower():
+                continue
+            if item_name:
+                name_ch = getattr(i, "name_ch", "") or ""
+                name_en = getattr(i, "name_en", "") or ""
+                if item_name.lower() not in name_ch.lower() and item_name.lower() not in name_en.lower():
+                    continue
+            filtered_items.append(i)
 
-    # 🔹 组装返回
+        # 如果当前 session 没有 item 满足条件，则跳过
+        if not filtered_items:
+            continue
+
+        # 构造字典返回，避免 lazy load 异步问题
+        pickupItems.append({
+            "id": s.id,
+            "device_id": s.device_id,
+            "timestamp": s.timestamp,
+            "creator_id": s.creator_id,
+            "modifier_id": s.modifier_id,
+            "create_time": s.create_time,
+            "update_time": s.update_time,
+            "items": [
+                {
+                    "id": i.id,
+                    "session_id": i.session_id,
+                    "location": i.location,
+                    "barcode": i.barcode,
+                    "qty": i.qty,
+                    "time": i.time,
+                    "creator_id": i.creator_id,
+                    "modifier_id": i.modifier_id,
+                    "create_time": i.create_time,
+                    "update_time": i.update_time,
+                    "name_ch": getattr(i, "name_ch", None),
+                    "name_en": getattr(i, "name_en", None)
+                }
+                for i in filtered_items
+            ]
+        })
+
+    # 构造响应
     response = StocktakeSummaryResponse(
-        pickupItems=[
-            StocktakeSessionWithItems.model_validate(s, from_attributes=True) for s in filtered_sessions
-        ],
+        pickupItems=pickupItems,
         pagination=Pagination(
             total=total,
             page=page,
             page_size=page_size,
-            pages=ceil(total / page_size) if page_size else 1,
-        ),
+            pages=ceil(total / page_size) if page_size else 1
+        )
     )
 
-    # 🔹 写日志
+    # 日志
     await log_operation(
         db,
-        "get /",
+        f"get /",
         {
             "session_id": session_id,
             "stock_take_start_date": stock_take_start_date,
             "stock_take_end_date": stock_take_end_date,
+            "upload_start_date": upload_start_date,
+            "upload_end_date": upload_end_date,
             "location": location,
             "barcode": barcode,
             "item_name": item_name,
             "creator_id": creator_id,
             "page": page,
-            "page_size": page_size,
+            "page_size": page_size
         },
-        response.model_dump(),
+        {"status": "success", "page": page, "page_size": page_size, "total": total}
     )
 
     return response
