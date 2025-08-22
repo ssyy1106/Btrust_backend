@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException, File, UploadFile, 
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, and_, func
+from sqlalchemy import select, delete, and_, func, or_
 from fastapi.responses import JSONResponse, FileResponse
 from datetime import datetime, timedelta
 from models.stock import OperateLog, StocktakeSession, StocktakeItem, ProductInfo
@@ -16,7 +16,8 @@ from schemas.stock import (
     StocktakeSessionWithItems,
     StockByLocationResponse,
     ProductInfoOut,
-    StocktakeSummaryResponse
+    StocktakeSummaryResponse,
+    Pagination
 )
 from collections import defaultdict
 from database import get_db_stock
@@ -110,66 +111,98 @@ async def upload_stocktake(data: StocktakeUpload, db: AsyncSession = Depends(get
 @router.get("", response_model=StocktakeSummaryResponse)
 async  def search_stocktake(
     session_id: Optional[UUID] = Query(None),
-    start_date: Optional[datetime] = Query(None),
-    end_date: Optional[datetime] = Query(None),
+    stock_take_start_date: Optional[datetime] = Query(None),
+    stock_take_end_date: Optional[datetime] = Query(None),
+    location: Optional[str] = Query(None, description="按库位模糊查询"),
+    barcode: Optional[str] = Query(None, description="按条码精确查询"),
+    item_name: Optional[str] = Query(None, description="按中英文品名模糊查询"),
+    creator_id: Optional[str] = Query(None, description="按创建人过滤"),
     page: int = Query(1, ge=1, description="页码，从1开始"),
     page_size: int = Query(20, ge=1, le=99999, description="每页数量"),
     db: AsyncSession = Depends(get_db_stock)
 ):
-    stmt = select(StocktakeSession).options(selectinload(StocktakeSession.items))
+    # 基础查询: join item & product
+    stmt = (
+        select(StocktakeSession)
+        .join(StocktakeItem, StocktakeSession.id == StocktakeItem.session_id)
+        .outerjoin(ProductInfo, StocktakeItem.barcode == ProductInfo.barcode)
+        .options(selectinload(StocktakeSession.items))
+    )
 
+    # 条件拼接
+    conditions = []
     if session_id:
-        stmt = stmt.where(StocktakeSession.id == session_id)
-    if start_date:
-        stmt = stmt.where(StocktakeSession.timestamp >= start_date)
-    if end_date:
-        # 如果 end_date 没有时分秒，则添加 1 天再减 1 微秒，变成当日 23:59:59.999999
-        if end_date.time() == datetime.min.time():
-            end_date = end_date + timedelta(days=1) - timedelta(microseconds=1)
-        stmt = stmt.where(StocktakeSession.timestamp <= end_date)
+        conditions.append(StocktakeSession.id == session_id)
+    if stock_take_start_date:
+        conditions.append(StocktakeSession.timestamp >= stock_take_start_date)
+    if stock_take_end_date:
+        if stock_take_end_date.time() == datetime.min.time():
+            stock_take_end_date = stock_take_end_date + timedelta(days=1) - timedelta(microseconds=1)
+        conditions.append(StocktakeSession.timestamp <= stock_take_end_date)
+    if location:
+        conditions.append(StocktakeItem.location.ilike(f"%{location}%"))
+    if barcode:
+        conditions.append(StocktakeItem.barcode.ilike(f"%{barcode}%"))
+    if item_name:
+        conditions.append(
+            or_(
+                ProductInfo.name_ch.ilike(f"%{item_name}%"),
+                ProductInfo.name_en.ilike(f"%{item_name}%"),
+            )
+        )
+    if creator_id:
+        conditions.append(StocktakeItem.creator_id.ilike(f"%{creator_id}%"))
+
+    if conditions:
+        stmt = stmt.where(and_(*conditions))
 
     # 获取总数
     count_stmt = select(func.count()).select_from(stmt.subquery())
     result_count = await db.execute(count_stmt)
     total = result_count.scalar() or 0
 
-    # 添加分页
+    # 分页查询
     stmt = stmt.order_by(StocktakeSession.timestamp.desc()) \
-                    .offset((page - 1) * page_size) \
-                    .limit(page_size)
-    
-    #stmt = stmt.order_by(StocktakeSession.timestamp.desc())
+               .offset((page - 1) * page_size) \
+               .limit(page_size)
+
     result = await db.execute(stmt)
-    sessions = result.scalars().unique().all()  # scalars() 用于解包 ORM 对象
+    sessions = result.scalars().unique().all()
+
+    # 记录日志
     logout = {
         "status": "success",
         "page": page,
         "page_size": page_size,
         "total": total,
-        "sessions": sessions
+        "sessions_count": len(sessions)
     }
     await log_operation(
         db,
         f"get /",
         {
             "session_id": session_id,
-            "start_date": start_date,
-            "end_date": end_date,
+            "stock_take_start_date": stock_take_start_date,
+            "stock_take_end_date": stock_take_end_date,
+            "location": location,
+            "barcode": barcode,
+            "item_name": item_name,
+            "creator_id": creator_id,
             "page": page,
             "page_size": page_size
         },
         logout
     )
-    return {
-        "pickupItems": sessions,
-        "pagination": {
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-            "pages": ceil(total / page_size) if page_size else 1
-        }
-    }
-    #return sessions
+
+    return StocktakeSummaryResponse(
+        pickupItems=sessions,
+        pagination=Pagination(
+            total=total,
+            page=page,
+            page_size=page_size,
+            pages=ceil(total / page_size) if page_size else 1
+        )
+    )
 
 @router.get("/by-location", response_model=StockByLocationResponse)
 async def get_stock_by_location(
