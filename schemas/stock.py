@@ -59,6 +59,12 @@ class StocktakeItemOut(BaseModel):
     class Config:
         orm_mode = True
 
+class Pagination(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
 class StocktakeSessionWithItems(BaseModel):
     id: UUID
     device_id: str
@@ -71,6 +77,10 @@ class StocktakeSessionWithItems(BaseModel):
 
     class Config:
         orm_mode = True
+
+class StocktakeSummaryResponse(BaseModel):
+    pickupItems: List[StocktakeSessionWithItems]
+    pagination: Pagination
 
 class StocktakeSessionOut(BaseModel):
     id: UUID

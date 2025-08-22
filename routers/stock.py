@@ -1,9 +1,10 @@
+from math import ceil
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi import APIRouter, Depends, Query, HTTPException, File, UploadFile, Form, status
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, and_
+from sqlalchemy import select, delete, and_, func
 from fastapi.responses import JSONResponse, FileResponse
 from datetime import datetime, timedelta
 from models.stock import OperateLog, StocktakeSession, StocktakeItem, ProductInfo
@@ -14,7 +15,8 @@ from schemas.stock import (
     StocktakeItemBase, 
     StocktakeSessionWithItems,
     StockByLocationResponse,
-    ProductInfoOut
+    ProductInfoOut,
+    StocktakeSummaryResponse
 )
 from collections import defaultdict
 from database import get_db_stock
@@ -105,11 +107,13 @@ async def upload_stocktake(data: StocktakeUpload, db: AsyncSession = Depends(get
         await log_operation(db, "POST /", data.model_dump(), result)
         raise HTTPException(status_code=500, detail=result)
 
-@router.get("", response_model=List[StocktakeSessionWithItems])
+@router.get("", response_model=StocktakeSummaryResponse)
 async  def search_stocktake(
     session_id: Optional[UUID] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
+    page: int = Query(1, ge=1, description="页码，从1开始"),
+    page_size: int = Query(20, ge=1, le=99999, description="每页数量"),
     db: AsyncSession = Depends(get_db_stock)
 ):
     stmt = select(StocktakeSession).options(selectinload(StocktakeSession.items))
@@ -124,12 +128,48 @@ async  def search_stocktake(
             end_date = end_date + timedelta(days=1) - timedelta(microseconds=1)
         stmt = stmt.where(StocktakeSession.timestamp <= end_date)
 
-    stmt = stmt.order_by(StocktakeSession.timestamp.desc())
+    # 获取总数
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    result_count = await db.execute(count_stmt)
+    total = result_count.scalar() or 0
+
+    # 添加分页
+    stmt = stmt.order_by(StocktakeSession.timestamp.desc()) \
+                    .offset((page - 1) * page_size) \
+                    .limit(page_size)
+    
+    #stmt = stmt.order_by(StocktakeSession.timestamp.desc())
     result = await db.execute(stmt)
     sessions = result.scalars().unique().all()  # scalars() 用于解包 ORM 对象
-    logout = {"status": "success", "sessions": sessions}
-    await log_operation(db, f"get /", {"session_id": session_id, "start_date": start_date, "end_date": end_date}, logout)
-    return sessions
+    logout = {
+        "status": "success",
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "sessions": sessions
+    }
+    await log_operation(
+        db,
+        f"get /",
+        {
+            "session_id": session_id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "page": page,
+            "page_size": page_size
+        },
+        logout
+    )
+    return {
+        "pickupItems": sessions,
+        "pagination": {
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "pages": ceil(total / page_size) if page_size else 1
+        }
+    }
+    #return sessions
 
 @router.get("/by-location", response_model=StockByLocationResponse)
 async def get_stock_by_location(
