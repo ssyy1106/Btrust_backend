@@ -195,7 +195,7 @@ async  def search_stocktake(
     )
 
     return StocktakeSummaryResponse(
-        pickupItems=sessions,
+        pickupItems=[StocktakeSessionWithItems.model_validate(s) for s in sessions],
         pagination=Pagination(
             total=total,
             page=page,
