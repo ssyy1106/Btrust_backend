@@ -84,6 +84,11 @@ class StocktakeSummaryResponse(BaseModel):
     pickupItems: List[StocktakeSessionWithItems]
     pagination: Pagination
 
+class StocktakeItemSummaryResponse(BaseModel):
+    pickupItems: List[StocktakeItemOut]
+    pagination: Pagination
+    model_config = ConfigDict(from_attributes=True) 
+
 class StocktakeSessionOut(BaseModel):
     id: UUID
     device_id: str

@@ -17,7 +17,8 @@ from schemas.stock import (
     StockByLocationResponse,
     ProductInfoOut,
     StocktakeSummaryResponse,
-    Pagination
+    Pagination,
+    StocktakeItemSummaryResponse
 )
 from collections import defaultdict
 from database import get_db_stock
@@ -107,6 +108,139 @@ async def upload_stocktake(data: StocktakeUpload, db: AsyncSession = Depends(get
         print(f"Exception error: {result} e: {e}")
         await log_operation(db, "POST /", data.model_dump(), result)
         raise HTTPException(status_code=500, detail=result)
+
+@router.get("/items", response_model=StocktakeItemSummaryResponse)
+async def search_stocktake_items(
+    session_id: Optional[UUID] = Query(None),
+    stock_take_start_date: Optional[datetime] = Query(None),
+    stock_take_end_date: Optional[datetime] = Query(None),
+    upload_start_date: Optional[datetime] = Query(None),
+    upload_end_date: Optional[datetime] = Query(None),
+    location: Optional[str] = Query(None, description="按库位模糊查询"),
+    barcode: Optional[str] = Query(None, description="按条码精确查询"),
+    item_name: Optional[str] = Query(None, description="按中英文品名模糊查询"),
+    creator_id: Optional[str] = Query(None, description="按创建人过滤"),
+    page: int = Query(1, ge=1, description="页码，从1开始"),
+    page_size: int = Query(20, ge=1, le=99999, description="每页数量"),
+    db: AsyncSession = Depends(get_db_stock)
+):
+    # 条件列表
+    session_conditions = []
+    item_conditions = []
+
+    if session_id:
+        session_conditions.append(StocktakeItem.session_id == session_id)
+
+    # 按 stock_take 时间筛选 StocktakeSession.timestamp
+    if stock_take_start_date:
+        session_conditions.append(StocktakeSession.timestamp >= stock_take_start_date)
+    if stock_take_end_date:
+        if stock_take_end_date.time() == datetime.min.time():
+            stock_take_end_date = stock_take_end_date + timedelta(days=1) - timedelta(microseconds=1)
+        session_conditions.append(StocktakeSession.timestamp <= stock_take_end_date)
+
+    # 按 upload 时间筛选 StocktakeItem.create_time
+    if upload_start_date:
+        item_conditions.append(StocktakeItem.create_time >= upload_start_date)
+    if upload_end_date:
+        if upload_end_date.time() == datetime.min.time():
+            upload_end_date = upload_end_date + timedelta(days=1) - timedelta(microseconds=1)
+        item_conditions.append(StocktakeItem.create_time <= upload_end_date)
+
+    if location:
+        item_conditions.append(StocktakeItem.location.ilike(f"%{location}%"))
+    if barcode:
+        item_conditions.append(StocktakeItem.barcode.ilike(f"%{barcode}%"))
+    if item_name:
+        item_conditions.append(
+            or_(
+                ProductInfo.name_ch.ilike(f"%{item_name}%"),
+                ProductInfo.name_en.ilike(f"%{item_name}%")
+            )
+        )
+    if creator_id:
+        item_conditions.append(StocktakeItem.creator_id.ilike(f"%{creator_id}%"))
+
+    # 主查询：StocktakeItem 联 StocktakeSession 和 ProductInfo
+    stmt = (
+        select(StocktakeItem, ProductInfo)
+        .join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id)
+        .outerjoin(ProductInfo, StocktakeItem.barcode == ProductInfo.barcode)
+    )
+
+    if session_conditions:
+        stmt = stmt.where(and_(*session_conditions))
+    if item_conditions:
+        stmt = stmt.where(and_(*item_conditions))
+
+    # 获取总数
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    result_count = await db.execute(count_stmt)
+    total = result_count.scalar() or 0
+
+    # 分页
+    stmt = stmt.order_by(StocktakeItem.create_time.desc()) \
+               .offset((page - 1) * page_size) \
+               .limit(page_size)
+
+    result = await db.execute(stmt)
+    rows = result.all()  # [(StocktakeItem, ProductInfo), ...]
+
+    # 构造返回 list
+    items_list = [
+        StocktakeItemOut.model_validate({
+            "id": item.id,
+            "session_id": item.session_id,
+            "location": item.location,
+            "barcode": item.barcode,
+            "name_ch": product.name_ch if product else None,
+            "name_en": product.name_en if product else None,
+            "qty": item.qty,
+            "time": item.time,
+            "creator_id": item.creator_id,
+            "modifier_id": item.modifier_id,
+            "create_time": item.create_time,
+            "update_time": item.update_time
+        })
+        for item, product in rows
+    ]
+
+    # 日志
+    logout = {
+        "status": "success",
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "items_count": len(items_list)
+    }
+    await log_operation(
+        db,
+        "get /items",
+        {
+            "session_id": session_id,
+            "stock_take_start_date": stock_take_start_date,
+            "stock_take_end_date": stock_take_end_date,
+            "upload_start_date": upload_start_date,
+            "upload_end_date": upload_end_date,
+            "location": location,
+            "barcode": barcode,
+            "item_name": item_name,
+            "creator_id": creator_id,
+            "page": page,
+            "page_size": page_size
+        },
+        logout
+    )
+
+    return StocktakeItemSummaryResponse(
+        pickupItems=items_list,
+        pagination=Pagination(
+            total=total,
+            page=page,
+            page_size=page_size,
+            pages=ceil(total / page_size) if page_size else 1
+        )
+    )
 
 @router.get("", response_model=StocktakeSummaryResponse)
 async  def search_stocktake(
