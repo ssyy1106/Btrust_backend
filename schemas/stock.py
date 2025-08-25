@@ -8,6 +8,7 @@ class ProductInfoOut(BaseModel):
     barcode: str
     name_ch: Optional[str] = None
     name_en: Optional[str] = None
+    price: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -16,6 +17,7 @@ class StockByLocationItem(BaseModel):
     barcode: str
     name_ch: Optional[str] = None
     name_en: Optional[str] = None
+    price: Optional[float] = None
     qty: int
     time: datetime
     create_time: datetime
@@ -54,6 +56,7 @@ class StocktakeItemOut(BaseModel):
     modifier_id: Optional[str]
     create_time: datetime
     update_time: datetime
+    price: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True) 
     # class Config:

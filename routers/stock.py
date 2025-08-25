@@ -196,6 +196,7 @@ async def search_stocktake_items(
             "barcode": item.barcode,
             "name_ch": product.name_ch if product else None,
             "name_en": product.name_en if product else None,
+            "price": product.price if product else None,
             "qty": item.qty,
             "time": item.time,
             "creator_id": item.creator_id,
@@ -334,6 +335,7 @@ async  def search_stocktake(
                 "barcode": item.barcode,
                 "name_ch": product.name_ch if product else None,
                 "name_en": product.name_en if product else None,
+                "price": product.price if product else None,
                 "qty": item.qty,
                 "time": item.time,
                 "creator_id": item.creator_id,
@@ -398,6 +400,7 @@ async def get_stock_by_location(
             "barcode": item.barcode,
             "name_ch": product.name_ch if product else None,
             "name_en": product.name_en if product else None,
+            "price": product.price if product else None,
             "qty": item.qty,
             "time": item.time,
             "create_time": item.create_time,
@@ -439,6 +442,7 @@ async def export_stock_by_location(
         "Barcode": item.barcode,
         "Name CH": product.name_ch if product else None,
         "Name EN": product.name_en if product else None,
+        "Price": product.price if product else None,
         "Quantity": item.qty,
         "Stock Take Date": item.time.replace(tzinfo=None),         # 去掉时区
         "Upload Date": item.create_time.replace(tzinfo=None),  # 去掉时区
@@ -464,7 +468,7 @@ async def export_stock_by_location(
 # -------------------- 下载模板 --------------------
 @router.get("/product/template")
 async def download_product_template():
-    df = pd.DataFrame(columns=["barcode", "name_ch", "name_en"])
+    df = pd.DataFrame(columns=["barcode", "name_ch", "name_en", "price"])
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
         file_path = tmp.name
         df.to_excel(file_path, index=False)
@@ -475,13 +479,22 @@ async def download_product_template():
 async def upload_product_info(file: UploadFile = File(...), db: AsyncSession = Depends(get_db_stock)):
     try:
         df = pd.read_excel(file.file)
-        if not {"barcode", "name_ch", "name_en"}.issubset(df.columns):
-            raise HTTPException(status_code=400, detail="Columns must include barcode, name_ch, name_en")
+        if not {"barcode", "name_ch", "name_en", "price"}.issubset(df.columns):
+            raise HTTPException(status_code=400, detail="Columns must include barcode, name_ch, name_en, price")
 
         for _, row in df.iterrows():
             barcode_str = str(row['barcode'])  # 强制转换为字符串
             name_ch = row.get("name_ch")
             name_en = row.get("name_en")
+            price = row.get("price")
+            if price is not None:
+                try:
+                    price = float(price)  # 强制转换
+                except ValueError:
+                    price = None  # 或者选择赋默认值 0.0
+            else:
+                price = None  # 或者 0.0
+
             if isinstance(name_ch, float) and math.isnan(name_ch):
                 name_ch = None
             if isinstance(name_en, float) and math.isnan(name_en):
@@ -493,8 +506,9 @@ async def upload_product_info(file: UploadFile = File(...), db: AsyncSession = D
             if product:
                 product.name_ch = name_ch
                 product.name_en = name_en
+                product.price = price
             else:
-                db.add(ProductInfo(barcode=barcode_str, name_ch=name_ch, name_en=name_en))
+                db.add(ProductInfo(barcode=barcode_str, name_ch=name_ch, name_en=name_en, price=price))
         await db.commit()
         return {"status": "success", "count": len(df)}
 

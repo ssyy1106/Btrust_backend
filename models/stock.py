@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, BigInteger
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, BigInteger, Float
 from sqlalchemy.orm import relationship
 from database import Base_stock
 import datetime
@@ -57,4 +57,5 @@ class ProductInfo(Base_stock):
     barcode = Column(String, primary_key=True)
     name_ch = Column(String, nullable=True)
     name_en = Column(String, nullable=True)
+    price = Column(Float, nullable=True)
     
