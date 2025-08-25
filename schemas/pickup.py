@@ -15,6 +15,7 @@ class OrderDetail(BaseModel):
     name: str
     date_order: str
     note: Optional[str]
+    quantity: Optional[int]
 
 class StoreOrder(BaseModel):
     store: str

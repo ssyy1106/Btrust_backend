@@ -306,7 +306,7 @@ def LoginShift(btrustId: str, password: str) -> tuple:
     with getShiftDB() as conn:
         with conn.cursor() as cursor:
             try:
-                sql = f"select password, salt, id from sysuser where btrustid='{btrustId}' or email='{btrustId}' or personalemail='{btrustId}' or username='{btrustId}'"
+                sql = f"select password, salt, id from sysuser where btrustid='{btrustId}' or email='{btrustId}' or personalemail='{btrustId}'"
                 cursor.execute(sql)
                 row = cursor.fetchone()
                 if not row:

@@ -209,7 +209,7 @@ async def monitor() -> Response | None:
     return await getResponse()
 
 @app.get("/token")
-@limiter.limit("5/minute")
+@limiter.limit("500/minute")
 async def token(request: Request, user=Depends(verify_token)):
     return {"user": user}
 
