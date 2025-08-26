@@ -20,6 +20,7 @@ from helper import getStoreNameOdoo  # 假设有获取子孙分类函数
 router = APIRouter(prefix="/storepickup", tags=["StoreStockPickup"])
 
 def check_store(store, user):
+    return
     if store not in (user.store or []):
         raise HTTPException(status_code=403, detail="No permission for this store: " + store)
 
