@@ -1,38 +1,107 @@
-{
-    "pickupItems": [
-                {
-                    "id": 2,
-                    "location": "123",
-                    "barcode": "2323",
-                    "name_ch": "chinese test",
-                    "name_en": "english test",
-                    "qty": 1,
-                    "time": "2025-08-21T18:49:17.967000Z",
-                    "session_id": "b742b950-6bb0-4d93-af0e-e72ab624ed1a",
-                    "creator_id": "Bill",
-                    "modifier_id": "Bill",
-                    "create_time": "2025-08-21T21:06:59.273428Z",
-                    "update_time": "2025-08-21T21:06:59.273428Z"
-                },
-                {
-                    "id": 3,
-                    "location": "dfgfdg",
-                    "barcode": "345345345",
-                    "name_ch": null,
-                    "name_en": null,
-                    "qty": 1,
-                    "time": "2025-08-21T20:47:16.673000Z",
-                    "session_id": "b742b950-6bb0-4d93-af0e-e72ab624ed1a",
-                    "creator_id": "Bill T",
-                    "modifier_id": "Bill T",
-                    "create_time": "2025-08-21T21:06:59.273428Z",
-                    "update_time": "2025-08-21T21:06:59.273428Z"
-                }
-    ],
-    "pagination": {
-        "total": 2,
-        "page": 1,
-        "page_size": 20,
-        "pages": 1
-    }
-}
+@router.get("/export")
+async def export_pickup_excel(
+    start_date: Optional[str] = Query(default_factory=default_start, description="起始日期 ISO8601 带时区"),
+    end_date: Optional[str] = Query(default_factory=default_end, description="结束日期 ISO8601 带时区"),
+    shift_hour: int = Query(16, ge=0, le=23, description="班次开始小时"),
+    categoryIds: Optional[List[int]] = Query(None, description="按分类 ID 过滤，多值用逗号分隔，自动包含子孙分类"),
+    order: bool = Query(True, description="是否只筛选有订单的产品"),
+    db_odoo: AsyncSession = Depends(get_db_odoo),
+    db_storestock: AsyncSession = Depends(get_db_storestock),
+    user = Depends(PermissionChecker(required_roles=["pickup:search"]))
+):
+    # 复用 summary 查询逻辑，拿到所有数据
+    summary = await get_pickup_summary(
+        start_date=start_date,
+        end_date=end_date,
+        shift_hour=shift_hour,
+        categoryIds=categoryIds,
+        order=order,
+        page=1,
+        page_size=999999,   # 导出时取全量
+        db_odoo=db_odoo,
+        db_storestock=db_storestock,
+        user=user
+    )
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Pickup"
+
+    # 表头
+    headers = ["ItemCode", "Item Name (EN)", "Item Name (CN)", "Stock at HQ", "Category",
+               "Order Name", "Store", "Total Order Quantity", "Order Quantity", "Date Order", "Store Stock"]
+    ws.append(headers)
+
+    # 填充数据
+    for item in summary["pickupItems"]:
+        itemCode = item.itemCode
+        name_en = item.name.get("en_US", "") if isinstance(item.name, dict) else str(item.name)
+        name_cn = item.name.get("zh_CN", "") if isinstance(item.name, dict) else ""
+        stockAtHQ = item.stockAtHQ
+        category = item.categoryName
+
+        # 门店库存合并成字符串
+        store_stock_str = "; ".join(
+            [f"{s.store}:{s.quantity}" for s in item.storeStock]
+        )
+
+        if item.orders:
+            for order in item.orders:
+                store = order.store
+                qty = order.quantity
+
+                if order.detail:  # 有明细则展开
+                    for detail in order.detail:
+                        ws.append([
+                            itemCode,
+                            name_en,
+                            name_cn,
+                            stockAtHQ,
+                            category,
+                            detail.name,
+                            store,
+                            qty,
+                            detail.quantity,  # ✅ 新增明细数量
+                            detail.date_order,
+                            store_stock_str
+                        ])
+                else:  # 没有明细
+                    ws.append([
+                        itemCode,
+                        name_en,
+                        name_cn,
+                        stockAtHQ,
+                        category,
+                        None,
+                        store,
+                        qty,
+                        None,  # 明细数量为空
+                        None,
+                        store_stock_str
+                    ])
+        else:
+            # 没有订单时也写一行
+            ws.append([
+                itemCode,
+                name_en,
+                name_cn,
+                stockAtHQ,
+                category,
+                None,
+                None,
+                None,
+                None,
+                None,
+                store_stock_str
+            ])
+
+    # 输出 Excel 文件
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="pickup_export.xlsx"'}
+    )

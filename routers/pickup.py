@@ -16,6 +16,7 @@ from models.partner import ResPartner
 from models.pickup import SaleOrder, SaleOrderLine
 from models.product import ProductProduct, ProductTemplate, ProductCategory, StockQuant
 from models.storestock import StoreStock
+from models.storepickup import StorePickup
 from helper import getStoreNameOdoo
 from dependencies.permission import PermissionChecker
 from database import get_db_odoo, get_db_storestock
@@ -268,13 +269,51 @@ async def export_pickup_excel(
         user=user
     )
 
+    # --- 查询 StorePickup 出货量 ---
+    start_dt_local = parser.isoparse(start_date) + timedelta(hours=shift_hour)
+    end_dt_local = parser.isoparse(end_date) + timedelta(days=1, hours=shift_hour - 24)
+
+    item_codes = [item.itemCode for item in summary["pickupItems"]]
+    pickup_rows = await db_storestock.execute(
+        select(StorePickup)
+        .where(StorePickup.item_code.in_(item_codes))
+        .where(StorePickup.pickupdate >= start_dt_local.date())
+        .where(StorePickup.pickupdate <= end_dt_local.date())
+    )
+    pickup_list = pickup_rows.scalars().all()
+
+    storepickup_dict = defaultdict(int)
+    for p in pickup_list:
+        storepickup_dict[(p.item_code, p.store)] += p.quantity
+
+    # --- 分配函数 ---
+    def allocate_quantities(order_details, shipped_total):
+        """给一组订单明细分配出货量"""
+        demand_total = sum(d.quantity for d in order_details)
+        if demand_total == 0:
+            return [0] * len(order_details)
+
+        allocations = []
+        allocated_sum = 0
+        for i, d in enumerate(order_details):
+            if i < len(order_details) - 1:
+                share = int(d.quantity * shipped_total / demand_total)
+                allocations.append(share)
+                allocated_sum += share
+            else:
+                # 保证最后一个凑齐总量
+                allocations.append(shipped_total - allocated_sum)
+        return allocations
+
+    # --- 写 Excel ---
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Pickup"
 
     # 表头
     headers = ["ItemCode", "Item Name (EN)", "Item Name (CN)", "Stock at HQ", "Category",
-               "Order Name", "Store", "Total Order Quantity", "Order Quantity", "Date Order", "Store Stock"]
+               "Order Name", "Store", "Total Order Quantity", "Order Quantity", "Date Order",
+               "Store Stock", "Shipped Quantity"]  # ✅ 新增出货量列
     ws.append(headers)
 
     # 填充数据
@@ -296,7 +335,11 @@ async def export_pickup_excel(
                 qty = order.quantity
 
                 if order.detail:  # 有明细则展开
-                    for detail in order.detail:
+                    details = order.detail
+                    shipped_total = storepickup_dict.get((itemCode, store), 0)
+                    shipped_allocations = allocate_quantities(details, shipped_total)
+
+                    for detail, shipped in zip(details, shipped_allocations):
                         ws.append([
                             itemCode,
                             name_en,
@@ -306,9 +349,10 @@ async def export_pickup_excel(
                             detail.name,
                             store,
                             qty,
-                            detail.quantity,  # ✅ 新增明细数量
+                            detail.quantity,
                             detail.date_order,
-                            store_stock_str
+                            store_stock_str,
+                            shipped  # ✅ 出货量
                         ])
                 else:  # 没有明细
                     ws.append([
@@ -320,9 +364,10 @@ async def export_pickup_excel(
                         None,
                         store,
                         qty,
-                        None,  # 明细数量为空
                         None,
-                        store_stock_str
+                        None,
+                        store_stock_str,
+                        storepickup_dict.get((itemCode, store), 0)  # ✅ 没明细时直接填总出货量
                     ])
         else:
             # 没有订单时也写一行
@@ -337,7 +382,8 @@ async def export_pickup_excel(
                 None,
                 None,
                 None,
-                store_stock_str
+                store_stock_str,
+                None  # 没订单也就没有出货量
             ])
 
     # 输出 Excel 文件
