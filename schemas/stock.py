@@ -1,7 +1,8 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from typing import List, Optional, Any, Dict
 from datetime import datetime
 from uuid import UUID
+import math
 
 
 class ProductInfoOut(BaseModel):
@@ -9,6 +10,18 @@ class ProductInfoOut(BaseModel):
     name_ch: Optional[str] = None
     name_en: Optional[str] = None
     price: Optional[float] = None
+
+    @field_validator("price", mode="before")
+    def validate_price(cls, v):
+        if v is None:
+            return None
+        try:
+            f = float(v)
+            if math.isnan(f) or math.isinf(f):
+                return None
+            return f
+        except Exception:
+            return None
 
     model_config = ConfigDict(from_attributes=True)
 
