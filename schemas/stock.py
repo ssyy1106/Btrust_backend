@@ -37,6 +37,19 @@ class StockByLocationItem(BaseModel):
     creator_id: Optional[str] = None
     modifier_id: Optional[str] = None
 
+    @field_validator("price", "qty", mode="before")
+    def clean_nan(cls, v):
+        import math
+        if v is None:
+            return None
+        try:
+            f = float(v)
+            if math.isnan(f) or math.isinf(f):
+                return None
+            return f
+        except Exception:
+            return None
+
 StockByLocationResponse = Dict[str, List[StockByLocationItem]]
 
 class StocktakeItemBase(BaseModel):
@@ -70,6 +83,19 @@ class StocktakeItemOut(BaseModel):
     create_time: datetime
     update_time: datetime
     price: Optional[float] = None
+
+    @field_validator("price", "qty", mode="before")
+    def clean_nan(cls, v):
+        import math
+        if v is None:
+            return None
+        try:
+            f = float(v)
+            if math.isnan(f) or math.isinf(f):
+                return None
+            return f
+        except Exception:
+            return None
 
     model_config = ConfigDict(from_attributes=True) 
     # class Config:
