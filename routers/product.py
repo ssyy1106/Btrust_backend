@@ -97,6 +97,7 @@ async def get_product(barcode: str, db: AsyncSession = Depends(get_db_store_sqls
         "name_en": product.F29.strip() if product.F29 else None,
         "name_cn": product.F255.strip() if product.F255 else None,
         "brand": product.F155.strip() if product.F155 else None,
+        "specification": product.F22.strip() if product.F22 else None,
         "category_code": product.F17,
         "category_name": category_name.strip() if category_name else None,
         "price_type": chosen_price.F113.strip() if chosen_price.F113 else None,

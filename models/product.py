@@ -11,6 +11,7 @@ class ObjTab(Base_store_sqlserver):
     F29 = Column(String)  # 英文名
     F255 = Column(String) # 中文名
     F155 = Column(String) # 品牌
+    F22 = Column(String) # 规格
 
 class CatTab(Base_store_sqlserver):
     __tablename__ = "CAT_TAB"
