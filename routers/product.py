@@ -48,13 +48,13 @@ async def get_product(barcode: str, db: AsyncSession = Depends(get_db_store_sqls
 
     chosen_price = None
     # 优先：促销价
-    chosen_price = next((p for p in valid_prices if p.F113 not in ("REG", "INSTORE")), None)
+    chosen_price = next((p for p in valid_prices if p.F113.strip() not in ("REG", "INSTORE")), None)
     # 其次：有效 INSTORE
     if not chosen_price:
-        chosen_price = next((p for p in valid_prices if p.F113 == "INSTORE"), None)
+        chosen_price = next((p for p in valid_prices if p.F113.strip() == "INSTORE"), None)
     # 最后：有效 REG
     if not chosen_price:
-        chosen_price = next((p for p in valid_prices if p.F113 == "REG"), None)
+        chosen_price = next((p for p in valid_prices if p.F113.strip() == "REG"), None)
 
     if not chosen_price:
         raise HTTPException(status_code=404, detail="价格信息未找到")
