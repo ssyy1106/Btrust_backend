@@ -270,6 +270,12 @@ def getStoreDBConfig(store: str):
         return (USERNAME[index], PASSWORD[index], HOST[index], DATABASE[index])
     raise Exception("Sorry, Store db config")
 
+@functools.cache
+def getLocalStore():
+    if 'store' in CONFIG:
+        return (CONFIG['store']['store'], CONFIG['store']['sqlserver'])
+    raise Exception("Sorry, Local Store not config")
+
 def getStoreDB(store: str):
     try:
         (USERNAME, PASSWORD, HOST, DATABASE) = getStoreDBConfig(store)

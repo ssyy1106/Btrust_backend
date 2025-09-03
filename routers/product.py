@@ -1,17 +1,78 @@
 import json
-from fastapi import APIRouter, Query, Depends
+from fastapi import APIRouter, Query, Depends, HTTPException
 from sqlalchemy import select, func, or_
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta, timezone
 
 from dependencies.permission import PermissionChecker
-from database import get_db_odoo
-from models.product import ProductProduct, ProductTemplate, ProductCategory, StockQuant
+from database import get_db_odoo, get_db_store_sqlserver
+from models.product import ProductProduct, ProductTemplate, ProductCategory, StockQuant, ObjTab, CatTab, PriceTab
 from models.pickup import SaleOrder, SaleOrderLine
 from schemas.product import ProductListResponse, ProductCategoryResponse
 
 router = APIRouter(prefix="/product", tags=["Product"])
+
+def normalize_end_date(end_date: datetime):
+    """把结束日期的时间补到当天 23:59:59"""
+    if end_date and end_date.time() == datetime.min.time():
+        return end_date + timedelta(days=1) - timedelta(seconds=1)
+    return end_date
+
+
+@router.get("/{barcode}")
+async def get_product(barcode: str, db: AsyncSession = Depends(get_db_store_sqlserver)):
+    # 1. 商品信息
+    result = await db.execute(
+        select(ObjTab, CatTab.F1023)
+        .join(CatTab, ObjTab.F17 == CatTab.F17, isouter=True)
+        .where(ObjTab.F01 == barcode)
+    )
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="商品未找到")
+
+    product, category_name = row
+
+    # 2. 价格信息
+    now = datetime.now()
+    price_result = await db.execute(select(PriceTab).where(PriceTab.F01 == barcode))
+    prices = price_result.scalars().all()
+
+    # 处理结束时间
+    for p in prices:
+        p.F129 = normalize_end_date(p.F129)
+
+    # 3. 筛选有效价格
+    valid_prices = [p for p in prices if p.F35 and p.F129 and p.F35 <= now <= p.F129]
+
+    chosen_price = None
+    # 优先：促销价
+    chosen_price = next((p for p in valid_prices if p.F113 not in ("REG", "INSTORE")), None)
+    # 其次：有效 INSTORE
+    if not chosen_price:
+        chosen_price = next((p for p in valid_prices if p.F113 == "INSTORE"), None)
+    # 最后：有效 REG
+    if not chosen_price:
+        chosen_price = next((p for p in valid_prices if p.F113 == "REG"), None)
+
+    if not chosen_price:
+        raise HTTPException(status_code=404, detail="价格信息未找到")
+
+    return {
+        "barcode": product.F01.strip() if product.F01 else None,
+        "name_en": product.F29.strip() if product.F29 else None,
+        "name_cn": product.F255.strip() if product.F255 else None,
+        "brand": product.F155.strip() if product.F155 else None,
+        "category_code": product.F17,
+        "category_name": category_name.strip() if category_name else None,
+        "price_type": chosen_price.F113.strip() if chosen_price.F113 else None,
+        "unit_price": chosen_price.F30,
+        "pack_qty": chosen_price.F142,
+        "pack_price": chosen_price.F140,
+        "valid_from": chosen_price.F35,
+        "valid_to": chosen_price.F129,
+    }
 
 @router.get("", summary="获取过去几天下过订单或有库存无订单的产品信息", response_model=ProductListResponse)
 async def get_products(

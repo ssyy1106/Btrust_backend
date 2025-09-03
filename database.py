@@ -1,7 +1,39 @@
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.orm import sessionmaker, declarative_base
-from helper import getInvoiceConfig, getCostConfig, getStockConfig, getOdooConfig, getStoreStockConfig
+from sqlalchemy.orm import declarative_base
+from helper import getInvoiceConfig, getCostConfig, getStockConfig, getOdooConfig, getStoreStockConfig, getStoreDBConfig, getLocalStore
 
+store, DRIVER = getLocalStore()
+(USERNAME, PASSWORD, HOST, DATABASE) = getStoreDBConfig(store)
+
+# 构造连接字符串
+DATABASE_URL_SQLSERVER = (
+    f"mssql+aioodbc://{USERNAME}:{PASSWORD}@{HOST}/{DATABASE}"
+    f"?driver={DRIVER.replace(' ', '+')}"  # 注意 driver 名字里的空格要替换成 +
+)
+print(f"DRIVER: {DRIVER} DATABASE_URL_SQLSERVER: {DATABASE_URL_SQLSERVER}")
+engine_sqlserver = create_async_engine(
+    DATABASE_URL_SQLSERVER,
+    echo=True,
+    pool_size=10,           # 连接池大小
+    max_overflow=20,        # 超过 pool_size 时允许的额外连接
+    pool_recycle=1800,      # 每 30 分钟回收一次连接
+    pool_timeout=30,        # 等待连接的超时时间
+    future=True
+)
+
+AsyncSessionLocal_sqlserver = async_sessionmaker(
+    bind=engine_sqlserver, class_=AsyncSession, expire_on_commit=False
+)
+
+Base_store_sqlserver = declarative_base()
+
+async def get_db_store_sqlserver():
+    async with AsyncSessionLocal_sqlserver() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+    
 (USERNAME, PASSWORD, HOST, DATABASE, PORT) = getInvoiceConfig()
 DATABASE_URL_INVOICE = f"postgresql+asyncpg://{USERNAME}:{PASSWORD}@{HOST}:{PORT}/{DATABASE}"
 engine = create_async_engine(
