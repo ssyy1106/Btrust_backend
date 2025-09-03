@@ -22,7 +22,10 @@ def normalize_end_date(end_date: datetime):
 
 @router.get("/{barcode}")
 async def get_product(barcode: str, db: AsyncSession = Depends(get_db_store_sqlserver)):
-    # 1. 商品信息
+    # 当前时间
+    now = datetime.now()
+
+    # 1️⃣ 查询商品信息 + 分类名称
     result = await db.execute(
         select(ObjTab, CatTab.F1023)
         .join(CatTab, ObjTab.F17 == CatTab.F17, isouter=True)
@@ -34,31 +37,61 @@ async def get_product(barcode: str, db: AsyncSession = Depends(get_db_store_sqls
 
     product, category_name = row
 
-    # 2. 价格信息
-    now = datetime.now()
-    price_result = await db.execute(select(PriceTab).where(PriceTab.F01 == barcode))
+    # 2️⃣ 查询该商品所有价格
+    price_result = await db.execute(
+        select(PriceTab).where(PriceTab.F01 == barcode)
+    )
     prices = price_result.scalars().all()
 
-    # 处理结束时间
-    for p in prices:
-        p.F129 = normalize_end_date(p.F129)
-
-    # 3. 筛选有效价格
-    valid_prices = [p for p in prices if p.F35 and p.F129 and p.F35 <= now <= p.F129]
-
-    chosen_price = None
-    # 优先：促销价
-    chosen_price = next((p for p in valid_prices if p.F113.strip() not in ("REG", "INSTORE")), None)
-    # 其次：有效 INSTORE
-    if not chosen_price:
-        chosen_price = next((p for p in valid_prices if p.F113.strip() == "INSTORE"), None)
-    # 最后：有效 REG
-    if not chosen_price:
-        chosen_price = next((p for p in valid_prices if p.F113.strip() == "REG"), None)
-
-    if not chosen_price:
+    if not prices:
         raise HTTPException(status_code=404, detail="价格信息未找到")
 
+    # 3️⃣ 促销价优先逻辑
+    valid_prices = []
+    for p in prices:
+        # 结束日期如果没有时间，设置为当天 23:59:59
+        start = p.F35
+        end = p.F129
+        if end:
+            end = end.replace(hour=23, minute=59, second=59)
+        if start and end and start <= now <= end:
+            valid_prices.append(p)
+
+    # 优先促销价（非 REG / INSTORE）
+    chosen_price = next(
+        (p for p in valid_prices if p.F113.strip() not in ("REG", "INSTORE")),
+        None
+    )
+    # 没有促销价 → 有效 INSTORE
+    if not chosen_price:
+        chosen_price = next(
+            (p for p in valid_prices if p.F113.strip() == "INSTORE"),
+            None
+        )
+    # 没有 → 有效 REG
+    if not chosen_price:
+        chosen_price = next(
+            (p for p in valid_prices if p.F113.strip() == "REG"),
+            None
+        )
+
+    if not chosen_price:
+        raise HTTPException(status_code=404, detail="有效价格未找到")
+
+    # 4️⃣ 原价字段：INSTORE 或 REG
+    original_price_obj = next(
+        (p for p in prices if p.F113.strip() == "INSTORE"),
+        None
+    )
+    if not original_price_obj:
+        original_price_obj = next(
+            (p for p in prices if p.F113.strip() == "REG"),
+            None
+        )
+
+    original_price = original_price_obj.F30 if original_price_obj else None
+
+    # 5️⃣ 返回结果，字符串字段去空格
     return {
         "barcode": product.F01.strip() if product.F01 else None,
         "name_en": product.F29.strip() if product.F29 else None,
@@ -71,7 +104,8 @@ async def get_product(barcode: str, db: AsyncSession = Depends(get_db_store_sqls
         "pack_qty": chosen_price.F142,
         "pack_price": chosen_price.F140,
         "valid_from": chosen_price.F35,
-        "valid_to": chosen_price.F129,
+        "valid_to": chosen_price.F129.replace(hour=23, minute=59, second=59) if chosen_price.F129 else None,
+        "original_price": original_price
     }
 
 @router.get("", summary="获取过去几天下过订单或有库存无订单的产品信息", response_model=ProductListResponse)
