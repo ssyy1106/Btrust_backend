@@ -1,6 +1,6 @@
 import json
 import os
-from fastapi import APIRouter, Query, Depends, HTTPException, Response
+from fastapi import APIRouter, Query, Depends, HTTPException, Response, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func, or_
 from typing import Optional, List
@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta, timezone
 
 from dependencies.permission import PermissionChecker
-from database import get_db_odoo, get_db_store_sqlserver
+from database import get_db_odoo, get_db_store_sqlserver_factory
 from models.product import ProductProduct, ProductTemplate, IrAttachment, ProductCategory, StockQuant, ObjTab, CatTab, PriceTab
 from models.pickup import SaleOrder, SaleOrderLine
 from schemas.product import ProductListResponse, ProductCategoryResponse
@@ -30,10 +30,18 @@ def normalize_end_date(end_date: datetime):
         return end_date + timedelta(days=1) - timedelta(seconds=1)
     return end_date
 
+async def get_db_from_store(request: Request):
+    store = request.query_params.get("store")
+    if not store:
+        raise HTTPException(status_code=400, detail="store 参数必填")
+    get_db = get_db_store_sqlserver_factory(store)
+    async for db in get_db():
+        yield db
+
 @router.get("/{barcode}")
 async def get_product(
         barcode: str, 
-        db: AsyncSession = Depends(get_db_store_sqlserver),
+        db: AsyncSession = Depends(get_db_from_store),
     ):
     now = datetime.now()
 

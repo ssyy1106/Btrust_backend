@@ -2,37 +2,84 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from sqlalchemy.orm import declarative_base
 from helper import getInvoiceConfig, getCostConfig, getStockConfig, getOdooConfig, getStoreStockConfig, getStoreDBConfig, getLocalStore
 
-store, DRIVER = getLocalStore()
-(USERNAME, PASSWORD, HOST, DATABASE) = getStoreDBConfig(store)
+# store, DRIVER = getLocalStore()
+# (USERNAME, PASSWORD, HOST, DATABASE) = getStoreDBConfig(store)
 
-# 构造连接字符串
-DATABASE_URL_SQLSERVER = (
-    f"mssql+aioodbc://{USERNAME}:{PASSWORD}@{HOST}/{DATABASE}"
-    f"?driver={DRIVER.replace(' ', '+')}"  # 注意 driver 名字里的空格要替换成 +
-)
-print(f"DRIVER: {DRIVER} DATABASE_URL_SQLSERVER: {DATABASE_URL_SQLSERVER}")
-engine_sqlserver = create_async_engine(
-    DATABASE_URL_SQLSERVER,
-    echo=True,
-    pool_size=10,           # 连接池大小
-    max_overflow=20,        # 超过 pool_size 时允许的额外连接
-    pool_recycle=1800,      # 每 30 分钟回收一次连接
-    pool_timeout=30,        # 等待连接的超时时间
-    future=True
-)
+# # 构造连接字符串
+# DATABASE_URL_SQLSERVER = (
+#     f"mssql+aioodbc://{USERNAME}:{PASSWORD}@{HOST}/{DATABASE}"
+#     f"?driver={DRIVER.replace(' ', '+')}"  # 注意 driver 名字里的空格要替换成 +
+# )
 
-AsyncSessionLocal_sqlserver = async_sessionmaker(
-    bind=engine_sqlserver, class_=AsyncSession, expire_on_commit=False
-)
+# engine_sqlserver = create_async_engine(
+#     DATABASE_URL_SQLSERVER,
+#     echo=True,
+#     pool_size=10,           # 连接池大小
+#     max_overflow=20,        # 超过 pool_size 时允许的额外连接
+#     pool_recycle=1800,      # 每 30 分钟回收一次连接
+#     pool_timeout=30,        # 等待连接的超时时间
+#     future=True
+# )
+
+# AsyncSessionLocal_sqlserver = async_sessionmaker(
+#     bind=engine_sqlserver, class_=AsyncSession, expire_on_commit=False
+# )
+
+# Base_store_sqlserver = declarative_base()
+
+# async def get_db_store_sqlserver():
+#     async with AsyncSessionLocal_sqlserver() as session:
+#         try:
+#             yield session
+#         finally:
+#             await session.close()
 
 Base_store_sqlserver = declarative_base()
 
-async def get_db_store_sqlserver():
-    async with AsyncSessionLocal_sqlserver() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+# 缓存各 store 的 sessionmaker
+store_sessions = {}
+
+def get_db_store_sqlserver_factory(store: str):
+    """
+    根据 store 动态生成 AsyncSession 依赖
+    """
+    if store not in store_sessions:
+        # 获取本地 driver
+        _, DRIVER = getLocalStore()
+        # 获取数据库配置
+        USERNAME, PASSWORD, HOST, DATABASE = getStoreDBConfig(store)
+
+        # 构造连接字符串
+        DATABASE_URL_SQLSERVER = (
+            f"mssql+aioodbc://{USERNAME}:{PASSWORD}@{HOST}/{DATABASE}"
+            f"?driver={DRIVER.replace(' ', '+')}"
+        )
+
+        # 创建 engine + sessionmaker
+        engine_sqlserver = create_async_engine(
+            DATABASE_URL_SQLSERVER,
+            echo=True,
+            pool_size=10,
+            max_overflow=20,
+            pool_recycle=1800,
+            pool_timeout=30,
+            future=True
+        )
+        AsyncSessionLocal_sqlserver = async_sessionmaker(
+            bind=engine_sqlserver, class_=AsyncSession, expire_on_commit=False
+        )
+
+        store_sessions[store] = AsyncSessionLocal_sqlserver
+
+    # 实际的依赖函数
+    async def _get_db():
+        async with store_sessions[store]() as session:
+            try:
+                yield session
+            finally:
+                await session.close()
+
+    return _get_db
     
 (USERNAME, PASSWORD, HOST, DATABASE, PORT) = getInvoiceConfig()
 DATABASE_URL_INVOICE = f"postgresql+asyncpg://{USERNAME}:{PASSWORD}@{HOST}:{PORT}/{DATABASE}"
