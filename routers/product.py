@@ -1,5 +1,10 @@
 import json
-from fastapi import APIRouter, Query, Depends, HTTPException
+import os
+import httpx
+import ssl
+import aiohttp
+from fastapi import APIRouter, Query, Depends, HTTPException, Response
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func, or_
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,11 +12,20 @@ from datetime import datetime, timedelta, timezone
 
 from dependencies.permission import PermissionChecker
 from database import get_db_odoo, get_db_store_sqlserver
-from models.product import ProductProduct, ProductTemplate, ProductCategory, StockQuant, ObjTab, CatTab, PriceTab
+from models.product import ProductProduct, ProductTemplate, IrAttachment, ProductCategory, StockQuant, ObjTab, CatTab, PriceTab
 from models.pickup import SaleOrder, SaleOrderLine
 from schemas.product import ProductListResponse, ProductCategoryResponse
+from helper import getOdooAccount
 
 router = APIRouter(prefix="/product", tags=["Product"])
+
+# ODOO_URL, ODOO_USER, ODOO_PASSWORD, ODOO_DB = getOdooAccount()
+
+# # 全局 session 缓存
+# odoo_client = httpx.AsyncClient(base_url=ODOO_URL)
+# odoo_cookies = None
+
+NETWORK_IMAGE_DIR = r"\\172.16.30.8\image"
 
 def normalize_end_date(end_date: datetime):
     """把结束日期的时间补到当天 23:59:59"""
@@ -19,10 +33,11 @@ def normalize_end_date(end_date: datetime):
         return end_date + timedelta(days=1) - timedelta(seconds=1)
     return end_date
 
-
 @router.get("/{barcode}")
-async def get_product(barcode: str, db: AsyncSession = Depends(get_db_store_sqlserver)):
-    # 当前时间
+async def get_product(
+        barcode: str, 
+        db: AsyncSession = Depends(get_db_store_sqlserver),
+    ):
     now = datetime.now()
 
     # 1️⃣ 查询商品信息 + 分类名称
@@ -37,19 +52,17 @@ async def get_product(barcode: str, db: AsyncSession = Depends(get_db_store_sqls
 
     product, category_name = row
 
-    # 2️⃣ 查询该商品所有价格
+    # 2️⃣ 查询价格信息
     price_result = await db.execute(
         select(PriceTab).where(PriceTab.F01 == barcode)
     )
     prices = price_result.scalars().all()
-
     if not prices:
         raise HTTPException(status_code=404, detail="价格信息未找到")
 
     # 3️⃣ 促销价优先逻辑
     valid_prices = []
     for p in prices:
-        # 结束日期如果没有时间，设置为当天 23:59:59
         start = p.F35
         end = p.F129
         if end:
@@ -57,41 +70,27 @@ async def get_product(barcode: str, db: AsyncSession = Depends(get_db_store_sqls
         if start and end and start <= now <= end:
             valid_prices.append(p)
 
-    # 优先促销价（非 REG / INSTORE）
-    chosen_price = next(
-        (p for p in valid_prices if p.F113.strip() not in ("REG", "INSTORE")),
-        None
-    )
-    # 没有促销价 → 有效 INSTORE
+    chosen_price = next((p for p in valid_prices if p.F113.strip() not in ("REG", "INSTORE")), None)
     if not chosen_price:
-        chosen_price = next(
-            (p for p in valid_prices if p.F113.strip() == "INSTORE"),
-            None
-        )
-    # 没有 → 有效 REG
+        chosen_price = next((p for p in valid_prices if p.F113.strip() == "INSTORE"), None)
     if not chosen_price:
-        chosen_price = next(
-            (p for p in valid_prices if p.F113.strip() == "REG"),
-            None
-        )
+        chosen_price = next((p for p in valid_prices if p.F113.strip() == "REG"), None)
 
     if not chosen_price:
         raise HTTPException(status_code=404, detail="有效价格未找到")
 
-    # 4️⃣ 原价字段：INSTORE 或 REG
-    original_price_obj = next(
-        (p for p in prices if p.F113.strip() == "INSTORE"),
-        None
-    )
+    # 原价字段
+    original_price_obj = next((p for p in prices if p.F113.strip() == "INSTORE"), None)
     if not original_price_obj:
-        original_price_obj = next(
-            (p for p in prices if p.F113.strip() == "REG"),
-            None
-        )
-
+        original_price_obj = next((p for p in prices if p.F113.strip() == "REG"), None)
     original_price = original_price_obj.F30 if original_price_obj else None
 
-    # 5️⃣ 返回结果，字符串字段去空格
+    # ---------- 图片 ----------
+    image_file_name = f"{barcode.strip()}.png"
+    image_path = os.path.join(NETWORK_IMAGE_DIR, image_file_name)
+    image_url = f"/product/image/{barcode}" if os.path.exists(image_path) else None
+
+    # 返回结果
     return {
         "barcode": product.F01.strip() if product.F01 else None,
         "name_en": product.F29.strip() if product.F29 else None,
@@ -106,8 +105,21 @@ async def get_product(barcode: str, db: AsyncSession = Depends(get_db_store_sqls
         "pack_price": chosen_price.F140,
         "valid_from": chosen_price.F35,
         "valid_to": chosen_price.F129.replace(hour=23, minute=59, second=59) if chosen_price.F129 else None,
-        "original_price": original_price
+        "original_price": original_price,
+        "image_url": image_url
     }
+
+@router.get("/image/{barcode}")
+async def get_product_image(barcode: str):
+    image_file_name = f"{barcode.strip()}.png"
+    image_path = os.path.join(NETWORK_IMAGE_DIR, image_file_name)
+    if not os.path.exists(image_path):
+        raise HTTPException(status_code=404, detail="图片未找到")
+    
+    return Response(
+        content=open(image_path, "rb").read(),
+        media_type="image/png"
+    )
 
 @router.get("", summary="获取过去几天下过订单或有库存无订单的产品信息", response_model=ProductListResponse)
 async def get_products(

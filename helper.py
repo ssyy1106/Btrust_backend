@@ -276,6 +276,12 @@ def getLocalStore():
         return (CONFIG['store']['store'], CONFIG['store']['sqlserver'])
     raise Exception("Sorry, Local Store not config")
 
+@functools.cache
+def getOdooAccount():
+    if 'odooaccount' in CONFIG:
+        return (CONFIG['odooaccount']['host'], CONFIG['odooaccount']['username'], CONFIG['odooaccount']['password'], CONFIG['odooaccount']['db'])
+    raise Exception("Sorry, Odoo account not config")
+
 def getStoreDB(store: str):
     try:
         (USERNAME, PASSWORD, HOST, DATABASE) = getStoreDBConfig(store)

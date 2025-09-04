@@ -1,5 +1,5 @@
 # models/product.py
-from sqlalchemy import Column, Integer, String, ForeignKey, Float, DateTime
+from sqlalchemy import Column, Integer, String, ForeignKey, Float, DateTime, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from database import Base_odoo, Base_store_sqlserver
@@ -64,3 +64,14 @@ class ProductProduct(Base_odoo):
     product_tmpl_id = Column(Integer, ForeignKey("product_template.id"))
 
     template = relationship("ProductTemplate", backref="variants")
+
+class IrAttachment(Base_odoo):
+    __tablename__ = "ir_attachment"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String)  # 文件名，例如 'image_1920'
+    res_model = Column(String)  # 关联模型，例如 'product.template'
+    res_id = Column(Integer)    # 关联记录的 id
+    store_fname = Column(String)  # filestore 中存储的文件名
+    mimetype = Column(String)     # 文件类型，例如 'image/jpeg'
+    type = Column(String)         # 文件存储类型：'binary' 或 'url'
