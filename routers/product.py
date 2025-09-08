@@ -38,6 +38,34 @@ async def get_db_from_store(request: Request):
     async for db in get_db():
         yield db
 
+@router.get("/category", summary="获取产品分类信息", response_model=ProductCategoryResponse)
+async def get_product_categories(
+    db: AsyncSession = Depends(get_db_odoo)
+    # user = Depends(PermissionChecker(required_roles=["product:category:view"]))
+):
+    stmt = select(ProductCategory.id, ProductCategory.name, ProductCategory.parent_id)
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    parent_ids = {r.parent_id for r in rows if r.parent_id}
+    parent_map = {}
+    if parent_ids:
+        parent_stmt = select(ProductCategory.id, ProductCategory.name).where(ProductCategory.id.in_(parent_ids))
+        parent_rows = await db.execute(parent_stmt)
+        parent_map = {pid: pname for pid, pname in parent_rows}
+
+    categories = [
+        {
+            "id": r.id,
+            "name": r.name,
+            "parent_id": r.parent_id,
+            "parent_name": parent_map.get(r.parent_id)
+        }
+        for r in rows
+    ]
+
+    return {"categories": categories}
+
 @router.get("/{barcode}")
 async def get_product(
         barcode: str, 
@@ -249,30 +277,4 @@ async def get_products(
     return {"total": total, "products": products}
 
 
-@router.get("/category", summary="获取产品分类信息", response_model=ProductCategoryResponse)
-async def get_product_categories(
-    db: AsyncSession = Depends(get_db_odoo)
-    # user = Depends(PermissionChecker(required_roles=["product:category:view"]))
-):
-    stmt = select(ProductCategory.id, ProductCategory.name, ProductCategory.parent_id)
-    result = await db.execute(stmt)
-    rows = result.all()
 
-    parent_ids = {r.parent_id for r in rows if r.parent_id}
-    parent_map = {}
-    if parent_ids:
-        parent_stmt = select(ProductCategory.id, ProductCategory.name).where(ProductCategory.id.in_(parent_ids))
-        parent_rows = await db.execute(parent_stmt)
-        parent_map = {pid: pname for pid, pname in parent_rows}
-
-    categories = [
-        {
-            "id": r.id,
-            "name": r.name,
-            "parent_id": r.parent_id,
-            "parent_name": parent_map.get(r.parent_id)
-        }
-        for r in rows
-    ]
-
-    return {"categories": categories}
