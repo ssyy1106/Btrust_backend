@@ -93,19 +93,20 @@ async def get_product(
     if not prices:
         raise HTTPException(status_code=404, detail="价格信息未找到")
 
-    # 3️⃣ 促销价优先逻辑
+    # 3️⃣ 促销价逻辑
     valid_prices = []
     for p in prices:
         start = p.F35
         end = p.F129
         if end:
             end = end.replace(hour=23, minute=59, second=59)
-        if start and end and start <= now <= end:
+        if start and end and start <= now <= end or p.F113.strip() == "REG":
             valid_prices.append(p)
 
-    chosen_price = next((p for p in valid_prices if p.F113.strip() not in ("REG", "INSTORE")), None)
+    # 先读取INSTORE 第二读取促销价格 最后读取原价REG价格
+    chosen_price = next((p for p in valid_prices if p.F113.strip() == "INSTORE"), None)
     if not chosen_price:
-        chosen_price = next((p for p in valid_prices if p.F113.strip() == "INSTORE"), None)
+        chosen_price = next((p for p in valid_prices if p.F113.strip() not in ("REG", "INSTORE")), None)
     if not chosen_price:
         chosen_price = next((p for p in valid_prices if p.F113.strip() == "REG"), None)
 
@@ -113,9 +114,9 @@ async def get_product(
         raise HTTPException(status_code=404, detail="有效价格未找到")
 
     # 原价字段
-    original_price_obj = next((p for p in prices if p.F113.strip() == "INSTORE"), None)
-    if not original_price_obj:
-        original_price_obj = next((p for p in prices if p.F113.strip() == "REG"), None)
+    original_price_obj = next((p for p in prices if p.F113.strip() == "REG"), None)
+    # if not original_price_obj:
+    #     original_price_obj = next((p for p in prices if p.F113.strip() == "INSTORE"), None)
     original_price = original_price_obj.F30 if original_price_obj else None
 
     # ---------- 图片 ----------

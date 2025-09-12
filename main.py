@@ -25,6 +25,10 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from init_db import init_db
+# from pyzbar.pyzbar import decode
+# from PIL import Image
+# import cv2
+# import numpy as np
  
 #app = FastAPI()
 @asynccontextmanager
@@ -211,6 +215,26 @@ async def monitor() -> Response | None:
 @app.get("/token")
 @limiter.limit("500/minute")
 async def token(request: Request, user=Depends(verify_token)):
+    # # 读取图片
+    # image = Image.open("download.png").convert("RGBA")
+    # bg = Image.new("RGB", image.size, (255, 255, 255))
+    # bg.paste(image, mask=image.split()[3])  # 使用 alpha 通道作为 mask
+    # image = bg
+    # image = image.resize((image.width*4, image.height*4))
+
+    # cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    # gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
+    # _, thresh = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+
+    # barcodes = decode(thresh)
+    # print(barcodes)
+    # # 解码条码
+    # # barcodes = decode(image)
+    # # print(f"barcodes: {barcodes}")
+    # for barcode in barcodes:
+    #     barcode_data = barcode.data.decode("utf-8")
+    #     barcode_type = barcode.type
+    #     print(f"条码内容: {barcode_data}, 类型: {barcode_type}")
     return {"user": user}
 
 # Login Model
