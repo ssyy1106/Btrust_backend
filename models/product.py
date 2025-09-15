@@ -12,6 +12,13 @@ class ObjTab(Base_store_sqlserver):
     F255 = Column(String) # 中文名
     F155 = Column(String) # 品牌
     F22 = Column(String) # 规格
+    F23 = Column(String)
+
+class UMETab(Base_store_sqlserver):
+    __tablename__ = "UME_TAB"
+    F2173 = Column(String) # 英文名
+    F1146 = Column(String, primary_key=True) # EN
+    F23 = Column(String, primary_key=True) # ID
 
 class CatTab(Base_store_sqlserver):
     __tablename__ = "CAT_TAB"

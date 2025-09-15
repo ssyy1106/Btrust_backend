@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from dependencies.permission import PermissionChecker
 from database import get_db_odoo, get_db_store_sqlserver_factory
-from models.product import ProductProduct, ProductTemplate, IrAttachment, ProductCategory, StockQuant, ObjTab, CatTab, PriceTab
+from models.product import ProductProduct, ProductTemplate, IrAttachment, ProductCategory, StockQuant, ObjTab, CatTab, PriceTab, UMETab
 from models.pickup import SaleOrder, SaleOrderLine
 from schemas.product import ProductListResponse, ProductCategoryResponse
 from helper import getOdooAccount
@@ -119,6 +119,13 @@ async def get_product(
     #     original_price_obj = next((p for p in prices if p.F113.strip() == "INSTORE"), None)
     original_price = original_price_obj.F30 if original_price_obj else None
 
+    # 4️⃣ 查询单位信息 (lb/ea/其他)
+    unit_result = await db.execute(
+        select(UMETab.F2173)
+        .where(UMETab.F23 == product.F23, UMETab.F1146 == "EN")
+    )
+    unit_type = unit_result.scalar()
+
     # ---------- 图片 ----------
     image_file_name = f"{barcode.strip()}.png"
     image_path = os.path.join(NETWORK_IMAGE_DIR, image_file_name)
@@ -140,6 +147,7 @@ async def get_product(
         "valid_from": chosen_price.F35,
         "valid_to": chosen_price.F129.replace(hour=23, minute=59, second=59) if chosen_price.F129 else None,
         "original_price": original_price,
+        "unit_type": unit_type.strip() if unit_type else None,  # 👈 新增字段
         "image_url": image_url
     }
 
