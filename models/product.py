@@ -21,6 +21,11 @@ class UMETab(Base_store_sqlserver):
     F1146 = Column(String, primary_key=True) # EN
     F23 = Column(String, primary_key=True) # ID
 
+class PosTab(Base_store_sqlserver):
+    __tablename__ = "POS_TAB"
+    F2095 = Column(String) # 中文名
+    F01 = Column(String, primary_key=True) # ID
+
 class CatTab(Base_store_sqlserver):
     __tablename__ = "CAT_TAB"
     F17 = Column(String, primary_key=True)   # category code

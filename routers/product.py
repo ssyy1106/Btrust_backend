@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from dependencies.permission import PermissionChecker
 from database import get_db_odoo, get_db_store_sqlserver_factory
-from models.product import ProductProduct, ProductTemplate, IrAttachment, ProductCategory, StockQuant, ObjTab, CatTab, PriceTab, UMETab
+from models.product import ProductProduct, ProductTemplate, IrAttachment, ProductCategory, StockQuant, ObjTab, CatTab, PriceTab, UMETab, PosTab
 from models.pickup import SaleOrder, SaleOrderLine
 from schemas.product import ProductListResponse, ProductCategoryResponse
 from helper import getOdooAccount
@@ -66,11 +66,16 @@ async def get_product_categories(
 
     return {"categories": categories}
 
+
 @router.get("/{barcode}")
 async def get_product(
         barcode: str, 
+        request: Request,
         db: AsyncSession = Depends(get_db_from_store),
     ):
+    store = request.query_params.get("store")
+    if not store:
+        raise HTTPException(status_code=400, detail="store 参数必填")
     now = datetime.now()
 
     # 1️⃣ 查询商品信息 + 分类名称
@@ -124,6 +129,16 @@ async def get_product(
         unit_type = "lb"
     else:
         unit_type = "ea"
+    
+    # 4️⃣ 读取中文名 MT特殊，其它店从POS_TAB读取
+    chinese_name = product.F255.strip() if product.F255 else None
+    if store != 'MT':
+        pos_result = await db.execute(
+            select(PosTab).where(PosTab.F01 == barcode)
+        )
+        pos = pos_result.scalars().first()
+        if pos and pos.F2095:
+            chinese_name = pos.F2095
 
     # ---------- 图片 ----------
     image_file_name = f"{barcode.strip()}.png"
@@ -134,7 +149,8 @@ async def get_product(
     return {
         "barcode": product.F01.strip() if product.F01 else None,
         "name_en": product.F29.strip() if product.F29 else None,
-        "name_cn": product.F255.strip() if product.F255 else None,
+        #"name_cn": product.F255.strip() if product.F255 else None,
+        "name_cn": chinese_name,
         "brand": product.F155.strip() if product.F155 else None,
         "specification": product.F22.strip() if product.F22 else None,
         "category_code": product.F17,
