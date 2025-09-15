@@ -119,12 +119,11 @@ async def get_product(
     #     original_price_obj = next((p for p in prices if p.F113.strip() == "INSTORE"), None)
     original_price = original_price_obj.F30 if original_price_obj else None
 
-    # 4️⃣ 查询单位信息 (lb/ea/其他)
-    unit_result = await db.execute(
-        select(UMETab.F2173)
-        .where(UMETab.F23 == product.F23, UMETab.F1146 == "EN")
-    )
-    unit_type = unit_result.scalar()
+    # 4️⃣ 判断单位类型
+    if (product.F82 and product.F82.strip() == "1") or (chosen_price.F33 and chosen_price.F33.strip() == "I"):
+        unit_type = "lb"
+    else:
+        unit_type = "ea"
 
     # ---------- 图片 ----------
     image_file_name = f"{barcode.strip()}.png"

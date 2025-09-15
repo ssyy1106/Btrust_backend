@@ -13,6 +13,7 @@ class ObjTab(Base_store_sqlserver):
     F155 = Column(String) # 品牌
     F22 = Column(String) # 规格
     F23 = Column(String)
+    F82 = Column(String) # 是否称重
 
 class UMETab(Base_store_sqlserver):
     __tablename__ = "UME_TAB"
@@ -34,6 +35,7 @@ class PriceTab(Base_store_sqlserver):
     F30 = Column(Float)    # 单价
     F140 = Column(Float)   # 打包价金额
     F142 = Column(Integer) # 打包数量
+    F33 = Column(String)   # 价格单位 I/E
 
 class StockQuant(Base_odoo):
     __tablename__ = "stock_quant"
