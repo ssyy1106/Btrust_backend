@@ -73,6 +73,7 @@ async def get_product(
         request: Request,
         db: AsyncSession = Depends(get_db_from_store),
     ):
+    barcode = barcode.zfill(14)
     store = request.query_params.get("store")
     if not store:
         raise HTTPException(status_code=400, detail="store 参数必填")
@@ -92,7 +93,7 @@ async def get_product(
 
     # 2️⃣ 查询价格信息
     price_result = await db.execute(
-        select(PriceTab).where(PriceTab.F01 == barcode)
+        select(PriceTab).where(PriceTab.F01 == product.F122 if product.F122 else barcode)
     )
     prices = price_result.scalars().all()
     if not prices:

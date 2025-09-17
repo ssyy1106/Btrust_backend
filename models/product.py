@@ -14,6 +14,7 @@ class ObjTab(Base_store_sqlserver):
     F22 = Column(String) # 规格
     F23 = Column(String)
     F82 = Column(String) # 是否称重
+    F122 = Column(String) # 对应价格的商品barcode
 
 class UMETab(Base_store_sqlserver):
     __tablename__ = "UME_TAB"
