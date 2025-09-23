@@ -133,6 +133,7 @@ async def get_product(
     
     # 4️⃣ 读取中文名 MT特殊，其它店从POS_TAB读取
     chinese_name = product.F255.strip() if product.F255 else None
+    french_name = None
     if store != 'MT':
         pos_result = await db.execute(
             select(PosTab).where(PosTab.F01 == barcode)
@@ -140,6 +141,13 @@ async def get_product(
         pos = pos_result.scalars().first()
         if pos and pos.F2095:
             chinese_name = pos.F2095
+    if store == 'MT':
+        pos_result = await db.execute(
+            select(PosTab).where(PosTab.F01 == barcode)
+        )
+        pos = pos_result.scalars().first()
+        if pos and pos.F2095:
+            french_name = pos.F2095
 
     # ---------- 图片 ----------
     image_file_name = f"{barcode.strip()}.png"
@@ -152,6 +160,7 @@ async def get_product(
         "name_en": product.F29.strip() if product.F29 else None,
         #"name_cn": product.F255.strip() if product.F255 else None,
         "name_cn": chinese_name,
+        "name_fr": french_name,
         "brand": product.F155.strip() if product.F155 else None,
         "specification": product.F22.strip() if product.F22 else None,
         "category_code": product.F17,
