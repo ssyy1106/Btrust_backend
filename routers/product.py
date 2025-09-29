@@ -66,6 +66,124 @@ async def get_product_categories(
 
     return {"categories": categories}
 
+@router.get("/v2/{barcode}")
+async def get_product(
+        barcode: str, 
+        request: Request,
+        db: AsyncSession = Depends(get_db_from_store),
+    ):
+    barcode = barcode.zfill(14)
+    store = request.query_params.get("store")
+    if not store:
+        raise HTTPException(status_code=400, detail="store 参数必填")
+    now = datetime.now()
+
+    # 1️⃣ 查询商品信息 + 分类名称
+    result = await db.execute(
+        select(ObjTab, CatTab.F1023)
+        .join(CatTab, ObjTab.F17 == CatTab.F17, isouter=True)
+        .where(ObjTab.F01 == barcode)
+    )
+    row = result.first()
+    if not row:
+        # 试着去掉最后一位再补齐14位，防止最后一位是校验位
+        barcode = '0' + barcode[:len(barcode) - 1]
+        print(barcode)
+        result = await db.execute(
+            select(ObjTab, CatTab.F1023)
+            .join(CatTab, ObjTab.F17 == CatTab.F17, isouter=True)
+            .where(ObjTab.F01 == barcode)
+        )
+        row = result.first()
+        if not row:
+            raise HTTPException(status_code=404, detail="商品未找到")
+
+    product, category_name = row
+
+    # 2️⃣ 查询价格信息
+    price_result = await db.execute(
+        select(PriceTab).where(PriceTab.F01 == product.F122 if product.F122 else barcode)
+    )
+    prices = price_result.scalars().all()
+    if not prices:
+        raise HTTPException(status_code=404, detail="价格信息未找到")
+
+    # 3️⃣ 促销价逻辑
+    valid_prices = []
+    for p in prices:
+        start = p.F35
+        end = p.F129
+        if end:
+            end = end.replace(hour=23, minute=59, second=59)
+        if start and end and start <= now <= end or p.F113.strip() == "REG":
+            valid_prices.append(p)
+
+    # 先读取INSTORE 第二读取促销价格 最后读取原价REG价格
+    chosen_price = next((p for p in valid_prices if p.F113.strip() == "INSTORE"), None)
+    if not chosen_price:
+        chosen_price = next((p for p in valid_prices if p.F113.strip() not in ("REG", "INSTORE")), None)
+    if not chosen_price:
+        chosen_price = next((p for p in valid_prices if p.F113.strip() == "REG"), None)
+
+    if not chosen_price:
+        raise HTTPException(status_code=404, detail="有效价格未找到")
+
+    # 原价字段
+    original_price_obj = next((p for p in prices if p.F113.strip() == "REG"), None)
+    # if not original_price_obj:
+    #     original_price_obj = next((p for p in prices if p.F113.strip() == "INSTORE"), None)
+    original_price = original_price_obj.F30 if original_price_obj else None
+
+    # 4️⃣ 判断单位类型
+    if (product.F82 and product.F82.strip() == "1") or (chosen_price.F33 and chosen_price.F33.strip() == "I"):
+        unit_type = "lb"
+    else:
+        unit_type = "ea"
+    
+    # 4️⃣ 读取中文名 MT特殊，其它店从POS_TAB读取
+    chinese_name = product.F255.strip() if product.F255 else None
+    french_name = None
+    if store != 'MT':
+        pos_result = await db.execute(
+            select(PosTab).where(PosTab.F01 == barcode)
+        )
+        pos = pos_result.scalars().first()
+        if pos and pos.F2095:
+            chinese_name = pos.F2095
+    if store == 'MT':
+        pos_result = await db.execute(
+            select(PosTab).where(PosTab.F01 == barcode)
+        )
+        pos = pos_result.scalars().first()
+        if pos and pos.F2095:
+            french_name = pos.F2095
+
+    # ---------- 图片 ----------
+    image_file_name = f"{barcode.strip()}.png"
+    image_path = os.path.join(NETWORK_IMAGE_DIR, image_file_name)
+    image_url = f"/product/image/{barcode}" if os.path.exists(image_path) else None
+
+    # 返回结果
+    return {
+        "barcode": product.F01.strip() if product.F01 else None,
+        "name_en": product.F29.strip() if product.F29 else None,
+        #"name_cn": product.F255.strip() if product.F255 else None,
+        "name_cn": chinese_name,
+        "name_fr": french_name,
+        "brand": product.F155.strip() if product.F155 else None,
+        "specification": product.F22.strip() if product.F22 else None,
+        "category_code": product.F17,
+        "category_name": category_name.strip() if category_name else None,
+        "price_type": chosen_price.F113.strip() if chosen_price.F113 else None,
+        "unit_price": chosen_price.F30,
+        "pack_qty": chosen_price.F142,
+        "pack_price": chosen_price.F140,
+        "valid_from": chosen_price.F35,
+        "valid_to": chosen_price.F129.replace(hour=23, minute=59, second=59) if chosen_price.F129 else None,
+        "original_price": original_price,
+        "unit_type": unit_type.strip() if unit_type else None,  # 👈 新增字段
+        "image_url": image_url
+    }
 
 @router.get("/{barcode}")
 async def get_product(
