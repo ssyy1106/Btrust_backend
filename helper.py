@@ -45,32 +45,6 @@ def verify_token(authorization: Optional[str] = Header(None)):
     # 可以返回 user 信息或权限等级等
     return user
 
-CONFIG = None
-def _init(config):
-    global CONFIG
-    CONFIG = config
-        
-def log_and_save(level, message):
-    log_level = getattr(logging, level)
-    logging.log(log_level, message)
-
-def getConfig(type: str = 'dat'):
-    configFile = getConfigFile()
-    if not configFile:
-        return None
-    config = configparser.ConfigParser()
-    config.read(configFile, encoding="utf-8")
-    _init(config)
-    setLogging(type)
-    return config
-
-@functools.cache
-def getPaymentTypes():
-    if 'Payment' in CONFIG:
-        paymenttypes = CONFIG['Payment']['type'].split(",")
-        return paymenttypes
-    raise Exception("Sorry, no payment type config")
-
 def getConfigFile():
     configFile = 'config.ini'
     # try:
@@ -86,6 +60,45 @@ def getConfigFile():
     #     log_and_save('ERROR', f"Reading ini file error")
     #     return ""
     return configFile
+
+def log_and_save(level, message):
+    log_level = getattr(logging, level)
+    logging.log(log_level, message)
+
+def setLogging(type: str):
+    file = type + datetime.datetime.now(datetime.timezone.utc).isoformat()[:10]
+    directory = '.\\'
+    if 'logdirectory' in CONFIG:
+        directory = CONFIG['logdirectory'][type + 'directory']
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    logging.basicConfig(filename=directory + file + '.log', encoding='utf-8', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    print(f"log directory: {directory + file + '.log'}")
+    log_and_save('INFO', f"Start......")
+
+CONFIG = None
+def _init(config):
+    global CONFIG
+    CONFIG = config
+
+def getConfig(type: str = 'dat'):
+    configFile = getConfigFile()
+    if not configFile:
+        return None
+    config = configparser.ConfigParser()
+    config.read(configFile, encoding="utf-8")
+    _init(config)
+    setLogging(type)
+    return config
+
+getConfig()
+
+@functools.cache
+def getPaymentTypes():
+    if 'Payment' in CONFIG:
+        paymenttypes = CONFIG['Payment']['type'].split(",")
+        return paymenttypes
+    raise Exception("Sorry, no payment type config")
 
 @functools.cache
 def getPostgresConfig():
@@ -202,17 +215,6 @@ def getPaymentTypeStr(paymentType) -> tuple:
     if len(paymentType) == 1 and paymentType[0] == "ALL":
         return (True, getPaymentTypes())
     return (False, paymentType)
-
-def setLogging(type: str):
-    file = type + datetime.datetime.now(datetime.timezone.utc).isoformat()[:10]
-    directory = '.\\'
-    if 'logdirectory' in CONFIG:
-        directory = CONFIG['logdirectory'][type + 'directory']
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-    logging.basicConfig(filename=directory + file + '.log', encoding='utf-8', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    print(f"log directory: {directory + file + '.log'}")
-    log_and_save('INFO', f"Start......")
 
 def getDB():
     try:

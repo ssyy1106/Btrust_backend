@@ -118,7 +118,7 @@ class IsAuthenticated(BasePermission):
             return False
         return False
     
-config = getConfig()
+# config = getConfig()
 
 class Context(BaseContext):
     # def __init__(self):

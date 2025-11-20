@@ -6,6 +6,7 @@ from sqlalchemy import select, func, or_
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta, timezone
+import asyncio
 
 from dependencies.permission import PermissionChecker
 from database import get_db_odoo, get_db_store_sqlserver_factory
@@ -167,7 +168,6 @@ async def _get_product_common(
         "unit_type": unit_type.strip() if unit_type else None,
         "image_url": image_url,
     }
-
 
 # --- v2 接口 ---
 @router.get("/v2/{barcode}")
