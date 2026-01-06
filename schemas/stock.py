@@ -101,6 +101,39 @@ class StocktakeItemOut(BaseModel):
     # class Config:
     #     orm_mode = True
 
+class StocktakeItemOutV2(BaseModel):
+    id: int
+    location: str
+    barcode: str
+    name_ch: Optional[str] = None
+    name_en: Optional[str] = None
+    qty: int
+    time: datetime
+    session_id: UUID
+    creator_id: Optional[str]
+    modifier_id: Optional[str]
+    create_time: datetime
+    update_time: datetime
+    regular_price: Optional[float] = None
+    active_price: Optional[float] = None
+    package_price: Optional[float] = None
+    package_count: Optional[float] = None
+
+    @field_validator("regular_price", "active_price", "package_price", "package_count", mode="before")
+    def clean_nan(cls, v):
+        import math
+        if v is None:
+            return None
+        try:
+            f = float(v)
+            if math.isnan(f) or math.isinf(f):
+                return None
+            return f
+        except Exception:
+            return None
+
+    model_config = ConfigDict(from_attributes=True) 
+
 class Pagination(BaseModel):
     total: int
     page: int
@@ -129,6 +162,11 @@ class StocktakeItemSummaryResponse(BaseModel):
     pickupItems: List[StocktakeItemOut]
     pagination: Pagination
     model_config = ConfigDict(from_attributes=True) 
+
+class StocktakeItemSummaryResponseV2(BaseModel):
+    pickupItems: List[StocktakeItemOutV2]
+    pagination: Pagination
+    model_config = ConfigDict(from_attributes=True)
 
 class StocktakeSessionOut(BaseModel):
     id: UUID

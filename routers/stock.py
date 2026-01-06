@@ -19,10 +19,13 @@ from schemas.stock import (
     StocktakeSummaryResponse,
     Pagination,
     StocktakeItemSummaryResponse,
-    ProductInfoResponse
+    ProductInfoResponse,
+    StocktakeItemOutV2,
+    StocktakeItemSummaryResponseV2
 )
 from collections import defaultdict
-from database import get_db_stock
+from database import get_db_stock, get_db_store_sqlserver_factory
+from routers.product import _get_product_common
 import traceback
 from typing import Optional, List, Dict, Any
 from fastapi.encoders import jsonable_encoder
@@ -235,6 +238,166 @@ async def search_stocktake_items(
     )
 
     return StocktakeItemSummaryResponse(
+        pickupItems=items_list,
+        pagination=Pagination(
+            total=total,
+            page=page,
+            page_size=page_size,
+            pages=ceil(total / page_size) if page_size else 1
+        )
+    )
+
+@router.get("/items/v2", response_model=StocktakeItemSummaryResponseV2)
+async def search_stocktake_items_v2(
+    session_id: Optional[UUID] = Query(None),
+    stock_take_start_date: Optional[datetime] = Query(None),
+    stock_take_end_date: Optional[datetime] = Query(None),
+    upload_start_date: Optional[datetime] = Query(None),
+    upload_end_date: Optional[datetime] = Query(None),
+    location: Optional[str] = Query(None, description="模糊匹配库位"),
+    barcode: Optional[str] = Query(None, description="模糊匹配条码"),
+    item_name: Optional[str] = Query(None, description="兼容保留，不参与过滤"),
+    creator_id: Optional[str] = Query(None, description="模糊匹配创建人"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(20, ge=1, le=99999, description="每页数量"),
+    db: AsyncSession = Depends(get_db_stock)
+):
+    session_conditions = []
+    item_conditions = [StocktakeItem.qty == 0]
+
+    if session_id:
+        session_conditions.append(StocktakeItem.session_id == session_id)
+
+    if stock_take_start_date:
+        session_conditions.append(StocktakeSession.timestamp >= stock_take_start_date)
+    if stock_take_end_date:
+        if stock_take_end_date.time() == datetime.min.time():
+            stock_take_end_date = stock_take_end_date + timedelta(days=1) - timedelta(microseconds=1)
+        session_conditions.append(StocktakeSession.timestamp <= stock_take_end_date)
+
+    if upload_start_date:
+        item_conditions.append(StocktakeItem.create_time >= upload_start_date)
+    if upload_end_date:
+        if upload_end_date.time() == datetime.min.time():
+            upload_end_date = upload_end_date + timedelta(days=1) - timedelta(microseconds=1)
+        item_conditions.append(StocktakeItem.create_time <= upload_end_date)
+
+    if location:
+        item_conditions.append(StocktakeItem.location.ilike(f"%{location}%"))
+    if barcode:
+        barcode_raw = barcode.strip()
+        barcode_variants = {barcode_raw}
+        barcode_stripped = barcode_raw.lstrip("0")
+        if barcode_stripped:
+            barcode_variants.add(barcode_stripped)
+        barcode_conditions = [
+            StocktakeItem.barcode.ilike(f"%{value}%")
+            for value in barcode_variants
+            if value
+        ]
+        if barcode_conditions:
+            item_conditions.append(or_(*barcode_conditions))
+    # item_name is kept for backward compatibility but not used for filtering.
+    if creator_id:
+        item_conditions.append(StocktakeItem.creator_id.ilike(f"%{creator_id}%"))
+
+    stmt = (
+        select(StocktakeItem)
+        .join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id)
+    )
+
+    if session_conditions:
+        stmt = stmt.where(and_(*session_conditions))
+    if item_conditions:
+        stmt = stmt.where(and_(*item_conditions))
+
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    result_count = await db.execute(count_stmt)
+    total = result_count.scalar() or 0
+
+    stmt = stmt.order_by(StocktakeItem.create_time.desc()) \
+               .offset((page - 1) * page_size) \
+               .limit(page_size)
+
+    result = await db.execute(stmt)
+    items = result.scalars().all()
+
+    items_list: List[StocktakeItemOutV2] = []
+    if items:
+        store_db_gen = get_db_store_sqlserver_factory("MS")
+        async for store_db in store_db_gen():
+            product_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+
+            async def get_product_info(barcode_value: str):
+                if barcode_value in product_cache:
+                    return product_cache[barcode_value]
+                barcode_padded = barcode_value.zfill(14)
+                try:
+                    product = await _get_product_common(
+                        barcode_padded,
+                        "MS",
+                        store_db,
+                        try_without_checkdigit=True
+                    )
+                except HTTPException as e:
+                    if e.status_code == 404:
+                        product = None
+                    else:
+                        raise
+                product_cache[barcode_value] = product
+                return product
+
+            for item in items:
+                product = await get_product_info(item.barcode)
+                items_list.append(
+                    StocktakeItemOutV2.model_validate({
+                        "id": item.id,
+                        "session_id": item.session_id,
+                        "location": item.location,
+                        "barcode": item.barcode.zfill(14),
+                        "name_ch": product.get("name_cn") if product else None,
+                        "name_en": product.get("name_en") if product else None,
+                        "regular_price": product.get("original_price") if product else None,
+                        "active_price": product.get("unit_price") if product else None,
+                        "package_price": product.get("pack_price") if product else None,
+                        "package_count": product.get("pack_qty") if product else None,
+                        "qty": item.qty,
+                        "time": item.time,
+                        "creator_id": item.creator_id,
+                        "modifier_id": item.modifier_id,
+                        "create_time": item.create_time,
+                        "update_time": item.update_time
+                    })
+                )
+            break
+
+    logout = {
+        "status": "success",
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "items_count": len(items_list)
+    }
+    await log_operation(
+        db,
+        "get /items/v2",
+        {
+            "session_id": session_id,
+            "stock_take_start_date": stock_take_start_date,
+            "stock_take_end_date": stock_take_end_date,
+            "upload_start_date": upload_start_date,
+            "upload_end_date": upload_end_date,
+            "location": location,
+            "barcode": barcode,
+            "item_name": item_name,
+            "creator_id": creator_id,
+            "page": page,
+            "page_size": page_size
+        },
+        logout
+    )
+
+    return StocktakeItemSummaryResponseV2(
         pickupItems=items_list,
         pagination=Pagination(
             total=total,
