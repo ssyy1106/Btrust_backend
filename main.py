@@ -1,6 +1,6 @@
 from hdbcli import dbapi
 from fastapi import FastAPI, WebSocket, HTTPException, status, Request, Header, Depends
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -195,6 +195,10 @@ async def getResponse() -> Response | None:
 async def root():
     # return {"message": "Hello World"}
     return HTMLResponse(html)
+
+@app.get("/ping")
+async def ping():
+    return PlainTextResponse("ok")
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

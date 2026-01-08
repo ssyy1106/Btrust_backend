@@ -77,11 +77,15 @@ async def upload_stocktake(data: StocktakeUpload, db: AsyncSession = Depends(get
         db.add(session)
 
         for item in data.stocktake:
+            raw_barcode = item.barcode or ""
+            barcode = raw_barcode.strip()
+            if not barcode:
+                raise HTTPException(status_code=400, detail="barcode不能为空")
             db_item = StocktakeItem(
                 id=item.id,
                 session_id=session_id,
                 location=item.location,
-                barcode=item.barcode,
+                barcode=barcode,
                 qty=item.qty,
                 time=item.time,
                 creator_id=str(item.user_id),
