@@ -30,7 +30,7 @@ import traceback
 from typing import Optional, List, Dict, Any
 from fastapi.encoders import jsonable_encoder
 from uuid import UUID
-from helper import log_and_save
+from helper import log_and_save, getStore
 import pandas as pd
 import os
 import tempfile
@@ -195,24 +195,60 @@ async def search_stocktake_items(
     rows = result.all()  # [(StocktakeItem, ProductInfo), ...]
 
     # 构造返回 list
-    items_list = [
-        StocktakeItemOut.model_validate({
-            "id": item.id,
-            "session_id": item.session_id,
-            "location": item.location,
-            "barcode": item.barcode,
-            "name_ch": product.name_ch if product else None,
-            "name_en": product.name_en if product else None,
-            "price": product.price if product else None,
-            "qty": item.qty,
-            "time": item.time,
-            "creator_id": item.creator_id,
-            "modifier_id": item.modifier_id,
-            "create_time": item.create_time,
-            "update_time": item.update_time
-        })
-        for item, product in rows
-    ]
+    store_list = getStore()
+    product_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+
+    async def get_product_from_stores(barcode_value: str):
+        if barcode_value in product_cache:
+            return product_cache[barcode_value]
+        barcode_padded = barcode_value.zfill(14)
+        for store in store_list:
+            store_db_gen = get_db_store_sqlserver_factory(store)
+            async for store_db in store_db_gen():
+                try:
+                    product = await _get_product_common(
+                        barcode_padded,
+                        store,
+                        store_db,
+                        try_without_checkdigit=True
+                    )
+                except HTTPException as e:
+                    if e.status_code == 404:
+                        product = None
+                    else:
+                        raise
+                if product:
+                    product_cache[barcode_value] = product
+                    return product
+                break
+        product_cache[barcode_value] = None
+        return None
+
+    items_list: List[StocktakeItemOut] = []
+    for item, _product in rows:
+        product = await get_product_from_stores(item.barcode)
+        price = None
+        if product:
+            price = product.get("original_price")
+            if price is None:
+                price = product.get("unit_price")
+        items_list.append(
+            StocktakeItemOut.model_validate({
+                "id": item.id,
+                "session_id": item.session_id,
+                "location": item.location,
+                "barcode": item.barcode,
+                "name_ch": product.get("name_cn") if product else None,
+                "name_en": product.get("name_en") if product else None,
+                "price": price,
+                "qty": item.qty,
+                "time": item.time,
+                "creator_id": item.creator_id,
+                "modifier_id": item.modifier_id,
+                "create_time": item.create_time,
+                "update_time": item.update_time
+            })
+        )
 
     # 日志
     logout = {
