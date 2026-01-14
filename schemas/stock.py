@@ -28,6 +28,7 @@ class ProductInfoOut(BaseModel):
 class StockByLocationItem(BaseModel):
     session_id: str
     barcode: str
+    barcode_original: Optional[str] = None
     name_ch: Optional[str] = None
     name_en: Optional[str] = None
     price: Optional[float] = None
@@ -105,6 +106,7 @@ class StocktakeItemOutV2(BaseModel):
     id: int
     location: str
     barcode: str
+    barcode_original: Optional[str] = None
     name_ch: Optional[str] = None
     name_en: Optional[str] = None
     qty: int

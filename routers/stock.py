@@ -365,6 +365,7 @@ async def search_stocktake_items_v2(
                     "session_id": item.session_id,
                     "location": item.location,
                     "barcode": item.barcode.zfill(14),
+                    "barcode_original": item.barcode,
                     "name_ch": product.get("name_cn") if product else None,
                     "name_en": product.get("name_en") if product else None,
                     "regular_price": product.get("original_price") if product else None,
@@ -583,6 +584,79 @@ async def get_stock_by_location(
     await log_operation(db, f"get /by-location", {"start_date": start_date, "end_date": end_date}, logout)
     return location_data
 
+@router.get("/by-location/v2", response_model=StockByLocationResponse)
+async def get_stock_by_location_v2(
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+    location: Optional[str] = Query(None, description="模糊查询货架location"),
+    db: AsyncSession = Depends(get_db_stock)
+):
+    conditions = []
+    if start_date:
+        conditions.append(StocktakeItem.time >= start_date)
+    if end_date:
+        if end_date.time() == datetime.min.time():
+            end_date = end_date + timedelta(days=1) - timedelta(microseconds=1)
+        conditions.append(StocktakeItem.time <= end_date)
+    if location:
+        conditions.append(StocktakeItem.location.ilike(f"%{location}%"))
+
+    stmt = select(StocktakeItem)
+    if conditions:
+        stmt = stmt.where(and_(*conditions))
+
+    result = await db.execute(stmt)
+    items = result.scalars().all()
+
+    store_list = getStore()
+    product_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+
+    async def get_product_from_stores(barcode_value: str):
+        if barcode_value in product_cache:
+            return product_cache[barcode_value]
+        barcode_padded = barcode_value.zfill(14)
+        for store in store_list:
+            store_db_gen = get_db_store_sqlserver_factory(store)
+            async for store_db in store_db_gen():
+                try:
+                    product = await _get_product_common(
+                        barcode_padded,
+                        store,
+                        store_db,
+                        try_without_checkdigit=True
+                    )
+                except HTTPException as e:
+                    if e.status_code == 404:
+                        product = None
+                    else:
+                        raise
+                if product:
+                    product_cache[barcode_value] = product
+                    return product
+                break
+        product_cache[barcode_value] = None
+        return None
+
+    location_data = defaultdict(list)
+    for item in items:
+        product = await get_product_from_stores(item.barcode)
+        location_data[item.location].append({
+            "session_id": str(item.session_id),
+            "barcode": item.barcode.zfill(14),
+            "barcode_original": item.barcode,
+            "name_ch": product.get("name_cn") if product else None,
+            "name_en": product.get("name_en") if product else None,
+            "price": product.get("original_price") if product else None,
+            "qty": item.qty,
+            "time": item.time,
+            "create_time": item.create_time,
+            "creator_id": item.creator_id,
+            "modifier_id": item.modifier_id,
+        })
+    logout = {"status": "success", "location_data": location_data}
+    await log_operation(db, "get /by-location/v2", {"start_date": start_date, "end_date": end_date}, logout)
+    return location_data
+
 @router.get("/by-location/export")
 async def export_stock_by_location(
     start_date: Optional[datetime] = Query(None),
@@ -634,6 +708,90 @@ async def export_stock_by_location(
     return FileResponse(
         path=file_path,
         filename="stock_by_location.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+@router.get("/by-location/export/v2")
+async def export_stock_by_location_v2(
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+    db: AsyncSession = Depends(get_db_stock)
+):
+    conditions = []
+    if start_date:
+        conditions.append(StocktakeItem.time >= start_date)
+    if end_date:
+        if end_date.time() == datetime.min.time():
+            end_date = end_date + timedelta(days=1) - timedelta(microseconds=1)
+        conditions.append(StocktakeItem.time <= end_date)
+
+    stmt = select(StocktakeItem)
+    if conditions:
+        stmt = stmt.where(and_(*conditions))
+
+    result = await db.execute(stmt)
+    items = result.scalars().all()
+
+    if not items:
+        raise HTTPException(status_code=404, detail="No data found for the given time range.")
+
+    store_list = getStore()
+    product_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+
+    async def get_product_from_stores(barcode_value: str):
+        if barcode_value in product_cache:
+            return product_cache[barcode_value]
+        barcode_padded = barcode_value.zfill(14)
+        for store in store_list:
+            store_db_gen = get_db_store_sqlserver_factory(store)
+            async for store_db in store_db_gen():
+                try:
+                    product = await _get_product_common(
+                        barcode_padded,
+                        store,
+                        store_db,
+                        try_without_checkdigit=True
+                    )
+                except HTTPException as e:
+                    if e.status_code == 404:
+                        product = None
+                    else:
+                        raise
+                if product:
+                    product_cache[barcode_value] = product
+                    return product
+                break
+        product_cache[barcode_value] = None
+        return None
+
+    data = []
+    for item in items:
+        product = await get_product_from_stores(item.barcode)
+        data.append({
+            "Location": item.location,
+            "Barcode": item.barcode.zfill(14),
+            "Barcode Original": item.barcode,
+            "Name CH": product.get("name_cn") if product else None,
+            "Name EN": product.get("name_en") if product else None,
+            "Price": product.get("original_price") if product else None,
+            "Quantity": item.qty,
+            "Stock Take Date": item.time.replace(tzinfo=None),
+            "Upload Date": item.create_time.replace(tzinfo=None),
+            "creator_id": item.creator_id,
+            "modifier_id": item.modifier_id,
+        })
+
+    df = pd.DataFrame(data)
+    df.sort_values(by=["Location", "Stock Take Date"], inplace=True)
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+        file_path = tmp.name
+        df.to_excel(file_path, index=False)
+    logout = {"status": "success", "data": data}
+    await log_operation(db, "get /by-location/export/v2", {"start_date": start_date, "end_date": end_date}, logout)
+    return FileResponse(
+        path=file_path,
+        filename="stock_by_location_v2.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
