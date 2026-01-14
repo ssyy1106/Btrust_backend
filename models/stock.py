@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, BigInteger, Float
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, BigInteger, Float, Numeric
 from sqlalchemy.orm import relationship
 from database import Base_stock
 import datetime
@@ -58,4 +58,27 @@ class ProductInfo(Base_stock):
     name_ch = Column(String, nullable=True)
     name_en = Column(String, nullable=True)
     price = Column(Float, nullable=True)
+
+class ProductSnapshot(Base_stock):
+    __tablename__ = "product_snapshot"
+
+    barcode = Column(String, primary_key=True)
+    name_en = Column(String, nullable=True)
+    name_cn = Column(String, nullable=True)
+    name_fr = Column(String, nullable=True)
+    brand = Column(String, nullable=True)
+    specification = Column(String, nullable=True)
+    category_code = Column(Numeric, nullable=True)
+    category_name = Column(String, nullable=True)
+    price_type = Column(String, nullable=True)
+    unit_price = Column(Float, nullable=True)
+    pack_qty = Column(Integer, nullable=True)
+    pack_price = Column(Float, nullable=True)
+    valid_from = Column(DateTime(timezone=True), nullable=True)
+    valid_to = Column(DateTime(timezone=True), nullable=True)
+    original_price = Column(Float, nullable=True)
+    unit_type = Column(String, nullable=True)
+    image_url = Column(String, nullable=True)
+    store = Column(String, nullable=True)
+    update_time = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     

@@ -1,6 +1,5 @@
 from math import ceil
 import math
-import asyncio
 from fastapi import FastAPI, HTTPException, Depends, APIRouter, Query, File, UploadFile
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError
@@ -8,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, and_, func, or_
 from fastapi.responses import JSONResponse, FileResponse
 from datetime import datetime, timedelta
-from models.stock import OperateLog, StocktakeSession, StocktakeItem, ProductInfo
+from models.stock import OperateLog, StocktakeSession, StocktakeItem, ProductInfo, ProductSnapshot
 from schemas.stock import (
     StocktakeSessionOut,
     StocktakeUpload,
@@ -25,13 +24,12 @@ from schemas.stock import (
     StocktakeItemSummaryResponseV2
 )
 from collections import defaultdict
-from database import get_db_stock, get_db_store_sqlserver_factory
-from routers.product import _get_product_common
+from database import get_db_stock
 import traceback
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from fastapi.encoders import jsonable_encoder
 from uuid import UUID
-from helper import log_and_save, getStore
+from helper import log_and_save
 import pandas as pd
 import os
 import tempfile
@@ -328,51 +326,33 @@ async def search_stocktake_items_v2(
 
     items_list: List[StocktakeItemOutV2] = []
 
+    snapshot_map: Dict[str, ProductSnapshot] = {}
     if items:
-        store_list = getStore()
-        product_cache: Dict[str, Optional[Dict[str, Any]]] = {}
-
-        async def get_product_from_stores(barcode_value: str):
-            if barcode_value in product_cache:
-                return product_cache[barcode_value]
-            barcode_padded = barcode_value.zfill(14)
-            for store in store_list:
-                store_db_gen = get_db_store_sqlserver_factory(store)
-                async for store_db in store_db_gen():
-                    try:
-                        product = await _get_product_common(
-                            barcode_padded,
-                            store,
-                            store_db,
-                            try_without_checkdigit=True
-                        )
-                    except HTTPException as e:
-                        if e.status_code == 404:
-                            product = None
-                        else:
-                            raise
-                    if product:
-                        product_cache[barcode_value] = product
-                        return product
-                    break
-            product_cache[barcode_value] = None
-            return None
+        barcodes = {item.barcode.zfill(14) for item in items if item.barcode}
+        if barcodes:
+            snapshot_stmt = select(ProductSnapshot).where(ProductSnapshot.barcode.in_(barcodes))
+            snapshot_result = await db.execute(snapshot_stmt)
+            snapshot_map = {
+                snapshot.barcode: snapshot
+                for snapshot in snapshot_result.scalars().all()
+            }
 
         for item in items:
-            product = await get_product_from_stores(item.barcode)
+            barcode_padded = item.barcode.zfill(14)
+            snapshot = snapshot_map.get(barcode_padded)
             items_list.append(
                 StocktakeItemOutV2.model_validate({
                     "id": item.id,
                     "session_id": item.session_id,
                     "location": item.location,
-                    "barcode": item.barcode.zfill(14),
+                    "barcode": barcode_padded,
                     "barcode_original": item.barcode,
-                    "name_ch": product.get("name_cn") if product else None,
-                    "name_en": product.get("name_en") if product else None,
-                    "regular_price": product.get("original_price") if product else None,
-                    "active_price": product.get("unit_price") if product else None,
-                    "package_price": product.get("pack_price") if product else None,
-                    "package_count": product.get("pack_qty") if product else None,
+                    "name_ch": snapshot.name_cn if snapshot else None,
+                    "name_en": snapshot.name_en if snapshot else None,
+                    "regular_price": snapshot.original_price if snapshot else None,
+                    "active_price": snapshot.unit_price if snapshot else None,
+                    "package_price": snapshot.pack_price if snapshot else None,
+                    "package_count": snapshot.pack_qty if snapshot else None,
                     "qty": item.qty,
                     "time": item.time,
                     "creator_id": item.creator_id,
@@ -609,54 +589,28 @@ async def get_stock_by_location_v2(
     result = await db.execute(stmt)
     items = result.scalars().all()
 
-    store_list = getStore()
-    product_cache: Dict[str, Optional[Dict[str, Any]]] = {}
-
-    async def get_product_from_stores(barcode_value: str):
-        if barcode_value in product_cache:
-            return product_cache[barcode_value]
-        barcode_padded = barcode_value.zfill(14)
-        for store in store_list:
-            store_db_gen = get_db_store_sqlserver_factory(store)
-            async for store_db in store_db_gen():
-                try:
-                    product = await _get_product_common(
-                        barcode_padded,
-                        store,
-                        store_db,
-                        try_without_checkdigit=True
-                    )
-                except HTTPException as e:
-                    if e.status_code == 404:
-                        product = None
-                    else:
-                        raise
-                if product:
-                    product_cache[barcode_value] = product
-                    return product
-                break
-        product_cache[barcode_value] = None
-        return None
-
-    semaphore = asyncio.Semaphore(20)
-
-    async def get_product_limited(barcode_value: str):
-        async with semaphore:
-            return await get_product_from_stores(barcode_value)
-
-    products = await asyncio.gather(
-        *(get_product_limited(item.barcode) for item in items)
-    )
-
     location_data = defaultdict(list)
-    for item, product in zip(items, products):
+    snapshot_map: Dict[str, ProductSnapshot] = {}
+    if items:
+        barcodes = {item.barcode.zfill(14) for item in items if item.barcode}
+        if barcodes:
+            snapshot_stmt = select(ProductSnapshot).where(ProductSnapshot.barcode.in_(barcodes))
+            snapshot_result = await db.execute(snapshot_stmt)
+            snapshot_map = {
+                snapshot.barcode: snapshot
+                for snapshot in snapshot_result.scalars().all()
+            }
+
+    for item in items:
+        barcode_padded = item.barcode.zfill(14)
+        snapshot = snapshot_map.get(barcode_padded)
         location_data[item.location].append({
             "session_id": str(item.session_id),
-            "barcode": item.barcode.zfill(14),
+            "barcode": barcode_padded,
             "barcode_original": item.barcode,
-            "name_ch": product.get("name_cn") if product else None,
-            "name_en": product.get("name_en") if product else None,
-            "price": product.get("original_price") if product else None,
+            "name_ch": snapshot.name_cn if snapshot else None,
+            "name_en": snapshot.name_en if snapshot else None,
+            "price": snapshot.original_price if snapshot else None,
             "qty": item.qty,
             "time": item.time,
             "create_time": item.create_time,
@@ -745,45 +699,27 @@ async def export_stock_by_location_v2(
     if not items:
         raise HTTPException(status_code=404, detail="No data found for the given time range.")
 
-    store_list = getStore()
-    product_cache: Dict[str, Optional[Dict[str, Any]]] = {}
-
-    async def get_product_from_stores(barcode_value: str):
-        if barcode_value in product_cache:
-            return product_cache[barcode_value]
-        barcode_padded = barcode_value.zfill(14)
-        for store in store_list:
-            store_db_gen = get_db_store_sqlserver_factory(store)
-            async for store_db in store_db_gen():
-                try:
-                    product = await _get_product_common(
-                        barcode_padded,
-                        store,
-                        store_db,
-                        try_without_checkdigit=True
-                    )
-                except HTTPException as e:
-                    if e.status_code == 404:
-                        product = None
-                    else:
-                        raise
-                if product:
-                    product_cache[barcode_value] = product
-                    return product
-                break
-        product_cache[barcode_value] = None
-        return None
+    snapshot_map: Dict[str, ProductSnapshot] = {}
+    barcodes = {item.barcode.zfill(14) for item in items if item.barcode}
+    if barcodes:
+        snapshot_stmt = select(ProductSnapshot).where(ProductSnapshot.barcode.in_(barcodes))
+        snapshot_result = await db.execute(snapshot_stmt)
+        snapshot_map = {
+            snapshot.barcode: snapshot
+            for snapshot in snapshot_result.scalars().all()
+        }
 
     data = []
     for item in items:
-        product = await get_product_from_stores(item.barcode)
+        barcode_padded = item.barcode.zfill(14)
+        snapshot = snapshot_map.get(barcode_padded)
         data.append({
             "Location": item.location,
-            "Barcode": item.barcode.zfill(14),
+            "Barcode": barcode_padded,
             "Barcode Original": item.barcode,
-            "Name CH": product.get("name_cn") if product else None,
-            "Name EN": product.get("name_en") if product else None,
-            "Price": product.get("original_price") if product else None,
+            "Name CH": snapshot.name_cn if snapshot else None,
+            "Name EN": snapshot.name_en if snapshot else None,
+            "Price": snapshot.original_price if snapshot else None,
             "Quantity": item.qty,
             "Stock Take Date": item.time.replace(tzinfo=None),
             "Upload Date": item.create_time.replace(tzinfo=None),
