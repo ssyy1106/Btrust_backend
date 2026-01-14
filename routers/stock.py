@@ -1,5 +1,6 @@
 from math import ceil
 import math
+import asyncio
 from fastapi import FastAPI, HTTPException, Depends, APIRouter, Query, File, UploadFile
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError
@@ -637,9 +638,18 @@ async def get_stock_by_location_v2(
         product_cache[barcode_value] = None
         return None
 
+    semaphore = asyncio.Semaphore(20)
+
+    async def get_product_limited(barcode_value: str):
+        async with semaphore:
+            return await get_product_from_stores(barcode_value)
+
+    products = await asyncio.gather(
+        *(get_product_limited(item.barcode) for item in items)
+    )
+
     location_data = defaultdict(list)
-    for item in items:
-        product = await get_product_from_stores(item.barcode)
+    for item, product in zip(items, products):
         location_data[item.location].append({
             "session_id": str(item.session_id),
             "barcode": item.barcode.zfill(14),
