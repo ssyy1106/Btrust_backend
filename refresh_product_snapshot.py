@@ -105,6 +105,7 @@ async def refresh_product_snapshot(
                         "valid_from": product.get("valid_from"),
                         "valid_to": product.get("valid_to"),
                         "original_price": product.get("original_price"),
+                        "tax": product.get("tax"),
                         "unit_type": product.get("unit_type"),
                         "image_url": product.get("image_url"),
                         "store": store,

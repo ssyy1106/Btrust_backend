@@ -32,6 +32,9 @@ class StockByLocationItem(BaseModel):
     name_ch: Optional[str] = None
     name_en: Optional[str] = None
     price: Optional[float] = None
+    tax: Optional[int] = None
+    specification: Optional[str] = None
+    unit_type: Optional[str] = None
     qty: int
     time: datetime
     create_time: datetime
@@ -120,6 +123,9 @@ class StocktakeItemOutV2(BaseModel):
     active_price: Optional[float] = None
     package_price: Optional[float] = None
     package_count: Optional[float] = None
+    tax: Optional[int] = None
+    specification: Optional[str] = None
+    unit_type: Optional[str] = None
 
     @field_validator("regular_price", "active_price", "package_price", "package_count", mode="before")
     def clean_nan(cls, v):

@@ -25,6 +25,11 @@ class UMETab(Base_store_sqlserver):
 class PosTab(Base_store_sqlserver):
     __tablename__ = "POS_TAB"
     F2095 = Column(String) # 中文名
+    F81 = Column(String)   # 5% Tax
+    F96 = Column(String)   # 13% Tax
+    F97 = Column(String)   # PF Tax
+    F98 = Column(String)   # Tax 4
+    F89 = Column(String)   # TAX 5
     F01 = Column(String, primary_key=True) # ID
 
 class CatTab(Base_store_sqlserver):

@@ -77,6 +77,7 @@ class ProductSnapshot(Base_stock):
     valid_from = Column(DateTime(timezone=True), nullable=True)
     valid_to = Column(DateTime(timezone=True), nullable=True)
     original_price = Column(Float, nullable=True)
+    tax = Column(Integer, nullable=True)
     unit_type = Column(String, nullable=True)
     image_url = Column(String, nullable=True)
     store = Column(String, nullable=True)

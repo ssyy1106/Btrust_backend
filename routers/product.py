@@ -143,6 +143,16 @@ async def _get_product_common(
         else:
             chinese_name = pos.F2095
 
+    def _is_tax_on(value):
+        if value is None:
+            return False
+        if isinstance(value, (int, float)):
+            return value == 1
+        return str(value).strip() == "1"
+
+    tax_fields = [pos.F81, pos.F96, pos.F97, pos.F98, pos.F89] if pos else []
+    tax = 1 if any(_is_tax_on(v) for v in tax_fields) else 0
+
     # --- 6️⃣ 图片 ---
     image_file_name = f"{barcode.strip()}.png"
     image_path = os.path.join(NETWORK_IMAGE_DIR, image_file_name)
@@ -167,6 +177,7 @@ async def _get_product_common(
         "original_price": original_price,
         "unit_type": unit_type.strip() if unit_type else None,
         "image_url": image_url,
+        "tax": tax,
     }
 
 # --- v2 接口 ---
