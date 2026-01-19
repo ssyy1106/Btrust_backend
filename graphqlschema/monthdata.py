@@ -12,7 +12,7 @@ def check_month(param: MonthSearchParameter) -> bool:
     if kind not in ['Department', 'SubDepartment', 'UPC', 'Store']:
         return False
     for store in stores:
-        if store not in ['NY', 'MS', 'MT', 'TE']:
+        if store not in ['NY', 'MS', 'MT', 'TE', 'RH']:
             return False
     return True
 

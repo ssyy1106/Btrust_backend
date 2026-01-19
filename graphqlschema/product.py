@@ -13,7 +13,7 @@ def check_product(param: TopProductSearchParameter) -> bool:
         return False
     if len(stores) == 1 and stores[0] == "ALL":
         return True
-    if any(store not in ['NY', 'MS', 'MT', 'TE'] for store in stores):
+    if any(store not in ['NY', 'MS', 'MT', 'TE', 'RH'] for store in stores):
         return False
     return True
 

@@ -204,7 +204,7 @@ def getShiftDBConfig():
 
 def getStoreStr(stores) -> str:
     if len(stores) == 1 and stores[0] == "ALL":
-        return "('NY', 'MS', 'MT', 'TE')"
+        return "('NY', 'MS', 'MT', 'TE', 'RH')"
     res = "("
     for store in stores:
         res += "'" + store + "',"
@@ -349,21 +349,21 @@ def getAllDepartmentIds() -> dict:
 
 @functools.cache
 def getStoreName(id: str) -> str:
-    stores = {"Terra": "TE", "B1": "MS", "B2": "NY", "Montreal": "MT"}
+    stores = {"Terra": "TE", "B1": "MS", "B2": "NY", "Montreal": "MT", "Richmond Hill": "RH"}
     with getShiftDB() as conn:
         with conn.cursor() as cursor:
             cursor.execute(f"select departmentName from sysdepartment where id = " + str(id))
             name = cursor.fetchone()
             if name:
                 if name[0] == 'Btrust':
-                    return ['MS', 'NY', 'TE', 'MT']
+                    return ['MS', 'NY', 'TE', 'MT', 'RH']
                 if name[0] in stores:
                     return [stores[name[0]]]
                 return []
             return []
 
 def getStoreNameOdoo(names: list) -> str:
-    stores = {"terra": "TE", "mississauga": "MS", "north": "NY", "montreal": "MT"}
+    stores = {"terra": "TE", "mississauga": "MS", "north": "NY", "montreal": "MT", "richmond hill": "RH"}
     for k, v in stores.items():
         for name in names:
             if k in name.lower():

@@ -24,28 +24,28 @@ def get_hours():
 class TopProductSearchParameter:
     Years: typing.List[int] = strawberry.field(description="Search years", default=datetime.datetime.now().year)
     Months: typing.List[int] = strawberry.field(description="Search months", default_factory=get_default_month)
-    Store: Optional[typing.List[str]] = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL", default_factory=get_all)
+    Store: Optional[typing.List[str]] = strawberry.field(description="Store name, like MT, NY, TE, MS, RH, ALL", default_factory=get_all)
     TopProduct: Optional[int] = strawberry.field(description="Search how many top products", default = 10)
 
 @strawberry.input
 class DateHourSearchParameter:
     FromDate: datetime.date = strawberry.field(description="Search from date", default=(datetime.datetime.now() - datetime.timedelta(days=1)).date())
     ToDate: datetime.date = strawberry.field(description="Search to date", default=(datetime.datetime.now() - datetime.timedelta(days=1)).date())
-    Store: Optional[typing.List[str]] = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL", default_factory=get_all)
+    Store: Optional[typing.List[str]] = strawberry.field(description="Store name, like MT, NY, TE, MS, RH, ALL", default_factory=get_all)
     Hour: Optional[typing.List[int]] = strawberry.field(description="Search payment type", default_factory=get_hours)
 
 @strawberry.input
 class DatePaymentSearchParameter:
     FromDate: datetime.date = strawberry.field(description="Search from date", default=(datetime.datetime.now() - datetime.timedelta(days=1)).date())
     ToDate: datetime.date = strawberry.field(description="Search to date", default=(datetime.datetime.now() - datetime.timedelta(days=1)).date())
-    Store: Optional[typing.List[str]] = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL", default_factory=get_all)
+    Store: Optional[typing.List[str]] = strawberry.field(description="Store name, like MT, NY, TE, MS, RH, ALL", default_factory=get_all)
     PaymentType: Optional[typing.List[str]] = strawberry.field(description="Search payment type", default_factory=get_all)
 
 @strawberry.input
 class DateSearchParameter:
     FromDate: datetime.date = strawberry.field(description="Search from date", default=(datetime.datetime.now() - datetime.timedelta(days=1)).date())
     ToDate: datetime.date = strawberry.field(description="Search to date", default=(datetime.datetime.now() - datetime.timedelta(days=1)).date())
-    Store: typing.List[str] = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL")
+    Store: typing.List[str] = strawberry.field(description="Store name, like MT, NY, TE, MS, RH, ALL")
     SearchKind: str = strawberry.field(description="Search Department kind include Department, SubDepartment, UPC, Store", default = "Store")
     SearchID: Optional[str] = strawberry.field(description="Search Department kind ID like departmentid, upcid", default = "")
     TopProduct: int = strawberry.field(description="Search how many top products when search kind is Store", default = 10)
@@ -54,14 +54,14 @@ class DateSearchParameter:
 class MonthPaymentSearchParameter:
     FromMonth: str = strawberry.field(description="Search from year-month", default=datetime.datetime.now().strftime('%Y-%m'))
     ToMonth: str = strawberry.field(description="Search to year-month", default=datetime.datetime.now().strftime('%Y-%m'))
-    Store: Optional[typing.List[str]] = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL", default_factory=get_all)
+    Store: Optional[typing.List[str]] = strawberry.field(description="Store name, like MT, NY, TE, MS, RH, ALL", default_factory=get_all)
     PaymentType: Optional[typing.List[str]] = strawberry.field(description="Search payment type", default_factory=get_all)
 
 @strawberry.input
 class MonthSearchParameter:
     FromMonth: str = strawberry.field(description="Search from year-month", default=datetime.datetime.now().strftime('%Y-%m'))
     ToMonth: str = strawberry.field(description="Search to year-month", default=datetime.datetime.now().strftime('%Y-%m'))
-    Store: typing.List[str] = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL")
+    Store: typing.List[str] = strawberry.field(description="Store name, like MT, NY, TE, MS, RH, ALL")
     SearchKind: str = strawberry.field(description="Search Department kind include Department, SubDepartment, UPC, Store", default = "Store")
     SearchID: Optional[str] = strawberry.field(description="Search Department kind ID like departmentid, upcid", default = "")
     TopProduct: int = strawberry.field(description="Search how many top products when search kind is Store", default = 10)
@@ -69,13 +69,13 @@ class MonthSearchParameter:
 @strawberry.input
 class TransactionSearchParameter:
     Date: str = strawberry.field(description="Search date", default=datetime.datetime.now().strftime('%Y-%m-%d'))
-    Store: str = strawberry.field(description="Store name, like MT, NY, TE, MS, ALL", default = "All")
+    Store: str = strawberry.field(description="Store name, like MT, NY, TE, MS, RH, ALL", default = "All")
     ID: Optional[str] = strawberry.field(description="Search Transaction using Transaction ID", default="")
     SearchDetail: Optional[str] = strawberry.field(description="Search Transaction detials Yes or No default No", default="No")
 
 @strawberry.input
 class TodaySearchParameter:
-    Store: Optional[typing.List[str]] = strawberry.field(description="Store name, like MT, NY, TE, MS. ALL", default_factory=get_all)
+    Store: Optional[typing.List[str]] = strawberry.field(description="Store name, like MT, NY, TE, MS, RH, ALL", default_factory=get_all)
     TopProduct: int = strawberry.field(description="Search how many top products", default = 10)
 
 @strawberry.input
@@ -90,7 +90,7 @@ class SubDepartmentSearchParameter:
 
 @strawberry.input
 class UPCSearchParameter:
-    #Store: str = strawberry.field(description="Search UPC with Store MS NY TE MT")
+    #Store: str = strawberry.field(description="Search UPC with Store MS NY TE MT RH")
     ID: str = strawberry.field(description="Search UPC with ID", default = "")
 
 @strawberry.type

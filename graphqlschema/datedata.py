@@ -13,7 +13,7 @@ def check_date(param: DateSearchParameter) -> bool:
     if len(stores) == 1 and stores[0] == "ALL":
         return True
     for store in stores:
-        if store not in ['NY', 'MS', 'MT', 'TE']:
+        if store not in ['NY', 'MS', 'MT', 'TE', 'RH']:
             return False
     return True
 

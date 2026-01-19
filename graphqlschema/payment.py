@@ -4,9 +4,9 @@ from helper import getDB, getPaymentTypes, getStoreStr, getPaymentTypeStr
 from graphqlschema.schema import DatePaymentData, DatePaymentSummary, DatePaymentDetail, DatePaymentSearchParameter, MonthPaymentSearchParameter, MonthPaymentData, MonthPaymentSummary, MonthPaymentDetail
 
 def check_store_payment(stores, paymentType) -> bool:
-    if len(stores) == 1 and stores[0] not in ['NY', 'MS', 'MT', 'TE', 'ALL']:
+    if len(stores) == 1 and stores[0] not in ['NY', 'MS', 'MT', 'TE', 'RH', 'ALL']:
         return False
-    if len(stores) > 1 and not all(store in ['NY', 'MS', 'MT', 'TE'] for store in stores):
+    if len(stores) > 1 and not all(store in ['NY', 'MS', 'MT', 'TE', 'RH'] for store in stores):
         return False
     if len(paymentType) == 1 and paymentType[0] not in ['ALL'] + getPaymentTypes():
         return False

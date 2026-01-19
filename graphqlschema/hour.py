@@ -4,9 +4,9 @@ from helper import getDB, getPaymentTypes, getStoreStr
 from graphqlschema.schema import DateHourData, DateHourSummary, DateHourDetail, DateHourSearchParameter
 
 def check_store_hour(stores, hours) -> bool:
-    if len(stores) == 1 and stores[0] not in ['NY', 'MS', 'MT', 'TE', 'ALL']:
+    if len(stores) == 1 and stores[0] not in ['NY', 'MS', 'MT', 'TE', 'RH', 'ALL']:
         return False
-    if len(stores) > 1 and not all(store in ['NY', 'MS', 'MT', 'TE'] for store in stores):
+    if len(stores) > 1 and not all(store in ['NY', 'MS', 'MT', 'TE', 'RH'] for store in stores):
         return False
     if not all(hour >= 0 and hour <=23 and isinstance(hour, numbers.Integral) for hour in hours):
         return False
