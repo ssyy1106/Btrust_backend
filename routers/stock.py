@@ -3,7 +3,7 @@ import math
 import asyncio
 import json
 from fastapi import FastAPI, HTTPException, Depends, APIRouter, Query, File, UploadFile
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, selectinload, aliased
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, and_, func, or_
@@ -297,7 +297,7 @@ async def search_stocktake_items(
             "location": location,
             "barcode": barcode,
             "item_name": item_name,
-            "creator_id": creator_id,
+            "creator_id": creator_id, 
             "page": page,
             "page_size": page_size
         },
@@ -323,8 +323,9 @@ async def search_stocktake_items_v2(
     upload_end_date: Optional[datetime] = Query(None),
     location: Optional[str] = Query(None, description="模糊匹配库位"),
     barcode: Optional[str] = Query(None, description="模糊匹配条码"),
-    item_name: Optional[str] = Query(None, description="兼容保留，不参与过滤"),
+    item_name: Optional[str] = Query(None, description="模糊匹配中英文名称"),
     creator_id: Optional[str] = Query(None, description="模糊匹配创建人"),
+    duplicate: bool = Query(False, description="true: return all rows; false: keep last upload per location+barcode"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=99999, description="每页数量"),
     db: AsyncSession = Depends(get_db_stock)
@@ -364,25 +365,70 @@ async def search_stocktake_items_v2(
         ]
         if barcode_conditions:
             item_conditions.append(or_(*barcode_conditions))
-    # item_name is kept for backward compatibility but not used for filtering.
+    item_name_condition = None
+    if item_name:
+        item_name_condition = or_(
+            ProductSnapshot.name_cn.ilike(f"%{item_name}%"),
+            ProductSnapshot.name_en.ilike(f"%{item_name}%"),
+        )
     if creator_id:
         item_conditions.append(StocktakeItem.creator_id.ilike(f"%{creator_id}%"))
 
-    stmt = (
-        select(StocktakeItem)
-        .join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id)
-    )
-
-    if session_conditions:
-        stmt = stmt.where(and_(*session_conditions))
-    if item_conditions:
-        stmt = stmt.where(and_(*item_conditions))
+    item_order_col = StocktakeItem.create_time
+    if duplicate:
+        stmt = (
+            select(StocktakeItem)
+            .join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id)
+        )
+        if item_name_condition is not None:
+            stmt = stmt.outerjoin(
+                ProductSnapshot,
+                or_(
+                    ProductSnapshot.barcode == StocktakeItem.barcode,
+                    ProductSnapshot.barcode == func.lpad(StocktakeItem.barcode, 14, "0"),
+                ),
+            )
+        if session_conditions:
+            stmt = stmt.where(and_(*session_conditions))
+        if item_conditions:
+            stmt = stmt.where(and_(*item_conditions))
+        if item_name_condition is not None:
+            stmt = stmt.where(item_name_condition)
+    else:
+        base_stmt = (
+            select(
+                StocktakeItem,
+                func.row_number().over(
+                    partition_by=(StocktakeItem.location, StocktakeItem.barcode),
+                    order_by=(StocktakeItem.create_time.desc(), StocktakeItem.id.desc()),
+                ).label("rn"),
+            )
+            .join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id)
+        )
+        if item_name_condition is not None:
+            base_stmt = base_stmt.outerjoin(
+                ProductSnapshot,
+                or_(
+                    ProductSnapshot.barcode == StocktakeItem.barcode,
+                    ProductSnapshot.barcode == func.lpad(StocktakeItem.barcode, 14, "0"),
+                ),
+            )
+        if session_conditions:
+            base_stmt = base_stmt.where(and_(*session_conditions))
+        if item_conditions:
+            base_stmt = base_stmt.where(and_(*item_conditions))
+        if item_name_condition is not None:
+            base_stmt = base_stmt.where(item_name_condition)
+        base_subq = base_stmt.subquery()
+        item_alias = aliased(StocktakeItem, base_subq)
+        item_order_col = item_alias.create_time
+        stmt = select(item_alias).where(base_subq.c.rn == 1)
 
     count_stmt = select(func.count()).select_from(stmt.subquery())
     result_count = await db.execute(count_stmt)
     total = result_count.scalar() or 0
 
-    stmt = stmt.order_by(StocktakeItem.create_time.desc()) \
+    stmt = stmt.order_by(item_order_col.desc()) \
                .offset((page - 1) * page_size) \
                .limit(page_size)
 
@@ -448,6 +494,7 @@ async def search_stocktake_items_v2(
             "upload_end_date": upload_end_date,
             "location": location,
             "barcode": barcode,
+            "duplicate": duplicate,
             "item_name": item_name,
             "creator_id": creator_id,
             "page": page,
@@ -638,6 +685,7 @@ async def get_stock_by_location_v2(
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     location: Optional[str] = Query(None, description="模糊查询货架location"),
+    duplicate: bool = Query(False, description="true: return all rows; false: keep last upload per location+barcode"),
     db: AsyncSession = Depends(get_db_stock)
 ):
     conditions = []
@@ -650,9 +698,23 @@ async def get_stock_by_location_v2(
     if location:
         conditions.append(StocktakeItem.location.ilike(f"%{location}%"))
 
-    stmt = select(StocktakeItem)
-    if conditions:
-        stmt = stmt.where(and_(*conditions))
+    if duplicate:
+        stmt = select(StocktakeItem)
+        if conditions:
+            stmt = stmt.where(and_(*conditions))
+    else:
+        base_stmt = select(
+            StocktakeItem,
+            func.row_number().over(
+                partition_by=(StocktakeItem.location, StocktakeItem.barcode),
+                order_by=(StocktakeItem.create_time.desc(), StocktakeItem.id.desc()),
+            ).label("rn"),
+        )
+        if conditions:
+            base_stmt = base_stmt.where(and_(*conditions))
+        base_subq = base_stmt.subquery()
+        item_alias = aliased(StocktakeItem, base_subq)
+        stmt = select(item_alias).where(base_subq.c.rn == 1)
 
     result = await db.execute(stmt)
     items = result.scalars().all()
@@ -689,7 +751,12 @@ async def get_stock_by_location_v2(
             "modifier_id": item.modifier_id,
         })
     logout = {"status": "success", "location_data": location_data}
-    await log_operation(db, "get /by-location/v2", {"start_date": start_date, "end_date": end_date}, logout)
+    await log_operation(
+        db,
+        "get /by-location/v2",
+        {"start_date": start_date, "end_date": end_date, "location": location, "duplicate": duplicate},
+        logout,
+    )
     return location_data
 
 @router.get("/by-location/export")
