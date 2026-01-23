@@ -1,5 +1,7 @@
 from math import ceil
 import math
+import asyncio
+import json
 from fastapi import FastAPI, HTTPException, Depends, APIRouter, Query, File, UploadFile
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError
@@ -7,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, and_, func, or_
 from fastapi.responses import JSONResponse, FileResponse
 from datetime import datetime, timedelta
-from models.stock import OperateLog, StocktakeSession, StocktakeItem, ProductInfo, ProductSnapshot
+from models.stock import OperateLog, StocktakeSession, StocktakeItem, ProductInfo, ProductSnapshot, Job
 from schemas.stock import (
     StocktakeSessionOut,
     StocktakeUpload,
@@ -21,7 +23,8 @@ from schemas.stock import (
     StocktakeItemSummaryResponse,
     ProductInfoResponse,
     StocktakeItemOutV2,
-    StocktakeItemSummaryResponseV2
+    StocktakeItemSummaryResponseV2,
+    JobOut
 )
 from collections import defaultdict
 from database import get_db_stock
@@ -33,6 +36,11 @@ from helper import log_and_save
 import pandas as pd
 import os
 import tempfile
+from worker.app.celery_app import celery_app
+import uuid
+import boto3
+from botocore.config import Config
+from botocore.exceptions import ClientError
 
 
 router = APIRouter(prefix="/stock", tags=["Stock"])
@@ -52,6 +60,55 @@ async def log_operation(db: AsyncSession, api_name: str, request_data, response_
     except:
         pass  # 失败也不抛出
 
+def _get_s3_client():
+    endpoint_url = os.getenv("S3_ENDPOINT_URL", "http://localhost:9000")
+    access_key = os.getenv("S3_ACCESS_KEY", "minio")
+    secret_key = os.getenv("S3_SECRET_KEY", "minio123456")
+    return boto3.client(
+        "s3",
+        endpoint_url=endpoint_url,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        config=Config(signature_version="s3v4"),
+        region_name="us-east-1",
+    )
+
+def _ensure_bucket(client, bucket: str):
+    try:
+        client.head_bucket(Bucket=bucket)
+    except ClientError as exc:
+        error_code = exc.response.get("Error", {}).get("Code", "")
+        if error_code in {"404", "NoSuchBucket"}:
+            client.create_bucket(Bucket=bucket)
+        else:
+            raise
+
+@router.post("/async")
+async def upload_async(data: StocktakeUpload, db: AsyncSession = Depends(get_db_stock)):
+    payload = jsonable_encoder(data)
+    job_id = str(uuid.uuid4())
+    payload_key = f"stocktake/{job_id}.json"
+    bucket = os.getenv("S3_BUCKET", "jobs")
+    s3_client = _get_s3_client()
+    await asyncio.to_thread(_ensure_bucket, s3_client, bucket)
+    payload_bytes = json.dumps(payload, ensure_ascii=True).encode("utf-8")
+    await asyncio.to_thread(
+        s3_client.put_object,
+        Bucket=bucket,
+        Key=payload_key,
+        Body=payload_bytes,
+        ContentType="application/json",
+    )
+
+    job = Job(id=job_id, status="pending", payload_key=payload_key)
+    db.add(job)
+    await db.commit()
+    celery_app.send_task(
+        "process_job",
+        args=[job_id],
+        queue="default",
+    )
+    return {"job_id": job_id, "status": "pending"}
 
 @router.post("/", response_model=StocktakeSessionOut)
 async def upload_stocktake(data: StocktakeUpload, db: AsyncSession = Depends(get_db_stock)):
@@ -115,6 +172,14 @@ async def upload_stocktake(data: StocktakeUpload, db: AsyncSession = Depends(get
         print(f"Exception error: {result} e: {e}")
         await log_operation(db, "POST /", data.model_dump(), result)
         raise HTTPException(status_code=500, detail=result)
+
+@router.get("/jobs/{job_id}", response_model=JobOut)
+async def get_job_status(job_id: str, db: AsyncSession = Depends(get_db_stock)):
+    result = await db.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
 @router.get("/items", response_model=StocktakeItemSummaryResponse)
 async def search_stocktake_items(

@@ -82,4 +82,13 @@ class ProductSnapshot(Base_stock):
     image_url = Column(String, nullable=True)
     store = Column(String, nullable=True)
     update_time = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+class Job(Base_stock):
+    __tablename__ = "jobs"
+
+    id = Column(String, primary_key=True)
+    status = Column(String, nullable=False, default="pending")
+    payload_key = Column(String, nullable=False)
+    create_time = Column(DateTime(timezone=True), default=utcnow)
+    update_time = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     

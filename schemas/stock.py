@@ -202,3 +202,12 @@ class OperateLogOut(BaseModel):
 class ProductInfoResponse(BaseModel):
     products: list[ProductInfoOut]
     pagination: Pagination
+
+class JobOut(BaseModel):
+    id: str
+    status: str
+    payload_key: str
+    create_time: datetime
+    update_time: datetime
+
+    model_config = ConfigDict(from_attributes=True)

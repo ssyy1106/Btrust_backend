@@ -54,7 +54,7 @@ services:
       S3_BUCKET: jobs
 
       # 连接宿主机 PostgreSQL（Windows Docker Desktop 通常可用 host.docker.internal）
-      DATABASE_URL: postgresql+psycopg://postgres:YOUR_PASSWORD@host.docker.internal:5432/YOUR_DB
+      DATABASE_URL: postgresql+psycopg://postgres:Btrust123@host.docker.internal:5432/stock
 
       # 可选：给你的应用一些环境
       TZ: America/Montreal

@@ -13,7 +13,7 @@ import datetime
 import asyncio
 from contextlib import asynccontextmanager
 from classes import SaleItem, Summary, SalesOrder, MonitorData, Response, WeekOrderSummary
-from html import html
+from html_template import html
 from hana import getSalesOrder, getDeliveryOrder, getPurchaseOrder, getWeekOrderOverview, getPickListStatus, getPickListByDepartment, getExpiredItems
 from PO import getPOStoreOrder, getPOWareOrder
 from mygraphql import graphql_app
