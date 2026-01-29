@@ -5,6 +5,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.config import Config
+from pathlib import Path
 import os
 import pyodbc
 import logging
@@ -77,21 +78,31 @@ async def global_exception_handler(request: Request, exc: Exception):
 #     "http://172.16.30.8:8601",
 #     "http://172.16.30.8:8600"
 # ]
-env_path = ".env"
+# env_path = ".env"
+BASE_DIR = Path(__file__).resolve().parent  # main.py 所在目录
+ENV_PATH = BASE_DIR / ".env"
+# 手动写入 os.environ（你原来的逻辑）
+with ENV_PATH.open("r", encoding="utf-8") as f:
+    for line in f.read().splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        key, value = line.split("=", 1)
+        os.environ[key.strip()] = value.strip()
 
 # 手动以 utf-8 打开
-with open(env_path, "r", encoding="utf-8") as f:
-    lines = f.read().splitlines()
+# with open(env_path, "r", encoding="utf-8") as f:
+#     lines = f.read().splitlines()
 
-# 临时写入 os.environ
-for line in lines:
-    if line.strip() == "" or line.startswith("#"):
-        continue
-    key, value = line.split("=", 1)
-    os.environ[key.strip()] = value.strip()
+# # 临时写入 os.environ
+# for line in lines:
+#     if line.strip() == "" or line.startswith("#"):
+#         continue
+#     key, value = line.split("=", 1)
+#     os.environ[key.strip()] = value.strip()
 
 # 然后直接初始化 Config，不带 encoding
-config_env = Config(".env")
+#config_env = Config(".env")
+config_env = Config(str(ENV_PATH))
 origins = config_env("CORS_ORIGINS", cast=lambda v: [s.strip() for s in v.split(",")])
 
 app.add_middleware(
