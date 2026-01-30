@@ -363,7 +363,7 @@ def getStoreName(id: str) -> str:
             return []
 
 def getStoreNameOdoo(names: list) -> str:
-    stores = {"terra": "TE", "mississauga": "MS", "north": "NY", "montreal": "MT", "richmond": "RH"}
+    stores = {"terra": "TE", "mississauga": "MS", "north": "NY", "montreal": "MT", "-rh": "RH"}
     for k, v in stores.items():
         for name in names:
             if k in name.lower():
