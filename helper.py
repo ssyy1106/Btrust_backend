@@ -349,7 +349,7 @@ def getAllDepartmentIds() -> dict:
 
 @functools.cache
 def getStoreName(id: str) -> str:
-    stores = {"Terra": "TE", "B1": "MS", "B2": "NY", "Montreal": "MT", "Richmond Hill": "RH"}
+    stores = {"Terra": "TE", "B1": "MS", "B2": "NY", "Montreal": "MT", "BVW": "RH"}
     with getShiftDB() as conn:
         with conn.cursor() as cursor:
             cursor.execute(f"select departmentName from sysdepartment where id = " + str(id))
@@ -363,7 +363,7 @@ def getStoreName(id: str) -> str:
             return []
 
 def getStoreNameOdoo(names: list) -> str:
-    stores = {"terra": "TE", "mississauga": "MS", "north": "NY", "montreal": "MT", "richmond hill": "RH"}
+    stores = {"terra": "TE", "mississauga": "MS", "north": "NY", "montreal": "MT", "richmond": "RH"}
     for k, v in stores.items():
         for name in names:
             if k in name.lower():
