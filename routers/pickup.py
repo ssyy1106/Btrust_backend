@@ -3,7 +3,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from dateutil import parser
 from typing import Optional, List
 from collections import defaultdict
@@ -17,7 +17,7 @@ from models.pickup import SaleOrder, SaleOrderLine
 from models.product import ProductProduct, ProductTemplate, ProductCategory, StockQuant
 from models.storestock import StoreStock
 from models.storepickup import StorePickup
-from helper import getStoreNameOdoo
+from helper import getStoreNameOdoo, ensure_aware, to_utc_naive, LOCAL_TZ
 from dependencies.permission import PermissionChecker
 from database import get_db_odoo, get_db_storestock
 from schemas.pickup import PickupItem, PickupSummaryResponse, StoreOrder, OrderDetail
@@ -43,10 +43,10 @@ async def get_pickup_summary(
     db_storestock: AsyncSession = Depends(get_db_storestock),
     user = Depends(PermissionChecker(required_roles=["pickup:search", "pickup:view"]))
 ):
-    start_dt_local = parser.isoparse(start_date) + timedelta(hours=shift_hour)
-    end_dt_local = parser.isoparse(end_date) + timedelta(days=1, hours=shift_hour - 24)
-    start_dt_utc = start_dt_local.astimezone(timezone.utc).replace(tzinfo=None)
-    end_dt_utc = end_dt_local.astimezone(timezone.utc).replace(tzinfo=None)
+    start_dt_local = ensure_aware(parser.isoparse(start_date), LOCAL_TZ) + timedelta(hours=shift_hour)
+    end_dt_local = ensure_aware(parser.isoparse(end_date), LOCAL_TZ) + timedelta(days=1, hours=shift_hour - 24)
+    start_dt_utc = to_utc_naive(start_dt_local)
+    end_dt_utc = to_utc_naive(end_dt_local)
 
     ParentPartner = aliased(ResPartner)
 

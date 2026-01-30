@@ -13,7 +13,7 @@ from models.storestock import StoreStock
 from models.pickup import SaleOrder, SaleOrderLine
 from models.product import ProductProduct, ProductTemplate, ProductCategory
 from database import get_db_storestock, get_db_odoo
-from helper import getStoreNameOdoo
+from helper import getStoreNameOdoo, to_utc_naive
 from schemas.storestock import (
     StockUpdateEntry,
     StockEntry,
@@ -83,8 +83,7 @@ def parse_product_name(raw_name) -> Dict[str, str]:
         return raw_name
     else:
         return {"en_US": str(raw_name)}
-    
-# 查询库存 API
+
 @router.get("/get-stock", response_model=StockResponse)
 async def get_stock(
     store: List[str] = Query(..., description="Store list"),  # 必须传参
@@ -96,7 +95,6 @@ async def get_stock(
     # 检查权限
     for s in store:
         check_store(s, user)
-
     end_dt = datetime.now()
     start_dt = end_dt - timedelta(days=days)
 
@@ -126,8 +124,8 @@ async def get_stock(
         .outerjoin(ProductCategory, ProductTemplate.categ_id == ProductCategory.id)
         .outerjoin(ParentCategory, ProductCategory.parent_id == ParentCategory.id)
         .where(SaleOrder.state == 'sale')
-        .where(SaleOrder.date_order >= start_dt)
-        .where(SaleOrder.date_order < end_dt)
+        .where(SaleOrder.date_order >= to_utc_naive(start_dt))
+        .where(SaleOrder.date_order < to_utc_naive(end_dt))
         .where(category_filter)
         .group_by(ProductProduct.default_code, ProductTemplate.name)
     )

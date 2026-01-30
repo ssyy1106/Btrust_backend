@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Query, Depends, HTTPException
 from sqlalchemy import update, insert, select, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from sqlalchemy.orm import aliased
 from typing import List, Optional, Dict
 from collections import defaultdict
@@ -15,7 +15,7 @@ from schemas.storepickup import StockPickupEntry, StorePickupEntry, PickupItem, 
 from models.product import ProductProduct, ProductTemplate, ProductCategory
 from models.partner import ResPartner
 from database import get_db_storestock, get_db_odoo
-from helper import getStoreNameOdoo  # 假设有获取子孙分类函数
+from helper import getStoreNameOdoo, ensure_aware, to_utc_naive, LOCAL_TZ  # 假设有获取子孙分类函数
 
 router = APIRouter(prefix="/storepickup", tags=["StoreStockPickup"])
 
@@ -94,10 +94,10 @@ async def get_storepickup(
     user = Depends(PermissionChecker(required_roles=["pickup:search", "pickup:view"]))
 ):
     # ---------- 1. 计算班次时间 ----------
-    start_dt_local = parser.isoparse(start_date) + timedelta(hours=shift_hour)
-    end_dt_local = parser.isoparse(end_date) + timedelta(days=1, hours=shift_hour - 24)
-    start_dt_utc = start_dt_local.astimezone(timezone.utc).replace(tzinfo=None)
-    end_dt_utc = end_dt_local.astimezone(timezone.utc).replace(tzinfo=None)
+    start_dt_local = ensure_aware(parser.isoparse(start_date), LOCAL_TZ) + timedelta(hours=shift_hour)
+    end_dt_local = ensure_aware(parser.isoparse(end_date), LOCAL_TZ) + timedelta(days=1, hours=shift_hour - 24)
+    start_dt_utc = to_utc_naive(start_dt_local)
+    end_dt_utc = to_utc_naive(end_dt_local)
 
     ParentPartner = aliased(ResPartner)
 

@@ -5,7 +5,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func, or_
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import asyncio
 
 from dependencies.permission import PermissionChecker
@@ -13,7 +13,7 @@ from database import get_db_odoo, get_db_store_sqlserver_factory
 from models.product import ProductProduct, ProductTemplate, IrAttachment, ProductCategory, StockQuant, ObjTab, CatTab, PriceTab, UMETab, PosTab
 from models.pickup import SaleOrder, SaleOrderLine
 from schemas.product import ProductListResponse, ProductCategoryResponse
-from helper import getOdooAccount
+from helper import getOdooAccount, to_utc_naive
 
 router = APIRouter(prefix="/product", tags=["Product"])
 
@@ -224,6 +224,7 @@ async def get_products(
     # 时间过滤
     if days is not None and days != -1:
         start_dt = datetime.now() - timedelta(days=days)
+        start_dt_utc = to_utc_naive(start_dt)
     else:
         start_dt = None
 
@@ -250,7 +251,7 @@ async def get_products(
     # 子查询：订单
     order_conditions = [SaleOrder.state == 'sale']
     if days != -1 and start_dt:
-        order_conditions.append(SaleOrder.date_order >= start_dt)
+        order_conditions.append(SaleOrder.date_order >= start_dt_utc)
 
     order_subq = (
         select(

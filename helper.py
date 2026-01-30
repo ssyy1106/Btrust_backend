@@ -12,6 +12,7 @@ import hashlib
 import jwt
 #from datetime import datetime, timedelta
 import time
+from zoneinfo import ZoneInfo
 from fastapi import HTTPException, status, Header
 from typing import Optional, List
 from graphqlschema.schema import (
@@ -75,6 +76,22 @@ def setLogging(type: str):
     logging.basicConfig(filename=directory + file + '.log', encoding='utf-8', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     print(f"log directory: {directory + file + '.log'}")
     log_and_save('INFO', f"Start......")
+
+LOCAL_TZ = ZoneInfo("America/Montreal")
+UTC = ZoneInfo("UTC")
+
+def ensure_aware(dt: datetime.datetime, default_tz=LOCAL_TZ) -> datetime.datetime:
+    """
+    如果 dt 是 naive，就按 default_tz 解释（这里用本地时区）
+    如果 dt 已经 aware，就原样返回
+    """
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=default_tz)
+    return dt
+
+def to_utc_naive(dt: datetime.datetime) -> datetime.datetime:
+    dt = ensure_aware(dt, LOCAL_TZ)
+    return dt.astimezone(UTC).replace(tzinfo=None)
 
 CONFIG = None
 def _init(config):
