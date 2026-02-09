@@ -121,7 +121,7 @@ class IsAuthenticated(BasePermission):
 # config = getConfig()
 
 class Context(BaseContext):
-    def __init__(self, request: Request | WebSocket, response=None):
+    def __init__(self, request: Request | WebSocket | None, response=None):
         super().__init__()
         self.request = request
         self.response = response
@@ -169,8 +169,11 @@ class Subscription:
             return
 
 
-async def get_context(request: Request | WebSocket) -> Context:
-    return Context(request=request)
+async def get_context(
+    request: Request = None,
+    websocket: WebSocket = None,
+) -> Context:
+    return Context(request=request or websocket)
 
 schema = strawberry.Schema(query=Query, subscription=Subscription)
 

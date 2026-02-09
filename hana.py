@@ -2,28 +2,33 @@ import datetime
 from classes import ExpirationItem, ExpirationItemSummary, ExpirationItemDetail, SaleItem, Summary, WeekOrderSummary, PickItem, PickDetails, PickListStatus, SalesOrderWeek, WeeklyDataSummary, PickItemDetail, FrozenPickItem, GroceryPickItem
 
 def getRangeCount(begin: str, end: str, table: str, cursor) -> int:
-    cursor.execute(f"SELECT Count(1) FROM {table} where \"DocStatus\"='O' and \"DocDate\" >= '{begin}' and \"DocDate\" <= '{end}'")
+    # 注意: 表名不能参数化。请确保 'table' 来自受信任的来源。
+    sql = f'SELECT Count(1) FROM {table} where "DocStatus"=\'O\' and "DocDate" >= ? and "DocDate" <= ?'
+    cursor.execute(sql, (begin, end))
     res = cursor.fetchone()
     if res:
         return res[0]
     return 0
 
 def getRangeCountClosed(begin: str, end: str, table: str, cursor) -> int:
-    cursor.execute(f"SELECT Count(1) FROM {table} where \"DocStatus\"='C' and \"DocDate\" >= '{begin}' and \"DocDate\" <= '{end}'")
+    sql = f'SELECT Count(1) FROM {table} where "DocStatus"=\'C\' and "DocDate" >= ? and "DocDate" <= ?'
+    cursor.execute(sql, (begin, end))
     res = cursor.fetchone()
     if res:
         return res[0]
     return 0
 
 def getRangeCountAll(begin: str, end: str, table: str, cursor) -> int:
-    cursor.execute(f"SELECT Count(1) FROM {table} where \"DocDate\" >= '{begin}' and \"DocDate\" <= '{end}'")
+    sql = f'SELECT Count(1) FROM {table} where "DocDate" >= ? and "DocDate" <= ?'
+    cursor.execute(sql, (begin, end))
     res = cursor.fetchone()
     if res:
         return res[0]
     return 0
 
 def getPickRangeCount(begin: str, end: str, table: str, cursor) -> int:
-    cursor.execute(f"SELECT Count(1) FROM {table} where \"DocStatus\"='O' and \"CreateDate\" >= '{begin}' and \"CreateDate\" <= '{end}'")
+    sql = f'SELECT Count(1) FROM {table} where "DocStatus"=\'O\' and "CreateDate" >= ? and "CreateDate" <= ?'
+    cursor.execute(sql, (begin, end))
     res = cursor.fetchone()
     if res:
         return res[0]
@@ -45,7 +50,7 @@ def getPickRangeCountByDepartment(begin: str, end: str, schema, cursor, departme
 
 
     if (not isDanger):
-        cursor.execute(f"""
+        closed_sql = f"""
             SELECT
             COUNT(DISTINCT Header."DocEntry")   
             
@@ -54,13 +59,13 @@ def getPickRangeCountByDepartment(begin: str, end: str, schema, cursor, departme
             {schema}.PMX_PLHE AS Header
             JOIN {schema}.PMX_PLLI AS Detail on Header."DocEntry" = Detail."DocEntry"
 
-            where ({FrozenCondition if department == "Frozen" else GroceryCondition}) and  "DocStatus"='C' and "CreateDate" >= '{begin}' and "CreateDate" <= '{end}'""")
-    
+            where ({FrozenCondition if department == "Frozen" else GroceryCondition}) and  "DocStatus"='C' and "CreateDate" >= ? and "CreateDate" <= ?"""
+        cursor.execute(closed_sql, (begin, end))
         closedRes = cursor.fetchone()
     else:
         closedRes = [0]
 
-    cursor.execute(f"""
+    open_sql = f"""
         SELECT
         COUNT(DISTINCT Header."DocEntry")   
         
@@ -69,8 +74,8 @@ def getPickRangeCountByDepartment(begin: str, end: str, schema, cursor, departme
         {schema}.PMX_PLHE AS Header
         JOIN {schema}.PMX_PLLI AS Detail on Header."DocEntry" = Detail."DocEntry"
 
-        where ({FrozenCondition if department == "Frozen" else GroceryCondition}) and  "DocStatus"='O' and "CreateDate" >= '{begin}' and "CreateDate" <= '{end}'""")
-    
+        where ({FrozenCondition if department == "Frozen" else GroceryCondition}) and  "DocStatus"='O' and "CreateDate" >= ? and "CreateDate" <= ?"""
+    cursor.execute(open_sql, (begin, end))
     openRes = cursor.fetchone()
 
     res = {"Open": openRes[0] if openRes else 0, "Close": closedRes[0] if closedRes else 0}
@@ -114,71 +119,36 @@ def getConfigDays(config) -> tuple:
         weekList.append([(today + datetime.timedelta(days=int(weekday))).strftime('%Y-%m-%d'), (today + datetime.timedelta(days=int(weekday))).strftime('%Y-%m-%d')])
     return (currentBeginStr, currentEndStr, warningBeginStr, warningEndStr, DangerBeginStr, DangerEndStr, weekList)
 
-def getSalesOrder(cursor, schema, config):
+def _get_order_data(cursor, schema: str, config, table_name: str) -> SalesOrderWeek:
     _,_,_,_,DangerBeginStr, DangerEndStr, weekList = getConfigDays(config)
-    cursor.execute(f"SELECT \"DocNum\", \"DocDate\", \"CardCode\", \"CardName\", \"Address\" FROM {schema}.ORDR where \"DocStatus\"='O'")
+    # 注意: 表名不能参数化。请确保 'table_name' 来自受信任的来源。
+    cursor.execute(f'SELECT "DocNum", "DocDate", "CardCode", "CardName", "Address" FROM {schema}.{table_name} where "DocStatus"=\'O\'')
     res = cursor.fetchall()
-    count = 0
-    details = []
-
-    for row in res:
-        count += 1
-        sale = SaleItem(DocNum=str(row[0]), DocDate=str(row[1]), CardCode=row[2], CardName=row[3], Address=row[4])
-        details.append(sale)
+    details = [
+        SaleItem(DocNum=str(row[0]), DocDate=str(row[1]), CardCode=row[2], CardName=row[3], Address=row[4])
+        for row in res
+    ]
     
-    salesOpenList = [getRangeCount(DangerBeginStr, DangerEndStr, schema + '.ORDR', cursor)]
-    salesCloseList = [0]
-
-    for weekday in weekList: 
-        salesOpenList.append(getRangeCount(weekday[0], weekday[1], schema + '.ORDR', cursor))
-        salesCloseList.append(getRangeCountClosed(weekday[0], weekday[1], schema + '.ORDR', cursor))
+    full_table_name = f"{schema}.{table_name}"
     
-    output = SalesOrderWeek(Details=details, Summary=WeeklyDataSummary(OpenData=salesOpenList, CloseData=salesCloseList))
-    return output 
+    open_list = [getRangeCount(DangerBeginStr, DangerEndStr, full_table_name, cursor)]
+    close_list = [0] # 对于危险期，关闭数似乎总是0
+
+    for weekday_start, weekday_end in weekList: 
+        open_list.append(getRangeCount(weekday_start, weekday_end, full_table_name, cursor))
+        close_list.append(getRangeCountClosed(weekday_start, weekday_end, full_table_name, cursor))
+    
+    summary = WeeklyDataSummary(OpenData=open_list, CloseData=close_list)
+    return SalesOrderWeek(Details=details, Summary=summary)
+
+def getSalesOrder(cursor, schema, config):
+    return _get_order_data(cursor, schema, config, "ORDR")
 
 def getDeliveryOrder(cursor, schema, config):
-    _,_,_,_,DangerBeginStr, DangerEndStr, weekList = getConfigDays(config)
-    cursor.execute(f"SELECT \"DocNum\", \"DocDate\", \"CardCode\", \"CardName\", \"Address\" FROM {schema}.ODLN where \"DocStatus\"='O'")
-    res = cursor.fetchall()
-    count = 0
-    details = []
-
-    for row in res:
-        count += 1
-        sale = SaleItem(DocNum=str(row[0]), DocDate=str(row[1]), CardCode=row[2], CardName=row[3], Address=row[4])
-        details.append(sale)
-    
-    deliveryOpenList = [getRangeCount(DangerBeginStr, DangerEndStr, schema + '.ODLN', cursor)]
-    deliveryCloseList = [0]
-
-    for weekday in weekList: 
-        deliveryOpenList.append(getRangeCount(weekday[0], weekday[1], schema + '.ODLN', cursor))
-        deliveryCloseList.append(getRangeCountClosed(weekday[0], weekday[1], schema + '.ODLN', cursor))
-    
-    output = SalesOrderWeek(Details=details, Summary=WeeklyDataSummary(OpenData=deliveryOpenList, CloseData=deliveryCloseList))
-    return output 
+    return _get_order_data(cursor, schema, config, "ODLN")
 
 def getPurchaseOrder(cursor, schema, config):
-    _,_,_,_,DangerBeginStr, DangerEndStr, weekList = getConfigDays(config)
-    cursor.execute(f"SELECT \"DocNum\", \"DocDate\", \"CardCode\", \"CardName\", \"Address\" FROM {schema}.OPOR where \"DocStatus\"='O'")
-    res = cursor.fetchall()
-    count = 0
-    details = []
-
-    for row in res:
-        count += 1
-        sale = SaleItem(DocNum=str(row[0]), DocDate=str(row[1]), CardCode=row[2], CardName=row[3], Address=row[4])
-        details.append(sale)
-    
-    purchaseOpenList = [getRangeCount(DangerBeginStr, DangerEndStr, schema + '.OPOR', cursor)]
-    purchaseCloseList = [0]
-
-    for weekday in weekList: 
-        purchaseOpenList.append(getRangeCount(weekday[0], weekday[1], schema + '.OPOR', cursor))
-        purchaseCloseList.append(getRangeCountClosed(weekday[0], weekday[1], schema + '.OPOR', cursor))
-    
-    output = SalesOrderWeek(Details=details, Summary=WeeklyDataSummary(OpenData=purchaseOpenList, CloseData=purchaseCloseList))
-    return output 
+    return _get_order_data(cursor, schema, config, "OPOR")
 
 def getWeekOrderOverview(cursor, schema, config):
     _,_,_,_,_,_, weekList = getConfigDays(config)
@@ -292,7 +262,10 @@ def getPickListByDepartment(cursor, schema, config):
 
 def getExpiredSQL(groups: str, month: str, schema: str, lastMonth: str) -> str:
     group = ",".join(groups)
-    sql = f"""
+    # ItmsGrpCod in ({group}) 无法直接参数化，因为它是 IN (...) 列表。
+    # 确保 'groups' 列表的内容是安全的，并且不是来自用户直接输入。
+    # 其他值使用参数化查询。
+    sql = f'''
             SELECT
             {schema}.OITM."ItemCode",
             {schema}.oitm."ItemName",
@@ -315,11 +288,11 @@ def getExpiredSQL(groups: str, month: str, schema: str, lastMonth: str) -> str:
             inner join {schema}."PMX_FREE_STOCK" PMX_INVT on OITM."ItemCode" = PMX_INVT."ItemCode"
             inner join {schema}.PMX_ITRI on {schema}.PMX_ITRI."InternalKey" = PMX_INVT."ItemTransactionalInfoKey"
             inner join {schema}.PMX_OSEL on PMX_INVT."StorLocCode" = {schema}.PMX_OSEL."Code" 
-            where  "BestBeforeDate" <= ADD_MONTHS(CURRENT_TIMESTAMP,{month}) and "BestBeforeDate" >= ADD_MONTHS(CURRENT_TIMESTAMP,{lastMonth}) and {schema}.oitm."ItmsGrpCod" in ({group})
+            where  "BestBeforeDate" <= ADD_MONTHS(CURRENT_TIMESTAMP,?) and "BestBeforeDate" >= ADD_MONTHS(CURRENT_TIMESTAMP,?) and {schema}.oitm."ItmsGrpCod" in ({group})
             order by case when PMX_INVT."ActualFreeQuantity" = 0 then 1 else 0 end
             , DAYS_BETWEEN(CURRENT_TIMESTAMP,{schema}.PMX_ITRI."BestBeforeDate" ) 
             , "BestBeforeDate"
-            """
+            '''
     return sql
 
 def getExpiredItems(cursor, schema, config):
@@ -331,9 +304,11 @@ def getExpiredItems(cursor, schema, config):
         lastMonth = '-100'
         for month in months:
             details = []
-            sql = getExpiredSQL(groups, month, schema, lastMonth)
+            # 确保 groups 是安全的，因为它不能被参数化
+            safe_groups_str = ",".join([f"'{g}'" for g in groups])
+            sql = getExpiredSQL(safe_groups_str, month, schema, lastMonth)
             lastMonth = month
-            cursor.execute(sql)
+            cursor.execute(sql, (month, lastMonth))
             items = cursor.fetchall()
             quantity = 0
             for row in items:

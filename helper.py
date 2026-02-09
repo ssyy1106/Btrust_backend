@@ -316,13 +316,14 @@ def getDepartmentName(id: str) -> str:
     with getHODB() as conn:
         cursor = conn.cursor()
         # search from [DEPT_TAB] firstly then from [SDP_TAB]
+        # 使用参数化查询防止SQL注入
         try:
-            sql = f"select F238 from DEPT_TAB where F03={id}"
-            cursor.execute(sql)
+            sql_dept = "select F238 from DEPT_TAB where F03=?"
+            cursor.execute(sql_dept, id)
             row = cursor.fetchone()
             if not row:
-                sql = f"select F1022 from SDP_TAB where F04={id}"
-                cursor.execute(sql)
+                sql_sdp = "select F1022 from SDP_TAB where F04=?"
+                cursor.execute(sql_sdp, id)
                 row = cursor.fetchone()
             if row:
                 return row[0]
@@ -337,12 +338,14 @@ def LoginShift(btrustId: str, password: str) -> tuple:
     with getShiftDB() as conn:
         with conn.cursor() as cursor:
             try:
-                sql = f"select password, salt, id from sysuser where btrustid='{btrustId}' or email='{btrustId}' or personalemail='{btrustId}'"
-                cursor.execute(sql)
+                # 使用参数化查询防止SQL注入
+                sql = "select password, salt, id from sysuser where btrustid=? or email=? or personalemail=?"
+                cursor.execute(sql, btrustId, btrustId, btrustId)
                 row = cursor.fetchone()
                 if not row:
                     return (False, 0)
                 if row[0] == EncryptUserPassword(password, row[1]):
+                    # 警告: MD5 是一个不安全的哈希算法，请考虑迁移到 bcrypt 或 Argon2。
                     return (True, row[2])
                 return (False, 0)
             except Exception as e:
@@ -369,7 +372,8 @@ def getStoreName(id: str) -> str:
     stores = {"Terra": "TE", "B1": "MS", "B2": "NY", "Montreal": "MT", "BVW": "RH"}
     with getShiftDB() as conn:
         with conn.cursor() as cursor:
-            cursor.execute(f"select departmentName from sysdepartment where id = " + str(id))
+            # 使用参数化查询防止SQL注入
+            cursor.execute("select departmentName from sysdepartment where id = ?", id)
             name = cursor.fetchone()
             if name:
                 if name[0] == 'Btrust':
@@ -407,6 +411,7 @@ def getStoreWithId(departmentId: int) -> str:
 SECRET_KEY = "1234567890abC"  # Use a secure key in production
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
+# 警告: 上述 SECRET_KEY 是硬编码的，并且不够安全。在生产环境中，应从环境变量加载一个长而随机的字符串。
 
 # Create JWT Token
 def create_jwt_token(data: dict):
@@ -432,16 +437,16 @@ def get_user_db(userid) -> UserInformation:
     with getShiftDB() as conn:
         with conn.cursor() as cursor:
             try:
-                # get user authorize
-                sql =(f"select Authorize from sysuser inner join SysUserBelong on SysUserBelong.userid=SysUser.id"
-                    f" inner join SysMenuAuthorize on SysMenuAuthorize.AuthorizeId=sysuserBelong.belongid"
-                    f" inner join SysMenu on sysmenu.id= SysMenuAuthorize.MenuId"
-                    f" where sysuser.id={userid} and belongtype=2 and Authorize is not null and Authorize<>''")
-                cursor.execute(sql)
+                # 使用参数化查询防止SQL注入
+                auth_sql = ("select Authorize from sysuser inner join SysUserBelong on SysUserBelong.userid=SysUser.id"
+                            " inner join SysMenuAuthorize on SysMenuAuthorize.AuthorizeId=sysuserBelong.belongid"
+                            " inner join SysMenu on sysmenu.id= SysMenuAuthorize.MenuId"
+                            " where sysuser.id=? and belongtype=2 and Authorize is not null and Authorize<>''")
+                cursor.execute(auth_sql, userid)
                 rows = cursor.fetchall()
                 authorize = [row[0] for row in rows]
-                sql = f"select username, realname, departmentname, lastvisit, departmentid from sysuser inner join sysdepartment on departmentid = sysdepartment.id where sysuser.id={userid}"
-                cursor.execute(sql)
+                user_sql = "select username, realname, departmentname, lastvisit, departmentid from sysuser inner join sysdepartment on departmentid = sysdepartment.id where sysuser.id=?"
+                cursor.execute(user_sql, userid)
                 row = cursor.fetchone()
                 if not row:
                     return None

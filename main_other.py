@@ -40,6 +40,7 @@ ATTR_REGULAR_PRICE = "Regular Price"
 # ================= JWT CONFIG =====================
 
 SECRET_KEY = "CHANGE_THIS_TO_A_RANDOM_SECRET"  # <--- change in real use
+# 警告: 密钥是硬编码的，并且不够安全。在生产环境中，应从环境变量加载一个长而随机的字符串。
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 120
 
@@ -306,6 +307,8 @@ class OdooUser(BaseModel):
 
 def get_current_odoo_user(token: str = Depends(oauth2_scheme)) -> OdooUser:
     """Decode JWT and return Odoo user credentials from token."""
+    # 警告: 从JWT中解码密码是一个严重的安全漏洞。
+    # JWT可以被轻易解码，这相当于在客户端和网络中暴露了用户密码。
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
@@ -680,6 +683,8 @@ def verify_login(req: LoginRequest):
     token_data = {
         "sub": req.login,
         "uid": uid,
+        # 严重安全警告: 永远不要将密码或任何敏感信息存储在JWT中。
+        # JWT的内容是公开的（仅经过Base64编码），这会将密码暴露给客户端。
         "pwd": req.password,
     }
     access_token = create_access_token(token_data)
