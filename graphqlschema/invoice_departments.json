@@ -15,7 +15,5 @@
   {"id": "900", "name": {"en_us": "Seafood", "zh_cn": "海鲜"}},
   {"id": "990", "name": {"en_us": "Low Value Consumables", "zh_cn": "低值易耗品"}},
   {"id": "999", "name": {"en_us": "Fundraising", "zh_cn": "筹款"}},
-  {"id": "1900", "name": {"en_us": "BBQ", "zh_cn": "BBQ"}},
-  {"id": "1901", "name": {"en_us": "Frozen/Dairy", "zh_cn": "急冻"}},
-  {"id": "1902", "name": {"en_us": "kitchen", "zh_cn": "厨房"}}
+  {"id": "1900", "name": {"en_us": "BBQ", "zh_cn": "BBQ"}}
 ]
