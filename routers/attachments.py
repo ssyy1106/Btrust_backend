@@ -1,6 +1,6 @@
 # routers/attachments.py （继续扩展）
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 import os
@@ -10,6 +10,7 @@ from typing import Optional, List
 from database import get_db
 from models.invoice import InvoiceAttachment
 from helper import verify_token, resolve_attachment_path
+import httpx
 
 router = APIRouter(
     prefix="/attachments",
@@ -31,6 +32,7 @@ async def get_store_by_attachment_id(
 @router.get("/{attachment_id}")
 async def get_attachment(
     attachment_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     store: Optional[str] = Depends(get_store_by_attachment_id),  # 自动查出来store
     user = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
@@ -52,18 +54,39 @@ async def get_attachment(
 
     # 拼接完整路径
     file_path = resolve_attachment_path(attachment.path)
-    print(file_path)
     # 检查文件是否存在
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="文件不存在")
+    if os.path.exists(file_path):
+        return FileResponse(path=file_path, filename=attachment.path)
+    ORIGIN_SERVER_BASE_URL = "http://172.16.30.8:8000"
+    a_url = f"{ORIGIN_SERVER_BASE_URL}/attachments/{attachment_id}"
 
-    # TODO: 你可以在这里根据 user 权限判断是否有访问该附件的权限
+    # 取原始 Authorization header
+    auth_header = request.headers.get("authorization")
 
-    return FileResponse(path=file_path, filename=attachment.path)
+    headers = {}
+    if auth_header:
+        headers["Authorization"] = auth_header
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.get(a_url, headers=headers)
+
+        if response.status_code == 200:
+            return StreamingResponse(
+                response.aiter_bytes(),
+                media_type=response.headers.get("content-type"),
+                headers={
+                    "Content-Disposition": response.headers.get(
+                        "content-disposition",
+                        f'attachment; filename="{attachment.path}"'
+                    )
+                }
+            )
+    raise HTTPException(status_code=404, detail="文件不存在")
 
 @router.get("/{attachment_id}/thumbnail")
 async def get_attachment_thumbnail(
     attachment_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     store: str = Depends(get_store_by_attachment_id),  # 自动查出来store
     user = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
@@ -87,11 +110,31 @@ async def get_attachment_thumbnail(
     thumbnail_path = resolve_attachment_path(attachment.thumbnail)
 
     # 检查文件是否存在
-    if not os.path.exists(thumbnail_path):
-        raise HTTPException(status_code=404, detail="缩略图不存在")
+    if os.path.exists(thumbnail_path):
+        return FileResponse(path=thumbnail_path, filename=attachment.thumbnail)
+    ORIGIN_SERVER_BASE_URL = "http://172.16.30.8:8000"
+    a_url = f"{ORIGIN_SERVER_BASE_URL}/attachments/{attachment_id}/thumbnail"
 
-    # TODO: 可以根据 user 权限做限制，比如：
-    # if not user.is_admin and attachment.owner_id != user.id:
-    #     raise HTTPException(status_code=403, detail="无权访问该缩略图")
+    # 取原始 Authorization header
+    auth_header = request.headers.get("authorization")
 
-    return FileResponse(path=thumbnail_path, filename=attachment.thumbnail)
+    headers = {}
+    if auth_header:
+        headers["Authorization"] = auth_header
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.get(a_url, headers=headers)
+
+        if response.status_code == 200:
+            return StreamingResponse(
+                response.aiter_bytes(),
+                media_type=response.headers.get("content-type"),
+                headers={
+                    "Content-Disposition": response.headers.get(
+                        "content-disposition",
+                        f'attachment; filename="{attachment.thumbnail}"'
+                    )
+                }
+            )
+    raise HTTPException(status_code=404, detail="缩略图不存在")
+
