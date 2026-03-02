@@ -4,8 +4,9 @@ from schemas.invoice import InvoiceCreate, SupplierCreate
 from sqlalchemy.future import select
 from typing import Optional, List
 from datetime import date
-from sqlalchemy.orm import selectinload, aliased
+from sqlalchemy.orm import selectinload, aliased, noload
 from sqlalchemy import or_, and_, exists, select, desc, asc, func
+import time
 
 async def get_attachment(db: AsyncSession, attachment_id: int) -> InvoiceAttachment:
     stmt = (
@@ -309,5 +310,10 @@ async def create_supplier(db: AsyncSession, supplier_data: SupplierCreate):
     return new_supplier
 
 async def get_suppliers(db: AsyncSession):
-    result = await db.execute(select(Supplier).order_by(Supplier.id.desc()))
+    result = await db.execute(
+        select(Supplier)
+        .options(noload(Supplier.invoices))  # 忽略 invoices
+        .order_by(Supplier.id.desc())
+    )
     return result.scalars().all()
+
