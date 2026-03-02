@@ -191,6 +191,24 @@ def getStore():
     raise Exception("Sorry, no stores config")
 
 @functools.cache
+def getHRStore():
+    if 'stores' in CONFIG:
+        stores = CONFIG['stores']['store_hr'].split(",")
+        return stores
+    raise Exception("Sorry, no stores config")
+
+@functools.cache
+def getStoreMapping():
+    stores = getStore()
+    hr_stores = getHRStore()
+    if len(stores) != len(hr_stores):
+        raise Exception("Sorry, stores and HR stores config length mismatch")
+    mapping = {}
+    for i in range(len(stores)):
+        mapping[stores[i]] = hr_stores[i]
+    return mapping
+
+@functools.cache
 def getStoreDescription():
     if 'stores' in CONFIG:
         desc = CONFIG['stores']['description'].split(",")

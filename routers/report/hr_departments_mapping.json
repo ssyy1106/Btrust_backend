@@ -1,0 +1,104 @@
+[
+    {
+        "id": "647628191938121728",
+        "name": "B1",
+        "departments": [
+            {"id": "665084945512796160", "name": "Cashier", "map_departments": [], "map_subdepartments": [], "departments": []},
+            {"id": "665085293866520576", "name": "Store Operation", "map_departments": [], "map_subdepartments": [], "departments": []},
+            {"id": "665084813002149888", "name": "Bakery", "map_departments": ["770"], "map_subdepartments": [], "departments": []},
+            {"id": "665084858908807168", "name": "BBQ", "map_departments": [], "map_subdepartments": ["401"], "departments": []},
+            {"id": "665084905167785984", "name": "Beauty", "map_departments": ["300"], "map_subdepartments": [], "departments": []},
+            {"id": "665084992929402880", "name": "Frozen", "map_departments": ["700"], "map_subdepartments": [], "departments": []},
+            {"id": "665085036705353728", "name": "Fruit", "map_departments": [], "map_subdepartments": ["600"], "departments": []},
+            {"id": "665085120281055232", "name": "Grocery", "map_departments": ["200"], "map_subdepartments": [], "departments": []},
+            {"id": "665085166259015680", "name": "Kitchen", "map_departments": [], "map_subdepartments": ["403", "404", "407", "408"], 
+                "departments": [
+                    {"id": "668706409361182720", "name": "Food Court", "map_departments": [], "map_subdepartments": ["403"], "departments": []}
+                ]},
+            {"id": "665085207908454400", "name": "Meat", "map_departments": ["800"], "map_subdepartments": [], "departments": []},
+            {"id": "665085254498783232", "name": "Seafood", "map_departments": ["900"], "map_subdepartments": [], "departments": []},
+            {"id": "665085328926707712", "name": "Veg", "map_departments": [], "map_subdepartments": ["500"], "departments": []},
+            {"id": "999999", "name": "Others", "map_departments": ["999", "170", "270", "100", "1"], "map_subdepartments": [], "departments": []}
+        ]
+    },
+    {
+        "id": "647628227501625344",
+        "name": "B2",
+        "departments": [
+            {"id": "665085420513529856", "name": "Cashier", "map_departments": [], "map_subdepartments": [], "departments": []},
+            {"id": "665085759417487360", "name": "Store Operation", "map_departments": [], "map_subdepartments": [], "departments": []},
+            {"id": "665085459981930496", "name": "Cleaning", "map_departments": [], "map_subdepartments": [], "departments": []},
+            {"id": "665085496031973376", "name": "Frozen", "map_departments": ["700"], "map_subdepartments": [], "departments": []},
+            {"id": "665085539141029888", "name": "Fruit", "map_departments": [], "map_subdepartments": ["600"], "departments": []},
+            {"id": "665085614378455040", "name": "Grocery", "map_departments": ["200"], "map_subdepartments": [], "departments": []},
+            {"id": "665085647723171840", "name": "Kitchen", "map_departments": ["400"], "map_subdepartments": [], "departments": []},
+            {"id": "665085684595298304", "name": "Meat", "map_departments": ["800"], "map_subdepartments": [], "departments": []},
+            {"id": "665085721912020992", "name": "Seafood", "map_departments": ["900"], "map_subdepartments": [], "departments": []},
+            {"id": "665085794037272576", "name": "Veg", "map_departments": [], "map_subdepartments": ["500"], "departments": []},
+            {"id": "999999", "name": "Others", "map_departments": ["770","999", "300", "170", "270", "100", "1"], "map_subdepartments": [], "departments": []}
+        ]
+    },
+    {
+        "id": "16508640061124404",
+        "name": "Terra",
+        "departments": [
+            {"id": "647558719407656960", "name": "Cashier", "map_departments": [], "map_subdepartments": [], "departments": []},
+            {"id": "665084680059490304", "name": "Store Operation", "map_departments": [], "map_subdepartments": [], "departments": []},
+            {"id": "665084371715231744", "name": "Cleaning", "map_departments": [], "map_subdepartments": [], "departments": []},
+            {"id": "665084313993220096", "name": "BBQ", "map_departments": [], "map_subdepartments": ["401"], "departments": []},
+            {"id": "665084434998890496", "name": "Frozen", "map_departments": ["700"], "map_subdepartments": [], "departments": []},
+            {"id": "663204472515727360", "name": "Fruit", "map_departments": [], "map_subdepartments": ["600"], "departments": []},
+            {"id": "665084483375992832", "name": "Grocery", "map_departments": ["200"], "map_subdepartments": [], "departments": []},
+            {"id": "665084536249389056", "name": "Kitchen", "map_departments": ["400"], "map_subdepartments": [], "departments": []},
+            {"id": "670429888666144768", "name": "Food Court", "map_departments": ["400"], "map_subdepartments": [], "departments": []},
+            {"id": "665084579568160768", "name": "Meat", "map_departments": ["800"], "map_subdepartments": [], "departments": []},
+            {"id": "665084622526222336", "name": "Seafood", "map_departments": ["900"], "map_subdepartments": [], "departments": []},
+            {"id": "647627359603658752", "name": "Veg", "map_departments": [], "map_subdepartments": ["500"], "departments": []},
+            {"id": "999999", "name": "Others", "map_departments": ["770","999", "300", "170", "270", "100", "1"], "map_subdepartments": [], "departments": []}
+        ]
+    },
+    {
+        "id": "671197318690639872",
+        "name": "Montreal",
+        "departments": [
+            {"id": "671197403579158528", "name": "Cashier", "map_departments": [], "map_subdepartments": [], "departments": []},
+            {"id": "671197663630200832", "name": "Store Operation", "map_departments": [], "map_subdepartments": [], "departments": []},
+            {"id": "676217050737152000", "name": "Cleaning", "map_departments": [], "map_subdepartments": [], "departments": []},
+            {"id": "676217099810508800", "name": "BBQ", "map_departments": [], "map_subdepartments": ["401"], "departments": []},
+            
+            {"id": "663204472515727360", "name": "Fruit", "map_departments": [], "map_subdepartments": ["600"], "departments": []},
+            {"id": "671197590250852352", "name": "Grocery", "map_departments": ["200"], "map_subdepartments": [], "departments": []},
+            {"id": "676216548574105600", "name": "Kitchen", "map_departments": [], "map_subdepartments": ["408", "403", "404", "407"], "departments": []},
+            {"id": "670429888666144768", "name": "Food Court", "map_departments": ["400"], "map_subdepartments": [], "departments": []},
+            {"id": "671197532159741952", "name": "Meat", "map_departments": ["800"], "map_subdepartments": [], "departments": []},
+            {"id": "678447805659877376", "name": "Seafood", "map_departments": ["700", "900"], "map_subdepartments": [], 
+                "departments": [
+                    {"id": "676214681093804032", "name": "Frozen", "map_departments": ["700"], "map_subdepartments": [], "departments": []},
+                    {"id": "676216928594825216", "name": "Seafood", "map_departments": ["900"], "map_subdepartments": [], "departments": []}
+                ]},
+            {"id": "678447245095342080", "name": "Produce", "map_departments": ["500"], "map_subdepartments": [], 
+                "departments": [
+                    {"id": "676215434076229632", "name": "Veg", "map_departments": [], "map_subdepartments": ["500"], "departments": []},
+                    {"id": "676217003719004160", "name": "Fruit", "map_departments": [], "map_subdepartments": ["600"], "departments": []}
+                ]},
+            {"id": "999999", "name": "Others", "map_departments": ["770","999", "300", "170", "270", "100", "1"], "map_subdepartments": [], "departments": []}
+        ]
+    },
+    {
+        "id": "890382849851527168",
+        "name": "BVW",
+        "departments": [
+            {"id": "890383141137551360", "name": "Cashier", "map_departments": [], "map_subdepartments": [], "departments": []},
+            {"id": "890383861232439296", "name": "Store Operation", "map_departments": [], "map_subdepartments": [], "departments": []},
+            {"id": "936401694164520960", "name": "Cleaning", "map_departments": [], "map_subdepartments": [], "departments": []},
+            {"id": "890383632970027008", "name": "Frozen", "map_departments": ["700"], "map_subdepartments": [], "departments": []},
+            {"id": "890383754898444288", "name": "Fruit", "map_departments": [], "map_subdepartments": ["600"], "departments": []},
+            {"id": "890383280992423936", "name": "Grocery", "map_departments": ["200"], "map_subdepartments": [], "departments": []},
+            {"id": "890383531279126528", "name": "Meat", "map_departments": ["800"], "map_subdepartments": [], "departments": []},
+            {"id": "890383693904875520", "name": "Seafood", "map_departments": ["900"], "map_subdepartments": [], "departments": []},
+            {"id": "890383215653556224", "name": "Veg", "map_departments": [], "map_subdepartments": ["500"], "departments": []},
+            {"id": "890383453424455680", "name": "BBQ", "map_departments": [], "map_subdepartments": ["401"], "departments": []},
+            {"id": "999999", "name": "Others", "map_departments": ["770","999", "300", "170", "270", "100", "1"], "map_subdepartments": [], "departments": []}
+        ]
+    }
+]
