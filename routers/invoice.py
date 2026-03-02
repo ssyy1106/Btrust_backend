@@ -28,6 +28,13 @@ THUMBNAIL_DIR = "thumbnails/"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(THUMBNAIL_DIR, exist_ok=True)
 
+def make_date_subdir(base_dir: str) -> str:
+    """生成以当天日期为子目录的路径，并确保目录存在"""
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    subdir = os.path.join(base_dir, today_str)
+    os.makedirs(subdir, exist_ok=True)
+    return subdir
+
 async def check_store_supplier(db, store, supplier, user, isdraft = False):
     # 判断store参数是否正确
     if store not in user.store:
@@ -38,20 +45,36 @@ async def check_store_supplier(db, store, supplier, user, isdraft = False):
             raise HTTPException(status_code=404, detail="Supplier not found")
 
 def add_attachments(files, db, user, invoice):
-    # 添加新附件
+    """
+    files: list[UploadFile]
+    db: AsyncSession
+    user: 当前用户对象
+    invoice: invoice对象
+    """
     for idx, file in enumerate(files):
+        # 创建日期子目录
+        upload_subdir = make_date_subdir(UPLOAD_DIR)
+        thumbnail_subdir = make_date_subdir(THUMBNAIL_DIR)
+
+        # 文件名加uuid，防止重复
         filename = f"{uuid.uuid4().hex}_{file.filename}"
-        filepath = os.path.join(UPLOAD_DIR, filename)
-        thumbnail_filepath = os.path.join(THUMBNAIL_DIR, f"thumb_{filename}")
+        filepath = os.path.join(upload_subdir, filename)
+        thumbnail_filepath = os.path.join(thumbnail_subdir, f"thumb_{filename}")
+
+        # 保存上传文件
         with open(filepath, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+
+        # 生成缩略图
         try:
             with Image.open(filepath) as image:
                 image.thumbnail((100, 100))
                 image.save(thumbnail_filepath)
         except Exception:
+            # 缩略图生成失败，置空
             thumbnail_filepath = ""
 
+        # 添加数据库记录
         attachment = InvoiceAttachment(
             invoiceid=invoice.id,
             path=filepath,
@@ -73,9 +96,6 @@ def check_total_amount(detail_items, totalamount):
             detail=f"Invoice totalamount ({totalamount}) does not match sum of details ({detail_total})"
         )
 
-# @router.post("/")
-# async def create(invoice: InvoiceCreate, db: AsyncSession = Depends(get_db), user=Depends(verify_token)):
-#     return await crud_invoice.create_invoice(db, invoice, user)
 @router.post("/", response_model=InvoiceOutFull)
 async def create_invoice(
     supplier: int = Form(None),
@@ -168,11 +188,6 @@ async def create_invoice(
 
     return invoice
 
-# @router.get("/", response_model=List[InvoiceOutFull])
-# async def list_invoices(start_date: Optional[date] = Query(None, description="start date"),
-#     end_date: Optional[date] = Query(None, description="end date"),
-#     db: AsyncSession = Depends(get_db), user=Depends(verify_token)):
-#     return await crud_invoice.get_invoice_list(db, start_date, end_date)
 @router.get("/", response_model=InvoiceListResponse)
 async def list_invoices(
     invoice_start_date: Optional[date] = Query(None, description="发票开始日期"),
