@@ -18,6 +18,8 @@ from typing import Optional, List
 from graphqlschema.schema import (
     UserInformation
 )
+from config_log_env import get_config
+
 
 def getStores(user: UserInformation, store: List[str]) -> List[str]:
     if not store:
@@ -46,36 +48,10 @@ def verify_token(authorization: Optional[str] = Header(None)):
     # 可以返回 user 信息或权限等级等
     return user
 
-def getConfigFile():
-    configFile = 'config.ini'
-    # try:
-    #     opts, args = getopt.getopt(sys.argv[1:], "i")
-    #     print(f"opts: {opts} args: {args}")
-    #     if args:
-    #         configFile = args[0]
-    #         print(f"config file: {configFile}")
-    #     else:
-    #         print(f"no config file input, using default ini file")
-    # except getopt.GetoptError:
-    #     print('reading ini file error')
-    #     log_and_save('ERROR', f"Reading ini file error")
-    #     return ""
-    return configFile
-
 def log_and_save(level, message):
     log_level = getattr(logging, level)
     logging.log(log_level, message)
 
-def setLogging(type: str):
-    file = type + datetime.datetime.now(datetime.timezone.utc).isoformat()[:10]
-    directory = '.\\'
-    if 'logdirectory' in CONFIG:
-        directory = CONFIG['logdirectory'][type + 'directory']
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-    logging.basicConfig(filename=directory + file + '.log', encoding='utf-8', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    print(f"log directory: {directory + file + '.log'}")
-    log_and_save('INFO', f"Start......")
 
 LOCAL_TZ = ZoneInfo("America/Montreal")
 UTC = ZoneInfo("UTC")
@@ -93,107 +69,90 @@ def to_utc_naive(dt: datetime.datetime) -> datetime.datetime:
     dt = ensure_aware(dt, LOCAL_TZ)
     return dt.astimezone(UTC).replace(tzinfo=None)
 
-CONFIG = None
-def _init(config):
-    global CONFIG
-    CONFIG = config
-
-def getConfig(type: str = 'dat'):
-    configFile = getConfigFile()
-    if not configFile:
-        return None
-    config = configparser.ConfigParser()
-    config.read(configFile, encoding="utf-8")
-    _init(config)
-    setLogging(type)
-    return config
-
-getConfig()
-
 @functools.cache
 def getPaymentTypes():
-    if 'Payment' in CONFIG:
-        paymenttypes = CONFIG['Payment']['type'].split(",")
+    if 'Payment' in get_config():
+        paymenttypes = get_config()['Payment']['type'].split(",")
         return paymenttypes
     raise Exception("Sorry, no payment type config")
 
 @functools.cache
 def getPostgresConfig():
-    if 'postgresql' in CONFIG:
-        USERNAME = CONFIG['postgresql']['username']
-        PASSWORD = CONFIG['postgresql']['password']
-        HOST = CONFIG['postgresql']['host']
-        DATABASE = CONFIG['postgresql']['database']
-        PORT = CONFIG['postgresql']['port']
+    if 'postgresql' in get_config():
+        USERNAME = get_config()['postgresql']['username']
+        PASSWORD = get_config()['postgresql']['password']
+        HOST = get_config()['postgresql']['host']
+        DATABASE = get_config()['postgresql']['database']
+        PORT = get_config()['postgresql']['port']
         return (USERNAME, PASSWORD, HOST, DATABASE, PORT)
     raise Exception("Sorry, no postgresql DB config")
 
 @functools.cache
 def getInvoiceConfig():
-    if 'postgresqlinvoice' in CONFIG:
-        USERNAME = CONFIG['postgresqlinvoice']['username']
-        PASSWORD = CONFIG['postgresqlinvoice']['password']
-        HOST = CONFIG['postgresqlinvoice']['host']
-        DATABASE = CONFIG['postgresqlinvoice']['database']
-        PORT = CONFIG['postgresqlinvoice']['port']
+    if 'postgresqlinvoice' in get_config():
+        USERNAME = get_config()['postgresqlinvoice']['username']
+        PASSWORD = get_config()['postgresqlinvoice']['password']
+        HOST = get_config()['postgresqlinvoice']['host']
+        DATABASE = get_config()['postgresqlinvoice']['database']
+        PORT = get_config()['postgresqlinvoice']['port']
         return (USERNAME, PASSWORD, HOST, DATABASE, PORT)
     raise Exception("Sorry, no invoice DB config")
 
 @functools.cache
 def getStockConfig():
-    if 'postgresqlstock' in CONFIG:
-        USERNAME = CONFIG['postgresqlstock']['username']
-        PASSWORD = CONFIG['postgresqlstock']['password']
-        HOST = CONFIG['postgresqlstock']['host']
-        DATABASE = CONFIG['postgresqlstock']['database']
-        PORT = CONFIG['postgresqlstock']['port']
+    if 'postgresqlstock' in get_config():
+        USERNAME = get_config()['postgresqlstock']['username']
+        PASSWORD = get_config()['postgresqlstock']['password']
+        HOST = get_config()['postgresqlstock']['host']
+        DATABASE = get_config()['postgresqlstock']['database']
+        PORT = get_config()['postgresqlstock']['port']
         return (USERNAME, PASSWORD, HOST, DATABASE, PORT)
     raise Exception("Sorry, no stock DB config")
 
 @functools.cache
 def getOdooConfig():
-    if 'postgresqlodoo' in CONFIG:
-        USERNAME = CONFIG['postgresqlodoo']['username']
-        PASSWORD = CONFIG['postgresqlodoo']['password']
-        HOST = CONFIG['postgresqlodoo']['host']
-        DATABASE = CONFIG['postgresqlodoo']['database']
-        PORT = CONFIG['postgresqlodoo']['port']
+    if 'postgresqlodoo' in get_config():
+        USERNAME = get_config()['postgresqlodoo']['username']
+        PASSWORD = get_config()['postgresqlodoo']['password']
+        HOST = get_config()['postgresqlodoo']['host']
+        DATABASE = get_config()['postgresqlodoo']['database']
+        PORT = get_config()['postgresqlodoo']['port']
         return (USERNAME, PASSWORD, HOST, DATABASE, PORT)
     raise Exception("Sorry, no odoo DB config")
 
 @functools.cache
 def getStoreStockConfig():
-    if 'postgresqlstorestock' in CONFIG:
-        USERNAME = CONFIG['postgresqlstorestock']['username']
-        PASSWORD = CONFIG['postgresqlstorestock']['password']
-        HOST = CONFIG['postgresqlstorestock']['host']
-        DATABASE = CONFIG['postgresqlstorestock']['database']
-        PORT = CONFIG['postgresqlstorestock']['port']
+    if 'postgresqlstorestock' in get_config():
+        USERNAME = get_config()['postgresqlstorestock']['username']
+        PASSWORD = get_config()['postgresqlstorestock']['password']
+        HOST = get_config()['postgresqlstorestock']['host']
+        DATABASE = get_config()['postgresqlstorestock']['database']
+        PORT = get_config()['postgresqlstorestock']['port']
         return (USERNAME, PASSWORD, HOST, DATABASE, PORT)
     raise Exception("Sorry, no storestock DB config")
 
 @functools.cache
 def getCostConfig():
-    if 'postgresqlcost' in CONFIG:
-        USERNAME = CONFIG['postgresqlcost']['username']
-        PASSWORD = CONFIG['postgresqlcost']['password']
-        HOST = CONFIG['postgresqlcost']['host']
-        DATABASE = CONFIG['postgresqlcost']['database']
-        PORT = CONFIG['postgresqlcost']['port']
+    if 'postgresqlcost' in get_config():
+        USERNAME = get_config()['postgresqlcost']['username']
+        PASSWORD = get_config()['postgresqlcost']['password']
+        HOST = get_config()['postgresqlcost']['host']
+        DATABASE = get_config()['postgresqlcost']['database']
+        PORT = get_config()['postgresqlcost']['port']
         return (USERNAME, PASSWORD, HOST, DATABASE, PORT)
     raise Exception("Sorry, no cost DB config")
 
 @functools.cache
 def getStore():
-    if 'stores' in CONFIG:
-        stores = CONFIG['stores']['store'].split(",")
+    if 'stores' in get_config():
+        stores = get_config()['stores']['store'].split(",")
         return stores
     raise Exception("Sorry, no stores config")
 
 @functools.cache
 def getHRStore():
-    if 'stores' in CONFIG:
-        stores = CONFIG['stores']['store_hr'].split(",")
+    if 'stores' in get_config():
+        stores = get_config()['stores']['store_hr'].split(",")
         return stores
     raise Exception("Sorry, no stores config")
 
@@ -210,8 +169,8 @@ def getStoreMapping():
 
 @functools.cache
 def getStoreDescription():
-    if 'stores' in CONFIG:
-        desc = CONFIG['stores']['description'].split(",")
+    if 'stores' in get_config():
+        desc = get_config()['stores']['description'].split(",")
         return desc
     
     raise Exception("Sorry, no store description config")
@@ -219,21 +178,21 @@ def getStoreDescription():
 
 @functools.cache
 def getHOConfig():
-    if 'HOsqlserver' in CONFIG:
-        USERNAME = CONFIG['HOsqlserver']['name']
-        PASSWORD = CONFIG['HOsqlserver']['password']
-        HOST = CONFIG['HOsqlserver']['host']
-        DATABASE = CONFIG['HOsqlserver']['database']
+    if 'HOsqlserver' in get_config():
+        USERNAME = get_config()['HOsqlserver']['name']
+        PASSWORD = get_config()['HOsqlserver']['password']
+        HOST = get_config()['HOsqlserver']['host']
+        DATABASE = get_config()['HOsqlserver']['database']
         return (USERNAME, PASSWORD, HOST, DATABASE)
     raise Exception("Sorry, no HO DB config")
 
 @functools.cache
 def getShiftDBConfig():
-    if 'Shiftsqlserver' in CONFIG:
-        USERNAME = CONFIG['Shiftsqlserver']['name']
-        PASSWORD = CONFIG['Shiftsqlserver']['password']
-        HOST = CONFIG['Shiftsqlserver']['host']
-        DATABASE = CONFIG['Shiftsqlserver']['database']
+    if 'Shiftsqlserver' in get_config():
+        USERNAME = get_config()['Shiftsqlserver']['name']
+        PASSWORD = get_config()['Shiftsqlserver']['password']
+        HOST = get_config()['Shiftsqlserver']['host']
+        DATABASE = get_config()['Shiftsqlserver']['database']
         return (USERNAME, PASSWORD, HOST, DATABASE)
     raise Exception("Sorry, no Shift DB config")
 
@@ -284,12 +243,12 @@ def getShiftDB():
 def getHanaDB():
     try:
         conn = dbapi.connect(
-            address=CONFIG['Hana']['address'],
-            port=CONFIG['Hana']['port'],
-            user=CONFIG['Hana']['user'],
-            password=CONFIG['Hana']['password']
+            address=get_config()['Hana']['address'],
+            port=get_config()['Hana']['port'],
+            user=get_config()['Hana']['user'],
+            password=get_config()['Hana']['password']
         )
-        return conn, CONFIG['Hana']['schema']
+        return conn, get_config()['Hana']['schema']
     except Exception as e:
         return None, None
 
@@ -299,24 +258,24 @@ def getStoreDBConfig(store: str):
     if store not in stores:
         raise Exception("Sorry, store is not right") 
     index = stores.index(store)
-    if 'Storesqlserver' in CONFIG:
-        USERNAME = CONFIG['Storesqlserver']['name'].split(",")
-        PASSWORD = CONFIG['Storesqlserver']['password'].split(",")
-        HOST = CONFIG['Storesqlserver']['host'].split(",")
-        DATABASE = CONFIG['Storesqlserver']['database'].split(",")
+    if 'Storesqlserver' in get_config():
+        USERNAME = get_config()['Storesqlserver']['name'].split(",")
+        PASSWORD = get_config()['Storesqlserver']['password'].split(",")
+        HOST = get_config()['Storesqlserver']['host'].split(",")
+        DATABASE = get_config()['Storesqlserver']['database'].split(",")
         return (USERNAME[index], PASSWORD[index], HOST[index], DATABASE[index])
     raise Exception("Sorry, Store db config")
 
 @functools.cache
 def getLocalStore():
-    if 'store' in CONFIG:
-        return (CONFIG['store']['store'], CONFIG['store']['sqlserver'])
+    if 'store' in get_config():
+        return (get_config()['store']['store'], get_config()['store']['sqlserver'])
     raise Exception("Sorry, Local Store not config")
 
 @functools.cache
 def getOdooAccount():
-    if 'odooaccount' in CONFIG:
-        return (CONFIG['odooaccount']['host'], CONFIG['odooaccount']['username'], CONFIG['odooaccount']['password'], CONFIG['odooaccount']['db'])
+    if 'odooaccount' in get_config():
+        return (get_config()['odooaccount']['host'], get_config()['odooaccount']['username'], get_config()['odooaccount']['password'], get_config()['odooaccount']['db'])
     raise Exception("Sorry, Odoo account not config")
 
 def getStoreDB(store: str):
@@ -498,21 +457,3 @@ def resolve_attachment_path(attachment_path_from_db: str) -> str:
         return os.path.join(THUMBNAIL_ROOT, path)
     return os.path.join(ATTACHMENT_ROOT, path)
 
-# BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# ATTACHMENT_ROOT = os.path.abspath(os.path.join(BASE_DIR, "..", "uploads"))
-# THUMBNAIL_ROOT = os.path.abspath(os.path.join(BASE_DIR, "..", "thumbnails"))
-
-# def resolve_attachment_path(attachment_path_from_db: str) -> str:
-#     # 确保路径是正斜杠格式
-#     path = attachment_path_from_db.replace("\\", "/")
-    
-#     # 判断路径是否包含uploads/或thumbnails/前缀
-#     if path.startswith("uploads/"):
-#         # 如果路径以uploads/开始，不要去掉uploads/部分，直接拼接
-#         return os.path.join(ATTACHMENT_ROOT, path)
-#     elif path.startswith("thumbnails/"):
-#         # 如果路径以thumbnails/开始，同样直接拼接
-#         return os.path.join(THUMBNAIL_ROOT, path)
-    
-#     # 如果路径没有uploads/或thumbnails/前缀，则默认拼接到uploads目录下
-#     return os.path.join(ATTACHMENT_ROOT, path)

@@ -2,7 +2,7 @@ import strawberry
 import typing
 import asyncio
 from functools import cached_property
-from helper import getConfig, getPaymentTypes, log_and_save, verify_jwt_token, get_user_information
+from helper import getPaymentTypes, log_and_save, verify_jwt_token, get_user_information
 from strawberry.fastapi import GraphQLRouter, BaseContext
 from strawberry.permission import BasePermission
 from graphqlschema.datedata import getDateData, check_date

@@ -29,26 +29,29 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from fastapi.concurrency import run_in_threadpool
 from init_db import init_db
-# from pyzbar.pyzbar import decode
-# from PIL import Image
-# import cv2
-# import numpy as np
+from config_log_env import load_env, init_config, init_logging
+from database import init_database
+
  
-#app = FastAPI()
+BASE_DIR = Path(__file__).resolve().parent  # main.py 所在目录
+ENV_PATH = BASE_DIR / ".env"
+CONFIG_PATH = BASE_DIR / "config.ini"
+
+config_env = Config(str(ENV_PATH))
+origins = config_env("CORS_ORIGINS", cast=lambda v: [s.strip() for s in v.split(",")])
+config = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global config
     # 应用启动时执行
+    load_env(ENV_PATH)
+    config = init_config(CONFIG_PATH)
+    init_logging()
+    init_database()
+    bos_api.init_odoo()
     await init_db()
     yield
-    # async with engine.begin() as conn:
-    #     await conn.run_sync(Base_invoice.metadata.create_all)
-    # yield
-    # # 应用启动时，两个数据库都创建表
-    # async with engine.begin() as conn_invoice:
-    #     await conn_invoice.run_sync(Base_invoice.metadata.create_all)
-    # async with engine_cost.begin() as conn_cost:
-    #     await conn_cost.run_sync(Base_cost.metadata.create_all)
-    # 应用关闭时执行（如有需要可以添加清理逻辑）
 
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(lifespan=lifespan)
@@ -65,49 +68,6 @@ async def global_exception_handler(request: Request, exc: Exception):
         # 警告: 在生产环境中，为了安全不应将原始异常信息 `str(exc)` 返回给客户端。
         content={"detail": str(exc)},
     )
-
-# origins = [
-#     "http://localhost:3000",
-#     "http://172.16.10.106:3000",
-#     "http://localhost",
-#     "http://localhost:8000",
-#     "http://172.16.30.8:8000",
-#     "http://172.16.30.8",
-#     "http://172.16.30.8:81",
-#     "http://172.16.30.8:82",
-#     "http://172.16.30.8:8200",
-#     "http://172.16.10.81:3000",
-#     "https://172.16.30.8:8501",
-#     "https://172.16.30.8:8502",
-#     "http://172.16.30.8:8601",
-#     "http://172.16.30.8:8600"
-# ]
-# env_path = ".env"
-BASE_DIR = Path(__file__).resolve().parent  # main.py 所在目录
-ENV_PATH = BASE_DIR / ".env"
-# 手动写入 os.environ（你原来的逻辑）
-with ENV_PATH.open("r", encoding="utf-8") as f:
-    for line in f.read().splitlines():
-        if not line.strip() or line.startswith("#"):
-            continue
-        key, value = line.split("=", 1)
-        os.environ[key.strip()] = value.strip()
-
-# 手动以 utf-8 打开
-# with open(env_path, "r", encoding="utf-8") as f:
-#     lines = f.read().splitlines()
-
-# # 临时写入 os.environ
-# for line in lines:
-#     if line.strip() == "" or line.startswith("#"):
-#         continue
-#     key, value = line.split("=", 1)
-#     os.environ[key.strip()] = value.strip()
-
-# 然后直接初始化 Config，不带 encoding
-#config_env = Config(".env")
-config_env = Config(str(ENV_PATH))
-origins = config_env("CORS_ORIGINS", cast=lambda v: [s.strip() for s in v.split(",")])
 
 app.add_middleware(
     CORSMiddleware,
@@ -132,13 +92,10 @@ app.include_router(report_invoice.router)
 app.include_router(report_labor.router)
 
 app.include_router(graphql_app, prefix="/graphql")
-configFile = 'config.ini'
-config = configparser.ConfigParser()
-config.read(configFile, encoding="utf-8")
 
 directory = '.\\'
 file = datetime.datetime.now(datetime.timezone.utc).isoformat()[:10]
-logging.basicConfig(filename=directory + file + '.log', encoding='utf-8', level=logging.DEBUG)
+#logging.basicConfig(filename=directory + file + '.log', encoding='utf-8', level=logging.DEBUG)
 logging.info('Start......')
 
 
@@ -264,5 +221,3 @@ async def login(user: Login):
     token = create_jwt_token(data=token_data)
     return {"access_token": token, "token_type": "bearer"}
 
-# app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-# app.mount("/thumbnails", StaticFiles(directory="thumbnails"), name="thumbnails")

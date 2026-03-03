@@ -25,13 +25,28 @@ os.environ["SSL_CERT_FILE"] = ""
 os.environ["SSL_CERT_DIR"] = ""
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-try:
-    _odoo_host, _odoo_user, _odoo_pwd, _odoo_db = getOdooAccount()
-    ODOO_URL = _odoo_host.rstrip("/")
-    ODOO_DB = _odoo_db
-except Exception:
-    ODOO_URL = os.getenv("ODOO_XMLRPC_URL", "https://bos.btrust.intl").rstrip("/")
-    ODOO_DB = os.getenv("ODOO_DB", "btrust")
+ODOO_URL = ""
+ODOO_DB = ""
+context = None
+common = None
+models = None
+
+
+def init_odoo():
+    global ODOO_URL, ODOO_DB, context, common, models
+    try:
+        _odoo_host, _odoo_user, _odoo_pwd, _odoo_db = getOdooAccount()
+        ODOO_URL = _odoo_host.rstrip("/")
+        ODOO_DB = _odoo_db
+        context = ssl._create_unverified_context()
+        common = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/common/", context=context)
+        models = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/object/", context=context)
+    except Exception:
+        ODOO_URL = os.getenv("ODOO_XMLRPC_URL", "https://bos.btrust.intl").rstrip("/")
+        ODOO_DB = os.getenv("ODOO_DB", "btrust")
+        context = ssl._create_unverified_context()
+        common = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/common/", context=context)
+        models = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/object/", context=context)
 
 ATTR_BRAND = "Brand"
 ATTR_SIZE = "Size"
@@ -43,10 +58,6 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("BOS_API_TOKEN_EXPIRE_MINUTES", "120"))
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/login/verify")
-
-context = ssl._create_unverified_context()
-common = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/common/", context=context)
-models = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/object/", context=context)
 
 router = APIRouter(tags=["BOS"])
 
