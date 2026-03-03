@@ -8,7 +8,6 @@ from sqlalchemy.orm import selectinload
 from schemas.invoice import InvoiceStatus, InvoiceOutFull, SupplierCreate, SupplierOut, InvoiceListResponse
 from database import get_db
 from crud import invoice as crud_invoice
-from main import verify_token
 from dependencies.permission import PermissionChecker
 from models.invoice import Invoice, InvoiceAttachment, InvoiceDetail
 import os
@@ -162,8 +161,9 @@ async def create_invoice(
         status = status.value
     )
     db.add(invoice)
-    await db.commit()
-    await db.refresh(invoice)
+    await db.flush() #这样应该更好，不提交，直接得到invoice的id
+    # await db.commit()
+    # await db.refresh(invoice)
     for item in detail_items:
         detail = InvoiceDetail(
             invoiceid=invoice.id,
