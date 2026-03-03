@@ -30,7 +30,7 @@ os.makedirs(THUMBNAIL_DIR, exist_ok=True)
 
 def make_date_subdir(base_dir: str) -> str:
     """生成以当天日期为子目录的路径，并确保目录存在"""
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = datetime.datetime.now().strftime("%Y-%m-%d")
     subdir = os.path.join(base_dir, today_str)
     os.makedirs(subdir, exist_ok=True)
     return subdir
