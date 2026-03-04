@@ -1,7 +1,4 @@
 [
-  {"id": "1", "name": {"en_us": "Store Coupon", "zh_cn": "优惠券"}},
-  {"id": "2", "name": {"en_us": "Donation", "zh_cn": "捐款"}},
-  {"id": "30", "name": {"en_us": "Gift Card", "zh_cn": "礼品卡"}},
   {"id": "100", "name": {"en_us": "Service Counter", "zh_cn": "服务柜台"}},
   {"id": "170", "name": {"en_us": "Gardening", "zh_cn": "园艺"}},
   {"id": "200", "name": {"en_us": "Groceries", "zh_cn": "杂货"}},
@@ -14,6 +11,5 @@
   {"id": "800", "name": {"en_us": "Meat", "zh_cn": "肉类"}},
   {"id": "900", "name": {"en_us": "Seafood", "zh_cn": "海鲜"}},
   {"id": "990", "name": {"en_us": "Low Value Consumables", "zh_cn": "低值易耗品"}},
-  {"id": "999", "name": {"en_us": "Fundraising", "zh_cn": "筹款"}},
   {"id": "1900", "name": {"en_us": "BBQ", "zh_cn": "BBQ"}}
 ]
