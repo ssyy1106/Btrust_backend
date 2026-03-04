@@ -4,10 +4,11 @@ from datetime import date, datetime
 import pandas as pd
 import os
 from hdbcli import dbapi
-from helper import getHanaDB, getDB, getStoreStr, get_config, getStore
+from helper import getHanaDB, getDB, getStoreStr, get_config, getStore, getStores
 from typing import Optional, List, Dict, Any
 import psycopg2
 import psycopg2.extras
+from collections import defaultdict
 import re
 from pydantic import BaseModel
 
@@ -15,19 +16,20 @@ router = APIRouter(prefix="/download", tags=["Download"])
 
 
 # 为 cashier_coupon 端点定义一个 Pydantic 模型。
-# 这有助于生成更清晰的 API 文档，并提供更好的类型检查。
+class CouponCount(BaseModel):
+    upc: str
+    count: int
+    value: float
+
 class CashierCouponItem(BaseModel):
     """
     代表单个收银员的 coupon 销售数据。
-    除了以下固定字段，还会包含动态生成的 upc 统计字段，例如 'upc_00960000000219'。
     """
-    store: str
-    cashier_name: str
     cashier_id: str
+    cashier_name: str
+    tag: str  # 'confirm' or 'notconfirm'
+    coupons: List[CouponCount]
 
-    class Config:
-        # 允许动态字段（例如 upc_...）存在于模型中
-        extra = "allow"
 
 def get_hana_connection():
     try:
@@ -150,18 +152,20 @@ async def export_sap_stock():
         if conn:
             conn.close()
 
+from dependencies.permission import PermissionChecker
+
 @router.get("/cashier_coupon", summary="获取收银员coupon销售统计", response_model=List[CashierCouponItem])
 async def cashier_coupon(
     date: date,
-    store: Optional[List[str]] = Query(None),
-    upc: Optional[List[str]] = Query(None)
+    upc: List[str] = Query(..., description="一个包含3个coupon UPC的列表。"),
+    store: str = Query(..., description="门店")
 ) -> List[CashierCouponItem]:
     """
     获取指定日期、门店和UPC的收银员销售统计。
 
     - **date**: 必填，查询的日期 (YYYY-MM-DD)。
-    - **store**: 可选，门店列表。如果不提供，则查询所有门店。
-    - **upc**: 可选，UPC列表。如果不提供，则从配置文件 `config.ini` 的 `[Coupon]` 部分读取 `upc` 字段。
+    - **upc**: 必填，一个包含3个coupon UPC的列表。
+    - **store**: 必填，单个门店代码。
     """
     # 1. 如果未提供upc，则从配置文件读取
     if not upc:
@@ -175,43 +179,56 @@ async def cashier_coupon(
             raise HTTPException(status_code=500, detail=f"读取配置时出错: {e}")
     else:
         upcs = upc
+    if not upcs or len(upcs) != 3:
+        raise HTTPException(
+            status_code=400,
+            detail="请提供恰好3个coupon UPC。"
+        )
 
-    if not upcs:
-        return []
+    sorted_upcs = sorted(upcs)
+    min_upc, mid_upc, max_upc = sorted_upcs[0], sorted_upcs[1], sorted_upcs[2]
 
-    # 2. 验证并准备门店过滤字符串
-    store_list = store or ["ALL"]
-    if "ALL" not in store_list:
-        valid_stores = getStore()
-        for s in store_list:
-            if s not in valid_stores:
-                raise HTTPException(status_code=400, detail=f"无效的门店: {s}")
-    
-    store_filter_str = getStoreStr(store_list)
+    # 将 'nan' item 的负金额映射到对应的UPC及其面值
+    amount_to_coupon_map = {
+        -5.0:  {"upc": min_upc, "value": 5.0},
+        -10.0: {"upc": mid_upc, "value": 10.0},
+        -20.0: {"upc": max_upc, "value": 20.0},
+    }
+    valid_amounts = tuple(amount_to_coupon_map.keys())
+
+    # 2. 校验门店权限
+    valid_stores_list = getStore()
+    if store not in valid_stores_list:
+        raise HTTPException(status_code=400, detail=f"无效的门店: {store}")
+    store_filter_str = f"('{store}')"
 
     # 3. 动态构建SQL查询
-    def sanitize_alias(s: str) -> str:
-        # 将非字母数字字符替换为下划线，以创建安全的列别名
-        return re.sub(r'[^a-zA-Z0-9]', '_', s)
-
-    count_filters = [
-        f"COUNT(*) FILTER (WHERE s.upc = %s) AS upc_{sanitize_alias(u)}"
-        for u in upcs
-    ]
-    
     sql_query = f"""
+        WITH valid_transactions AS (
+            SELECT DISTINCT transaction_id, store, date
+            FROM sale_item
+            WHERE
+                date = %s
+                AND store IN {store_filter_str}
+                AND upc IN %s
+        )
         SELECT
+            t.cashier_id,
             t.store,
             t.cashier_name,
-            t.cashier_id,
-            {', '.join(count_filters)}
-        FROM transaction t
-        INNER JOIN sale_item s ON t.transaction_id = s.transaction_id AND t.store = s.store AND t.date = s.date
-        WHERE t.date = %s
+            s.total_amount,
+            t.transaction_id
+        FROM
+            transaction t
+        JOIN
+            sale_item s ON t.transaction_id = s.transaction_id AND t.store = s.store AND t.date = s.date
+        JOIN
+            valid_transactions vt ON t.transaction_id = vt.transaction_id AND t.store = vt.store AND t.date = vt.date
+        WHERE
+            t.date = %s
           AND t.store IN {store_filter_str}
-          AND s.upc IN %s
-        GROUP BY t.store,t.cashier_name, t.cashier_id
-        ORDER BY t.cashier_name;
+          AND s.upc = 'nan'
+          AND s.total_amount IN %s
     """
 
     # 4. 执行查询
@@ -222,10 +239,72 @@ async def cashier_coupon(
             raise HTTPException(status_code=503, detail="无法建立数据库连接。")
         
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-            params = upcs + [date, tuple(upcs)]
-            cursor.execute(sql_query, params)
-            results = cursor.fetchall()
-            return [dict(row) for row in results]
+            cursor.execute(sql_query, (date, tuple(upcs), date, valid_amounts))
+            rows = cursor.fetchall()
+
+        if not rows:
+            return []
+
+        # 5. 处理结果，按收银员统计coupon数量
+        # 首先按 transaction_id 分组
+        transactions_map = defaultdict(list)
+        for row in rows:
+            transactions_map[row['transaction_id']].append(row)
+
+        cashier_coupon_counts = defaultdict(lambda: defaultdict(int))
+        cashier_name_map = {}
+        cashier_tags = defaultdict(lambda: 'confirm') # 默认所有收银员都是 confirm
+
+        for transaction_id, items in transactions_map.items():
+            cashier_id = str(items[0]['cashier_id'])
+            cashier_name = items[0]['cashier_name']
+            cashier_name_map[cashier_id] = cashier_name
+
+            # 检查一个 transaction 中是否有多个不同的 coupon 金额
+            amounts_in_tx = {float(item['total_amount']) for item in items}
+            
+            # 如果有歧义（多于一个不同的coupon金额），将该收银员标记为 notconfirm
+            if len(amounts_in_tx.intersection(valid_amounts)) > 1:
+                cashier_tags[cashier_id] = 'notconfirm'
+                # 即使不确定，也继续统计，但前端可以根据 tag 决定如何展示
+
+            # 正常统计
+            for item in items:
+                amount = float(item['total_amount'])
+                coupon_info = amount_to_coupon_map.get(amount)
+                if coupon_info:
+                    effective_upc = coupon_info["upc"]
+                    cashier_coupon_counts[cashier_id][effective_upc] += 1
+
+
+        # 6. 格式化最终响应
+        response_list = []
+        for cashier_id, counts in cashier_coupon_counts.items():
+            coupon_list = []
+            for u in sorted_upcs:
+                coupon_value = 0.0
+                for info in amount_to_coupon_map.values():
+                    if info["upc"] == u:
+                        coupon_value = info["value"]
+                        break
+                
+                coupon_list.append(CouponCount(
+                    upc=u,
+                    count=counts.get(u, 0),
+                    value=coupon_value
+                ))
+
+            response_list.append(
+                CashierCouponItem(
+                    cashier_id=cashier_id,
+                    cashier_name=cashier_name_map.get(cashier_id, "Unknown"),
+                    tag=cashier_tags[cashier_id],
+                    coupons=coupon_list
+                )
+            )
+
+        return sorted(response_list, key=lambda x: x.cashier_name)
+
     except psycopg2.Error as e:
         raise HTTPException(status_code=500, detail=f"数据库查询失败: {str(e)}")
     except Exception as e:

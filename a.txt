@@ -1,1 +1,36 @@
-再帮我在report目录下，增加一个文件labor.py里面增加一个report/labor_vs_sales端点，用来对比hr的人力和销量，hr系统db参考helper文件里面的getShiftDB，sysdepartment是部门表，第一层是Btrust，Btrust下面有两个子部门Management和Operation，Operation下面的子部门都是Hr系统里面的店，现在是B1，B2，BVW，Montreal，Terra，我在配置文件里stores下面增加了store_hr = B1,B2,Terra,Montreal,BVW用来一一对应销量系统里面的店名store = MS,NY,TE,MT,RH，我现在需要得到时间段内的销售额和人力资源数据，人力资源表是SysEmployeeDayHours，WorkDate date Btrustid nvarchar(50) DepartmentId bigint hours decimal(5, 2) source varchar(20) calc_version varchar(20) created_at datetime2(7) updated_at datetime2(7)这是表结构，里面存储了每个人的某天的隶属于某个部门的工时，我的端点的参数有store，按照MS,NY,TE,MT,RH来输入，还有时间段，输出包括store labor_hours代表总工时，sales代表销量，sales_per_labor_hour代表sales除以labor hours
+{ 
+  "total": 4, 
+  "invoice_total": 476.22, 
+  "sales_total": 564.22, 
+  "difference": 88.0,
+  "items": [ 
+    { 
+      "store": "MS", 
+      "department": "300", 
+      "invoice_total": 468.11, 
+      "sales_total": 562.11,
+      "difference": 88.0
+    }, 
+    { 
+      "store": "MS", 
+      "department": "270", 
+      "invoice_total": 468.11, 
+      "sales_total": 562.11,
+      "difference": 88.0
+    }, 
+    { 
+      "store": "MT", 
+      "department": "270", 
+      "invoice_total": 468.11, 
+      "sales_total": 562.11,
+      "difference": 88.0
+    }, 
+    { 
+      "store": "MT", 
+      "department": "400", 
+      "invoice_total": 468.11, 
+      "sales_total": 562.11,
+      "difference": 88.0
+    } 
+  ] 
+} 
