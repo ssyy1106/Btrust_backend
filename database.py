@@ -28,7 +28,7 @@ def get_db_store_sqlserver_factory(store: str):
         # 创建 engine + sessionmaker
         engine_sqlserver = create_async_engine(
             DATABASE_URL_SQLSERVER,
-            echo=True,
+            echo=False,
             pool_size=10,
             max_overflow=20,
             pool_recycle=1800,
@@ -82,7 +82,7 @@ def _require_sessionmaker(session_maker: Optional[async_sessionmaker], name: str
         raise RuntimeError(f"{name} is not initialized. Call init_database() during app startup.")
     return session_maker
 
-def init_database(echo: bool = True):
+def init_database(echo: bool = False):
     global engine_cost, AsyncSessionLocal_cost, engine, AsyncSessionLocal, engine_stock, AsyncSessionLocal_stock
     global engine_odoo, AsyncSessionLocal_odoo, engine_storestock, AsyncSessionLocal_storestock
 

@@ -48,6 +48,7 @@ async def lifespan(app: FastAPI):
     load_env(ENV_PATH)
     config = init_config(CONFIG_PATH)
     init_logging()
+    logging.info("Application startup... Logging initialized.")
     init_database()
     bos_api.init_odoo()
     await init_db()
@@ -92,12 +93,6 @@ app.include_router(report_invoice.router)
 app.include_router(report_labor.router)
 
 app.include_router(graphql_app, prefix="/graphql")
-
-directory = '.\\'
-file = datetime.datetime.now(datetime.timezone.utc).isoformat()[:10]
-#logging.basicConfig(filename=directory + file + '.log', encoding='utf-8', level=logging.DEBUG)
-logging.info('Start......')
-
 
 def sync_getResponse() -> Response | None:
     conn = dbapi.connect(
@@ -220,4 +215,3 @@ async def login(user: Login):
     token_data = {"sub": str(userId)}
     token = create_jwt_token(data=token_data)
     return {"access_token": token, "token_type": "bearer"}
-
