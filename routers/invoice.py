@@ -185,8 +185,9 @@ async def create_invoice(
 
     # 刷新发票对象，加载附件关系
     await db.refresh(invoice)
-
     return invoice
+
+
 
 @router.get("/", response_model=InvoiceListResponse)
 async def list_invoices(

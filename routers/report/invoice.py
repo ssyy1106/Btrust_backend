@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from pydantic import BaseModel
 import json
 import calendar
+import math
 import os
 from collections import defaultdict
 
@@ -28,8 +29,11 @@ class InvoiceSalesItemFlat(BaseModel):
     invoice_period_to: Optional[date] = None
 
 # 顶层响应模型，包含合计和列表
-class InvoiceSalesResponse(BaseModel):
+class PaginatedInvoiceSalesResponse(BaseModel):
     total: int
+    total_pages: int
+    current_page: int
+    page_size: int
     invoice_total: float
     sales_total: float
     difference: float
@@ -80,7 +84,7 @@ def generate_periods(start_date: date, end_date: date, period_type: str) -> List
         return get_month_periods(start_date, end_date)
     return [(start_date, end_date)]
 
-@router.get("/invoice_vs_sales", response_model=InvoiceSalesResponse)
+@router.get("/invoice_vs_sales", response_model=PaginatedInvoiceSalesResponse)
 async def invoice_vs_sales(
     store: Optional[List[str]] = Query(None, description="Stores"),
     date_specific: Optional[date] = Query(None, alias="date", description="Specific date"),
@@ -92,13 +96,20 @@ async def invoice_vs_sales(
     supplier: Optional[List[int]] = Query(None, description="Suppliers"),
     status: int = Query(0, description="Status (0, 1, 2)"),
     group_by_period: Optional[str] = Query(None, regex="^[DWM]$", description="Group by period: D (Day), W (Week), M (Month)"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=1000000, description="Page size"),
+    sort_by: str = Query("store", description="Sort by field (e.g., store, department, invoice_total)"),
+    sort_order: str = Query("asc", regex="^(asc|desc)$", description="Sort order: asc or desc"),
     db: AsyncSession = Depends(get_db),
     user = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
 ):
     # 1. 权限与门店校验
     stores = getStores(user, store)
     if not stores:
-        return InvoiceSalesResponse(total=0, invoice_total=0, sales_total=0, difference=0, items=[])
+        return PaginatedInvoiceSalesResponse(
+            total=0, total_pages=0, current_page=1, page_size=page_size,
+            invoice_total=0, sales_total=0, difference=0, items=[]
+        )
 
     # 从 invoice_departments_mapping.json 加载部门映射
     mapping_path = os.path.join(os.path.dirname(__file__), "invoice_departments_mapping.json")
@@ -268,15 +279,43 @@ async def invoice_vs_sales(
         grand_invoice_total += sum(invoice_map.values())
         grand_sales_total += sum(sales_map.values())
 
-    # 6. 计算最终合计
+    # 6. Sorting
+    sortable_fields = {
+        "store", "department", "department_name", "invoice_total",
+        "sales_total", "difference", "invoice_period_from", "invoice_period_to"
+    }
+    if sort_by not in sortable_fields:
+        sort_by = "store"  # default sort
+
+    reverse = sort_order == "desc"
+    try:
+        all_items_list.sort(key=lambda item: (
+            getattr(item, sort_by) is None,
+            getattr(item, sort_by)
+        ), reverse=reverse)
+    except AttributeError:
+        # Fallback if sort_by is somehow invalid
+        pass
+
+    # 7. Pagination
+    total_items = len(all_items_list)
+    total_pages = math.ceil(total_items / page_size) if page_size > 0 else 0
+    start_index = (page - 1) * page_size
+    end_index = start_index + page_size
+    paginated_items = all_items_list[start_index:end_index]
+
+    # 8. 计算最终合计 and return
     grand_difference = grand_sales_total - grand_invoice_total
 
-    return InvoiceSalesResponse(
-        total=len(all_items_list),
+    return PaginatedInvoiceSalesResponse(
+        total=total_items,
+        total_pages=total_pages,
+        current_page=page,
+        page_size=page_size,
         invoice_total=round(grand_invoice_total, 2),
         sales_total=round(grand_sales_total, 2),
         difference=round(grand_difference, 2),
-        items=all_items_list
+        items=paginated_items
     )
 
     # # 5. 合并结果 (扁平化处理)
