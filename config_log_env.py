@@ -69,3 +69,6 @@ def init_logging(level=logging.INFO):
     # 将处理器添加到日志记录器
     logger.addHandler(fh)
     logger.addHandler(ch)
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
+    logging.getLogger("asyncpg").setLevel(logging.WARNING)

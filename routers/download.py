@@ -4,7 +4,7 @@ from datetime import date, datetime
 import pandas as pd
 import os
 from hdbcli import dbapi
-from helper import getHanaDB, getDB, getStoreStr, get_config, getStore, getStores
+from helper import getHanaDB, getDB, getStoreStr, get_config, getStore, getStores, log_and_save
 from typing import Optional, List, Dict, Any
 import psycopg2
 import psycopg2.extras
@@ -267,6 +267,7 @@ async def cashier_coupon(
             if len(amounts_in_tx.intersection(valid_amounts)) > 1:
                 cashier_tags[cashier_id] = 'notconfirm'
                 # 即使不确定，也继续统计，但前端可以根据 tag 决定如何展示
+                log_and_save('ERROR', f"Transaction {transaction_id} has ambiguous coupon amounts: {amounts_in_tx} date: {date} store: {store} upc: {upcs}")
 
             # 正常统计
             for item in items:
