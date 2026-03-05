@@ -90,7 +90,7 @@ async def invoice_vs_sales(
     entry_end_date: Optional[date] = Query(None, description="Entry end date"),
     department: Optional[List[int]] = Query(None, description="Departments"),
     supplier: Optional[List[int]] = Query(None, description="Suppliers"),
-    status: Optional[int] = Query(None, description="Status (0, 1, 2)"),
+    status: int = Query(0, description="Status (0, 1, 2)"),
     group_by_period: Optional[str] = Query(None, regex="^[DWM]$", description="Group by period: D (Day), W (Week), M (Month)"),
     db: AsyncSession = Depends(get_db),
     user = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
@@ -176,8 +176,7 @@ async def invoice_vs_sales(
         base_invoice_filters.append(Invoice.store.in_(stores))
     if supplier:
         base_invoice_filters.append(Invoice.supplierid.in_(supplier))
-    if status is not None:
-        base_invoice_filters.append(Invoice.status == status)
+    base_invoice_filters.append(Invoice.status == status)
 
     all_items_list = []
     grand_invoice_total = 0.0
@@ -253,8 +252,8 @@ async def invoice_vs_sales(
                 invoice_total=round(invoice_total, 2),
                 sales_total=round(sales, 2),
                 difference=round(sales - invoice_total, 2),
-                invoice_period_from=p_start if group_by_period else None,
-                invoice_period_to=p_end if group_by_period else None
+                invoice_period_from=p_start if group_by_period else invoice_start_date,
+                invoice_period_to=p_end if group_by_period else invoice_end_date
             ))
             for child_node in node.get("departments", []):
                 process_node(child_node, store_code, target_list)

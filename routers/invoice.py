@@ -161,9 +161,9 @@ async def create_invoice(
         status = status.value
     )
     db.add(invoice)
-    await db.flush() #这样应该更好，不提交，直接得到invoice的id
-    # await db.commit()
-    # await db.refresh(invoice)
+    # await db.flush() #这样应该更好，不提交，直接得到invoice的id 有可能有隐藏问题，小心
+    await db.commit()
+    await db.refresh(invoice)
     for item in detail_items:
         detail = InvoiceDetail(
             invoiceid=invoice.id,
