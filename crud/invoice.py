@@ -261,6 +261,13 @@ async def get_invoice_list(
 
     if conditions:
         total_amount_stmt = total_amount_stmt.where(and_(*conditions))
+    
+    if department is not None:
+        subq = (
+            select(InvoiceDetail.invoiceid)
+            .where(InvoiceDetail.department == department)
+        )
+        total_amount_stmt = total_amount_stmt.where(Invoice.id.in_(subq))
 
     total_amount_result = await db.execute(total_amount_stmt)
     total_amount = total_amount_result.scalar() or 0
@@ -282,6 +289,16 @@ async def get_invoice_list(
 
         dept_result = await db.execute(dept_sum_stmt)
         total_department_amount = dept_result.scalar() or 0
+
+        # 为每个发票计算部门总金额
+        for inv in invoices:
+            inv.department_total_amount = sum(
+                (d.totalamount or 0) for d in inv.details if d.department == department
+            )
+    else:
+        # 如果没有部门筛选，则将每张发票的部门总金额设为 None
+        for inv in invoices:
+            inv.department_total_amount = None
 
     return {
         "total": total,
@@ -316,4 +333,3 @@ async def get_suppliers(db: AsyncSession):
         .order_by(Supplier.id.desc())
     )
     return result.scalars().all()
-

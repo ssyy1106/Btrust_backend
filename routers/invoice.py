@@ -187,8 +187,6 @@ async def create_invoice(
     await db.refresh(invoice)
     return invoice
 
-
-
 @router.get("/", response_model=InvoiceListResponse)
 async def list_invoices(
     invoice_start_date: Optional[date] = Query(None, description="发票开始日期"),
