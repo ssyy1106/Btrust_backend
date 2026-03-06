@@ -101,7 +101,7 @@ async def invoice_vs_sales(
     sort_by: str = Query("store", description="Sort by field (e.g., store, department, invoice_total)"),
     sort_order: str = Query("asc", regex="^(asc|desc)$", description="Sort order: asc or desc"),
     db: AsyncSession = Depends(get_db),
-    user = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view"]))
+    user = Depends(PermissionChecker(required_roles=["invoice:search", "invoice:view", "invoice:report"]))
 ):
     # 1. 权限与门店校验
     stores = getStores(user, store)
