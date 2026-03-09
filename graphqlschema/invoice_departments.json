@@ -6,6 +6,8 @@
   {"id": "300", "name": {"en_us": "Personal Care", "zh_cn": "个人护理"}},
   {"id": "400", "name": {"en_us": "Gourmet", "zh_cn": "美食"}},
   {"id": "500", "name": {"en_us": "Produce", "zh_cn": "菜果"}},
+  {"id": "501", "name": {"en_us": "Vegetable", "zh_cn": "蔬菜"}},
+  {"id": "600", "name": {"en_us": "Fruit", "zh_cn": "水果"}},
   {"id": "700", "name": {"en_us": "Frozen/Daily", "zh_cn": "急冻"}},
   {"id": "770", "name": {"en_us": "Bakery", "zh_cn": "糕点"}},
   {"id": "800", "name": {"en_us": "Meat", "zh_cn": "肉类"}},
