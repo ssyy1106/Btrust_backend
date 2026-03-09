@@ -6,6 +6,8 @@
     {"id": "300", "name": "Personal Care", "map_departments": ["300"], "map_subdepartments": [], "departments": []},
     {"id": "400", "name": "Gourmet", "map_departments": ["400"], "map_subdepartments": [], "departments": []},
     {"id": "500", "name": "Produce", "map_departments": ["500"], "map_subdepartments": [], "departments": []},
+    {"id": "501", "name": "Vegetable", "map_departments": [], "map_subdepartments": ["500"], "departments": []},
+    {"id": "600", "name": "Fruit", "map_departments": [], "map_subdepartments": ["600"], "departments": []},
     {"id": "700", "name": "Frozen/Daily", "map_departments": ["700"], "map_subdepartments": [], "departments": []},
     {"id": "770", "name": "Bakery", "map_departments": ["770"], "map_subdepartments": [], "departments": []},
     {"id": "800", "name": "Meat", "map_departments": ["800"], "map_subdepartments": [], "departments": []},
