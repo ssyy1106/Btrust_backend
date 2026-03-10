@@ -263,7 +263,7 @@ async def get_product_sales(
     mix_match_items = []
     
     # 3.1 Get mix_id for the input barcode
-    mix_id_query = text("SELECT TOP 1 F32 FROM PRICE_TAB WHERE F01 = :barcode AND F32 >= 1")
+    mix_id_query = text("SELECT TOP 1 F32 FROM PRICEACT_TAB WHERE F01 = :barcode AND F32 >= 1")
     mix_id_result = await db.execute(mix_id_query, {"barcode": main_barcode_for_sales})
     mix_id = mix_id_result.scalar_one_or_none()
 
@@ -289,7 +289,7 @@ async def get_product_sales(
                             CASE WHEN '{store}' = 'MT' THEN p.F2095 ELSE NULL END as FRN,
                             o.F22 as Size, pr.F32 as Mix_ID, m.F1019 as Mix_Name
             FROM POS_TAB p
-            LEFT JOIN PRICE_TAB pr ON p.F01 = pr.F01
+            LEFT JOIN PRICEACT_TAB pr ON p.F01 = pr.F01
             LEFT JOIN OBJ_TAB o ON p.F01 = o.F01
             LEFT JOIN MIX_TAB m ON pr.F32 = m.F32
             WHERE pr.F32 = :mix_id
