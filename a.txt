@@ -1,36 +1,11 @@
-{ 
-  "total": 4, 
-  "invoice_total": 476.22, 
-  "sales_total": 564.22, 
-  "difference": 88.0,
-  "items": [ 
-    { 
-      "store": "MS", 
-      "department": "300", 
-      "invoice_total": 468.11, 
-      "sales_total": 562.11,
-      "difference": 88.0
-    }, 
-    { 
-      "store": "MS", 
-      "department": "270", 
-      "invoice_total": 468.11, 
-      "sales_total": 562.11,
-      "difference": 88.0
-    }, 
-    { 
-      "store": "MT", 
-      "department": "270", 
-      "invoice_total": 468.11, 
-      "sales_total": 562.11,
-      "difference": 88.0
-    }, 
-    { 
-      "store": "MT", 
-      "department": "400", 
-      "invoice_total": 468.11, 
-      "sales_total": 562.11,
-      "difference": 88.0
-    } 
-  ] 
-} 
+"like_match": {
+		"items": [
+			{ 	
+			"barcode": "...", 
+			"name_en": "...", 
+			"name_cn": "...", 
+			"name_fr": "...",
+			"sales": 6,..........
+			}
+		]
+   }

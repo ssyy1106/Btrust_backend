@@ -179,6 +179,7 @@ async def _get_product_common(
         "unit_type": unit_type.strip() if unit_type else None,
         "image_url": image_url,
         "tax": tax,
+        "like_code": product.F122.strip() if product.F122 else None,
     }
 
 # --- v2 接口 ---
@@ -266,6 +267,20 @@ async def get_product_sales(
     mix_id_result = await db.execute(mix_id_query, {"barcode": main_barcode_for_sales})
     mix_id = mix_id_result.scalar_one_or_none()
 
+    def sync_get_sales_for_barcodes(barcodes, s, sd, ed):
+        sales_data = {}
+        if not barcodes: return sales_data
+        upcs_to_query = tuple(b.lstrip('0') for b in barcodes if b)
+        if not upcs_to_query: return sales_data
+
+        with getDB() as conn:
+            with conn.cursor() as cursor:
+                sql = "SELECT normalized_upc, COALESCE(SUM(total_count) , 0), COALESCE(SUM(total_amount), 0) FROM day_upc_aggregate WHERE normalized_upc IN %s AND store = %s AND day BETWEEN %s AND %s GROUP BY normalized_upc"
+                cursor.execute(sql, (upcs_to_query, s, sd, ed))
+                for row in cursor.fetchall():
+                    sales_data[row[0]] = {"sales_count": row[1], "sales_amount": row[2]}
+        return sales_data
+    
     if mix_id:
         # 3.2 Get all items in that mix_id group
         mix_match_query = text(f"""
@@ -285,20 +300,6 @@ async def get_product_sales(
         barcodes_in_mix = [row.UPC.strip() for row in mix_rows if row.UPC]
         
         # 3.3 Batch query sales data for all mix-match items
-        def sync_get_sales_for_barcodes(barcodes, s, sd, ed):
-            sales_data = {}
-            if not barcodes: return sales_data
-            upcs_to_query = tuple(b.lstrip('0') for b in barcodes if b)
-            if not upcs_to_query: return sales_data
-
-            with getDB() as conn:
-                with conn.cursor() as cursor:
-                    sql = "SELECT ltrim(upc, '0'), COALESCE(SUM(total_count) , 0), COALESCE(SUM(total_amount), 0) FROM day_upc_aggregate WHERE normalized_upc IN %s AND store = %s AND day BETWEEN %s AND %s GROUP BY ltrim(upc, '0')"
-                    cursor.execute(sql, (upcs_to_query, s, sd, ed))
-                    for row in cursor.fetchall():
-                        sales_data[row[0]] = {"sales_count": row[1], "sales_amount": row[2]}
-            return sales_data
-
         sales_map = await run_in_threadpool(sync_get_sales_for_barcodes, barcodes_in_mix, store, start_date, end_date)
 
         # 3.4 Format mix_match items
@@ -310,6 +311,41 @@ async def get_product_sales(
             mix_match_items.append({"barcode": upc_from_sql, "name_en": row.ENG.strip() if row.ENG else None, "name_cn": row.CHN.strip() if row.CHN else None, "name_fr": row.FRN.strip() if row.FRN else None, "sales": sales["sales_count"], "sales_count": sales["sales_count"], "sales_amount": float(sales["sales_amount"]), "brand": row.Brand.strip() if row.Brand else None, "size": row.Size.strip() if row.Size else None, "mix_id": row.Mix_ID, "mix_name": row.Mix_Name.strip() if row.Mix_Name else None})
 
     product_info["mix_match"] = {"items": mix_match_items}
+
+    # 4. Get like match data
+    like_match_items = []
+    like_code = product_info.get('like_code')
+
+    if like_code:
+        # 4.1 Get all items with the same like_code
+        like_match_query = text(f"""
+            SELECT DISTINCT o.F01 as UPC, o.F155 as Brand, o.F29 as ENG,
+                            CASE WHEN '{store}' = 'MT' THEN NULL ELSE p.F2095 END as CHN,
+                            CASE WHEN '{store}' = 'MT' THEN p.F2095 ELSE NULL END as FRN,
+                            o.F22 as Size, o.F122 as Like_Code
+            FROM OBJ_TAB o
+            LEFT JOIN POS_TAB p ON o.F01 = p.F01
+            WHERE o.F122 = :like_code
+            ORDER BY o.F01
+        """)
+        like_match_result = await db.execute(like_match_query, {"like_code": like_code})
+        like_rows = like_match_result.all()
+
+        if len(like_rows) > 1:
+            barcodes_in_like_group = [row.UPC.strip() for row in like_rows if row.UPC]
+            
+            # 4.2 Batch query sales data for all like-match items
+            like_sales_map = await run_in_threadpool(sync_get_sales_for_barcodes, barcodes_in_like_group, store, start_date, end_date)
+
+            # 4.3 Format like_match items
+            for row in like_rows:
+                upc_from_sql = row.UPC.strip() if row.UPC else ''
+                if not upc_from_sql: continue
+                upc_for_sales_map = upc_from_sql.lstrip('0')
+                sales = like_sales_map.get(upc_for_sales_map, {"sales_count": 0, "sales_amount": 0.0})
+                like_match_items.append({"barcode": upc_from_sql, "name_en": row.ENG.strip() if row.ENG else None, "name_cn": row.CHN.strip() if row.CHN else None, "name_fr": row.FRN.strip() if row.FRN else None, "sales": sales["sales_count"], "sales_count": sales["sales_count"], "sales_amount": float(sales["sales_amount"]), "brand": row.Brand.strip() if row.Brand else None, "size": row.Size.strip() if row.Size else None, "like_code": row.Like_Code.strip() if row.Like_Code else None})
+
+    product_info["like_match"] = {"items": like_match_items}
     return product_info
 
 @router.get("", summary="获取过去几天下过订单或有库存无订单的产品信息", response_model=ProductListResponse)
