@@ -2,18 +2,19 @@ import json
 import os
 from fastapi import APIRouter, Query, Depends, HTTPException, Response, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, text
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import asyncio
+from fastapi.concurrency import run_in_threadpool
 
 from dependencies.permission import PermissionChecker
 from database import get_db_odoo, get_db_store_sqlserver_factory
 from models.product import ProductProduct, ProductTemplate, IrAttachment, ProductCategory, StockQuant, ObjTab, CatTab, PriceTab, UMETab, PosTab
 from models.pickup import SaleOrder, SaleOrderLine
 from schemas.product import ProductListResponse, ProductCategoryResponse
-from helper import getOdooAccount, to_utc_naive
+from helper import getOdooAccount, to_utc_naive, getDB
 
 router = APIRouter(prefix="/product", tags=["Product"])
 
@@ -212,6 +213,105 @@ async def get_product_image(barcode: str):
         media_type="image/png"
     )
 
+@router.get("/sales/{barcode}")
+async def get_product_sales(
+    barcode: str,
+    start_date: date,
+    end_date: date,
+    request: Request,
+    db: AsyncSession = Depends(get_db_from_store)
+):
+    store = request.query_params.get("store")
+    if not store:
+        raise HTTPException(status_code=400, detail="store 参数必填")
+
+    # 1. Get base product info
+    barcode_padded = barcode.zfill(14)
+    try:
+        product_info = await _get_product_common(barcode_padded, store, db, try_without_checkdigit=True)
+    except HTTPException as e:
+        if e.status_code == 404:
+            raise HTTPException(status_code=404, detail=f"Product with barcode {barcode} not found in store {store}")
+        raise e
+
+    # 2. Get sales data for the main product
+    main_barcode_for_sales = product_info['barcode']
+
+    def sync_get_sales_data(b, s, sd, ed):
+        with getDB() as conn:
+            with conn.cursor() as cursor:
+                upc_to_query = b.lstrip('0') if b else ''
+                if not upc_to_query:
+                    return (0, 0.0)
+                
+                sql = """
+                    SELECT COALESCE(SUM(total_count) , 0), COALESCE(SUM(total_amount), 0)
+                    FROM day_upc_aggregate
+                    WHERE normalized_upc = %s AND store = %s AND day BETWEEN %s AND %s
+                """
+                cursor.execute(sql, (upc_to_query, s, sd, ed))
+                result = cursor.fetchone()
+                return result or (0, 0.0)
+
+    sales_count, sales_amount = await run_in_threadpool(sync_get_sales_data, main_barcode_for_sales, store, start_date, end_date)
+
+    product_info['sales_count'] = sales_count
+    product_info['sales_amount'] = float(sales_amount)
+
+    # 3. Get mix & match data
+    mix_match_items = []
+    
+    # 3.1 Get mix_id for the input barcode
+    mix_id_query = text("SELECT TOP 1 F32 FROM PRICE_TAB WHERE F01 = :barcode AND F32 >= 1")
+    mix_id_result = await db.execute(mix_id_query, {"barcode": main_barcode_for_sales})
+    mix_id = mix_id_result.scalar_one_or_none()
+
+    if mix_id:
+        # 3.2 Get all items in that mix_id group
+        mix_match_query = text(f"""
+            SELECT DISTINCT p.F01 as UPC, o.F155 as Brand, o.F29 as ENG, 
+                            CASE WHEN '{store}' = 'MT' THEN NULL ELSE p.F2095 END as CHN,
+                            CASE WHEN '{store}' = 'MT' THEN p.F2095 ELSE NULL END as FRN,
+                            o.F22 as Size, pr.F32 as Mix_ID, m.F1019 as Mix_Name
+            FROM POS_TAB p
+            LEFT JOIN PRICE_TAB pr ON p.F01 = pr.F01
+            LEFT JOIN OBJ_TAB o ON p.F01 = o.F01
+            LEFT JOIN MIX_TAB m ON pr.F32 = m.F32
+            WHERE pr.F32 = :mix_id
+        """)
+        mix_match_result = await db.execute(mix_match_query, {"mix_id": mix_id})
+        mix_rows = mix_match_result.all()
+
+        barcodes_in_mix = [row.UPC.strip() for row in mix_rows if row.UPC]
+        
+        # 3.3 Batch query sales data for all mix-match items
+        def sync_get_sales_for_barcodes(barcodes, s, sd, ed):
+            sales_data = {}
+            if not barcodes: return sales_data
+            upcs_to_query = tuple(b.lstrip('0') for b in barcodes if b)
+            if not upcs_to_query: return sales_data
+
+            with getDB() as conn:
+                with conn.cursor() as cursor:
+                    sql = "SELECT ltrim(upc, '0'), COALESCE(SUM(total_count) , 0), COALESCE(SUM(total_amount), 0) FROM day_upc_aggregate WHERE normalized_upc IN %s AND store = %s AND day BETWEEN %s AND %s GROUP BY ltrim(upc, '0')"
+                    cursor.execute(sql, (upcs_to_query, s, sd, ed))
+                    for row in cursor.fetchall():
+                        sales_data[row[0]] = {"sales_count": row[1], "sales_amount": row[2]}
+            return sales_data
+
+        sales_map = await run_in_threadpool(sync_get_sales_for_barcodes, barcodes_in_mix, store, start_date, end_date)
+
+        # 3.4 Format mix_match items
+        for row in mix_rows:
+            upc_from_sql = row.UPC.strip() if row.UPC else ''
+            if not upc_from_sql: continue
+            upc_for_sales_map = upc_from_sql.lstrip('0')
+            sales = sales_map.get(upc_for_sales_map, {"sales_count": 0, "sales_amount": 0.0})
+            mix_match_items.append({"barcode": upc_from_sql, "name_en": row.ENG.strip() if row.ENG else None, "name_cn": row.CHN.strip() if row.CHN else None, "name_fr": row.FRN.strip() if row.FRN else None, "sales": sales["sales_count"], "sales_count": sales["sales_count"], "sales_amount": float(sales["sales_amount"]), "brand": row.Brand.strip() if row.Brand else None, "size": row.Size.strip() if row.Size else None, "mix_id": row.Mix_ID, "mix_name": row.Mix_Name.strip() if row.Mix_Name else None})
+
+    product_info["mix_match"] = {"items": mix_match_items}
+    return product_info
+
 @router.get("", summary="获取过去几天下过订单或有库存无订单的产品信息", response_model=ProductListResponse)
 async def get_products(
     days: Optional[int] = Query(7, description="过去几天的订单，默认7天，-1表示不限时间"),
@@ -334,6 +434,3 @@ async def get_products(
         })
 
     return {"total": total, "products": products}
-
-
-
