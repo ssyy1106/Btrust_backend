@@ -63,7 +63,7 @@ def getDateData(param: DateSearchParameter) -> DateData:
                 details = []
                 for row in rows:
                     transactions = row[4]
-                    detail = DateDetail(amount = row[2], date = datetime.datetime.strptime(row[0], '%Y-%m-%d'), store=row[1], idkind=kind, id=row[3], name = '', transactions=transactions)
+                    detail = DateDetail(amount = row[2], date = row[0], store=row[1], idkind=kind, id=row[3], name = '', transactions=transactions)
                     if (kind == 'Department' or kind == 'SubDepartment') and row[3].isdigit():
                         detail.name = getDepartmentName(int(row[3]))
                     total_amount += row[2]
