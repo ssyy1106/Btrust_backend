@@ -43,12 +43,12 @@ def getDateData(param: DateSearchParameter) -> DateData:
                 for row in rows:
                     product = Product(totalamount = row[0], upc = getUPC(row[1]))
                     products.append(product)
-                sql = f"select day, store, sum(total_amount) as total_amount, store, sum(transactions) from {table} where day between '{from_date}' and '{to_date}'"
+                sql = f"select day::date, store, sum(total_amount) as total_amount, store, sum(transactions) from {table} where day between '{from_date}' and '{to_date}'"
                 # if store != 'ALL':
                 sql += " and store in " + store
-                sql += " group by store, day"
+                sql += " group by store, day::date"
             else:
-                sql = f"select day, store, total_amount, {column}, transactions from {table} where day between '{from_date}' and '{to_date}'"
+                sql = f"select day::date, store, total_amount, {column}, transactions from {table} where day between '{from_date}' and '{to_date}'"
                 if UseID:
                     sql += " and " + column + " = '" + id + "'"
                 #if store != 'ALL':
