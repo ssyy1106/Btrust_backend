@@ -255,7 +255,6 @@ async def get_product_sales(
                 return result or (0, 0.0)
 
     sales_count, sales_amount = await run_in_threadpool(sync_get_sales_data, main_barcode_for_sales, store, start_date, end_date)
-
     product_info['sales_count'] = sales_count
     product_info['sales_amount'] = float(sales_amount)
 

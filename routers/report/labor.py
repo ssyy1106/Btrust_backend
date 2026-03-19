@@ -8,6 +8,7 @@ from fastapi import Depends
 import json
 import os
 from collections import defaultdict
+import calendar
 
 
 router = APIRouter(prefix="/report", tags=["Report"])
@@ -28,6 +29,26 @@ class LaborSalesItem(BaseModel):
     sales: float
     sales_per_labor_hour: float
     departments: List[LaborSalesDepartmentItem] = []
+
+class MonthlyStat(BaseModel):
+    year: int
+    month: int
+    labor_hours: float
+    sales: float
+    sales_per_labor_hour: float
+
+class LaborSalesDepartmentMonthItem(BaseModel):
+    id: str
+    name: str
+    monthly_data: List[MonthlyStat]
+    children: List['LaborSalesDepartmentMonthItem'] = []
+
+LaborSalesDepartmentMonthItem.model_rebuild()
+
+class LaborSalesMonthItem(BaseModel):
+    store: str
+    monthly_data: List[MonthlyStat]
+    departments: List[LaborSalesDepartmentMonthItem] = []
 
 @router.get("/labor_vs_sales", response_model=List[LaborSalesItem])
 def get_labor_vs_sales(
@@ -248,4 +269,241 @@ def get_labor_vs_sales(
             departments=store_depts
         ))
         
+    return response_list
+
+@router.get("/labor_vs_sales/month", response_model=List[LaborSalesMonthItem])
+def get_labor_vs_sales_month(
+    start_year: int,
+    start_month: int,
+    end_year: int,
+    end_month: int,
+    store: Optional[List[str]] = Query(None, description="门店（多个）"),
+    user = Depends(PermissionChecker(required_roles=["organization:user:add"]))
+):
+    target_stores = getStores(user, store)
+    store_mapping = getStoreMapping()
+    mapping_stores = [store_mapping[store] for store in target_stores if store in store_mapping]
+
+    if not target_stores:
+        return []
+
+    # Calculate Date Range
+    start_date = date(start_year, start_month, 1)
+    last_day = calendar.monthrange(end_year, end_month)[1]
+    end_date = date(end_year, end_month, last_day)
+
+    # Generate list of (year, month)
+    months_list = []
+    y, m = start_year, start_month
+    while (y < end_year) or (y == end_year and m <= end_month):
+        months_list.append((y, m))
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+
+    # Initialize Data Structures
+    # store -> (year, month) -> val
+    store_monthly_sales = defaultdict(lambda: defaultdict(float))
+    store_monthly_hours = defaultdict(lambda: defaultdict(float))
+    
+    # (store, dept_id) -> (year, month) -> val
+    dept_monthly_sales = defaultdict(lambda: defaultdict(float))
+    subdept_monthly_sales = defaultdict(lambda: defaultdict(float))
+    
+    # hr_dept_id -> (year, month) -> val
+    hr_dept_monthly_hours = defaultdict(lambda: defaultdict(float))
+
+    # Load Mapping
+    mapping_path = os.path.join(os.path.dirname(__file__), "hr_departments_mapping.json")
+    hr_mapping = []
+    if os.path.exists(mapping_path):
+        with open(mapping_path, 'r', encoding='utf-8') as f:
+            hr_mapping = json.load(f)
+
+    sales_dept_ids = set()
+    sales_subdept_ids = set()
+    hr_dept_ids = set()
+
+    def collect_ids(node):
+        if "id" in node:
+            hr_dept_ids.add(str(node["id"]))
+        for d in node.get("map_departments", []):
+            sales_dept_ids.add(str(d))
+        for sd in node.get("map_subdepartments", []):
+            sales_subdept_ids.add(str(sd))
+        for child in node.get("departments", []):
+            collect_ids(child)
+
+    for store_node in hr_mapping:
+        if store_node.get("name") in [store_mapping.get(s) for s in target_stores]:
+            for dept in store_node.get("departments", []):
+                collect_ids(dept)
+
+    # 1. Query Sales (Postgres)
+    try:
+        with getDB() as conn:
+            with conn.cursor() as cursor:
+                stores_str = "'" + "','".join(target_stores) + "'"
+                
+                # Store total sales by month
+                sql_sales = f"""
+                    SELECT store, CAST(EXTRACT(YEAR FROM day::Date) AS INTEGER), CAST(EXTRACT(MONTH FROM day::Date) AS INTEGER), SUM(total_amount)
+                    FROM day_department_aggregate
+                    WHERE day >= '{start_date}' AND day <= '{end_date}'
+                    AND store IN ({stores_str})
+                    GROUP BY store, CAST(EXTRACT(YEAR FROM day::Date) AS INTEGER), CAST(EXTRACT(MONTH FROM day::Date) AS INTEGER)
+                """
+                cursor.execute(sql_sales)
+                for row in cursor.fetchall():
+                    store_monthly_sales[row[0]][(row[1], row[2])] = float(row[3]) if row[3] else 0.0
+
+                if sales_dept_ids:
+                    ids_str = "'" + "','".join(sales_dept_ids) + "'"
+                    sql_dept = f"""
+                        SELECT store, department, CAST(EXTRACT(YEAR FROM day::Date) AS INTEGER), CAST(EXTRACT(MONTH FROM day::Date) AS INTEGER), SUM(total_amount)
+                        FROM day_department_aggregate
+                        WHERE day >= '{start_date}' AND day <= '{end_date}'
+                        AND store IN ({stores_str}) AND department IN ({ids_str})
+                        GROUP BY store, department, CAST(EXTRACT(YEAR FROM day::Date) AS INTEGER), CAST(EXTRACT(MONTH FROM day::Date) AS INTEGER)
+                    """
+                    cursor.execute(sql_dept)
+                    for row in cursor.fetchall():
+                        dept_monthly_sales[(row[0], str(row[1]))][(row[2], row[3])] = float(row[4]) if row[4] else 0.0
+
+                if sales_subdept_ids:
+                    ids_str = "'" + "','".join(sales_subdept_ids) + "'"
+                    sql_subdept = f"""
+                        SELECT store, sub_department, CAST(EXTRACT(YEAR FROM day::Date) AS INTEGER), CAST(EXTRACT(MONTH FROM day::Date) AS INTEGER), SUM(total_amount)
+                        FROM day_subdepartment_aggregate
+                        WHERE day >= '{start_date}' AND day <= '{end_date}'
+                        AND store IN ({stores_str}) AND sub_department IN ({ids_str})
+                        GROUP BY store, sub_department, CAST(EXTRACT(YEAR FROM day::Date) AS INTEGER), CAST(EXTRACT(MONTH FROM day::Date) AS INTEGER)
+                    """
+                    cursor.execute(sql_subdept)
+                    for row in cursor.fetchall():
+                        subdept_monthly_sales[(row[0], str(row[1]))][(row[2], row[3])] = float(row[4]) if row[4] else 0.0
+    except Exception as e:
+        print(f"Error querying Sales DB (Monthly): {e}")
+
+    # 2. Query HR (SQL Server)
+    try:
+        with getShiftDB() as conn:
+            with conn.cursor() as cursor:
+                # Identify Store IDs
+                hr_store_names_str = "'" + "','".join(mapping_stores) + "'"
+                sql_dept = f"""
+                    SELECT d.Id, d.DepartmentName
+                    FROM SysDepartment d
+                    JOIN SysDepartment op ON d.ParentId = op.Id
+                    JOIN SysDepartment b ON op.ParentId = b.Id
+                    WHERE b.DepartmentName = 'Btrust' AND op.DepartmentName = 'Operation'
+                        AND d.DepartmentName IN ({hr_store_names_str})
+                """
+                cursor.execute(sql_dept)
+                hr_store_id_map = {}
+                hr_name_to_store = {v: k for k, v in store_mapping.items()}
+                store_ids = []
+                # for row in dept_rows: # Re-using var name from valid scope if available, but here we query fresh
+                #     pass # fetchall returned to variable
+                
+                for row in cursor.fetchall(): # Process fetchall result
+                    s_id, s_name = row[0], row[1]
+                    if s_name in hr_name_to_store:
+                        sale_store_name = hr_name_to_store[s_name]
+                        if sale_store_name in target_stores:
+                            hr_store_id_map[s_id] = sale_store_name
+                            store_ids.append(str(s_id))
+                
+                if store_ids:
+                    # Store Hours
+                    sql_hours = f"""
+                        SELECT DepartmentId, YEAR(WorkDate), MONTH(WorkDate), SUM(hours)
+                        FROM SysEmployeeDayHours
+                        WHERE WorkDate >= '{start_date}' AND WorkDate <= '{end_date}'
+                        GROUP BY DepartmentId, YEAR(WorkDate), MONTH(WorkDate)
+                    """
+                    cursor.execute(sql_hours)
+                    for row in cursor.fetchall():
+                        store_code = getStoreWithId(row[0])
+                        if str(store_code) in store_ids:
+                            target_store = hr_store_id_map[store_code]
+                            store_monthly_hours[target_store][(row[1], row[2])] += float(row[3]) if row[3] else 0.0
+                    
+                if hr_dept_ids:
+                    ids_str = "'" + "','".join(hr_dept_ids) + "'"
+                    sql_dept_hours = f"""
+                        SELECT DepartmentId, YEAR(WorkDate), MONTH(WorkDate), SUM(hours)
+                        FROM SysEmployeeDayHours
+                        WHERE WorkDate >= '{start_date}' AND WorkDate <= '{end_date}'
+                        AND DepartmentId IN ({ids_str})
+                        GROUP BY DepartmentId, YEAR(WorkDate), MONTH(WorkDate)
+                    """
+                    cursor.execute(sql_dept_hours)
+                    for row in cursor.fetchall():
+                        hr_dept_monthly_hours[str(row[0])][(row[1], row[2])] = float(row[3]) if row[3] else 0.0
+    except Exception as e:
+        print(f"Error querying HR DB (Monthly): {e}")
+
+    # 3. Build Response
+    def build_month_dept_tree(node, store_code):
+        monthly_data = []
+        for y, m in months_list:
+            sales = 0.0
+            for d_id in node.get("map_departments", []):
+                sales += dept_monthly_sales[(store_code, str(d_id))][(y, m)]
+            for sd_id in node.get("map_subdepartments", []):
+                sales += subdept_monthly_sales[(store_code, str(sd_id))][(y, m)]
+            
+            hours = hr_dept_monthly_hours[str(node.get("id"))][(y, m)]
+            sph = sales / hours if hours > 0 else 0.0
+            
+            monthly_data.append(MonthlyStat(
+                year=y,
+                month=m,
+                labor_hours=round(hours, 2),
+                sales=round(sales, 2),
+                sales_per_labor_hour=round(sph, 2)
+            ))
+
+        children = []
+        for child in node.get("departments", []):
+            children.append(build_month_dept_tree(child, store_code))
+
+        return LaborSalesDepartmentMonthItem(
+            id=str(node.get("id")),
+            name=node.get("name"),
+            monthly_data=monthly_data,
+            children=children
+        )
+
+    response_list = []
+    for s in target_stores:
+        # Store Level Data
+        store_monthly_stats = []
+        for y, m in months_list:
+            sales = store_monthly_sales[s][(y, m)]
+            hours = store_monthly_hours[s][(y, m)]
+            sph = sales / hours if hours > 0 else 0.0
+            store_monthly_stats.append(MonthlyStat(
+                year=y,
+                month=m,
+                labor_hours=round(hours, 2),
+                sales=round(sales, 2),
+                sales_per_labor_hour=round(sph, 2)
+            ))
+        
+        store_depts = []
+        hr_store_name = store_mapping.get(s)
+        store_node = next((item for item in hr_mapping if item["name"] == hr_store_name), None)
+        if store_node:
+            for dept_node in store_node.get("departments", []):
+                store_depts.append(build_month_dept_tree(dept_node, s))
+        
+        response_list.append(LaborSalesMonthItem(
+            store=s,
+            monthly_data=store_monthly_stats,
+            departments=store_depts
+        ))
+
     return response_list
