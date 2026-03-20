@@ -82,6 +82,8 @@ class TodaySearchParameter:
 class DepartmentSearchParameter:
     ID: str = strawberry.field(description="Search Departments with ID", default = "")
     Invoice: Optional[bool] = strawberry.field(description="Search invoice departments", default = False)
+    HR: Optional[bool] = strawberry.field(description="Search HR departments", default = False)
+    Store: Optional[str] = strawberry.field(description="Search Store departments", default = "")
 
 @strawberry.input
 class SubDepartmentSearchParameter:

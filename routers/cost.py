@@ -5,15 +5,18 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, asc, desc, func
 from dependencies.permission import PermissionChecker
-from models.cost import CostImport  # 你的模型文件
+from models.cost import CostImport, CostHRImport
 from database import get_db_cost
 import datetime
 from pathlib import Path
 from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.utils import get_column_letter
+from openpyxl.workbook.defined_name import DefinedName
 from io import BytesIO
-from helper import getStore
+from helper import getStore, getHRStore
 from graphqlschema.department import getDepartments
+from graphqlschema.schema import DepartmentSearchParameter
 import re
 
 router = APIRouter(prefix="/costs", tags=["Cost"])
@@ -60,7 +63,6 @@ async def download_cost_template(
     # ✅ 先创建 Data sheet
     ws_data = wb.active
     ws_data.title = "Data"
-    # ws_data.append(["store", "department", "month", "cost"])
     ws_data.append(["store", "department", "year", "month", "cost"])
 
     # ✅ 创建 Reference sheet
@@ -128,6 +130,215 @@ async def download_cost_template(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=cost_template.xlsx"},
     )
+
+@router.get("/template/hr", summary="下载HR成本录入模板（含限制）")
+async def download_hr_cost_template(
+    user=Depends(PermissionChecker(required_roles=["cost:download"])),
+    db: AsyncSession = Depends(get_db_cost),
+):
+    valid_stores = getHRStore()
+    
+    # 1. 预取所有门店对应的 HR 部门
+    store_dept_map = {}
+    for store in valid_stores:
+        param = DepartmentSearchParameter(HR=True, Store=store)
+        try:
+            depts_data = getDepartments(param)
+            # name 是 JSON 类型 (dict)，取 "en_us"
+            dept_names = [item.name["en_us"] for item in depts_data.departments if item.name]
+            store_dept_map[store] = dept_names
+        except Exception:
+            store_dept_map[store] = []
+
+    wb = Workbook()
+
+    # 2. Data Sheet
+    ws_data = wb.active
+    ws_data.title = "Data"
+    ws_data.append(["store", "department", "year", "month", "cost", "other_cost"])
+
+    # 3. Reference Sheet (用于存放下拉选项源数据)
+    ws_ref = wb.create_sheet(title="Reference")
+
+    # 3.1 写入门店列表到 A 列
+    ws_ref.append(["Store"])
+    for store in valid_stores:
+        ws_ref.append([store])
+    # 创建 StoreList 命名范围 (使用 DefinedName)
+    dn = DefinedName("StoreList", attr_text=f"'Reference'!$A$2:$A${len(valid_stores) + 1}")
+    wb.defined_names.add(dn)
+
+    # 3.2 写入各门店部门到后续列 (C列开始)
+    col_idx = 3
+    for store in valid_stores:
+        depts = store_dept_map.get(store, [])
+        if not depts:
+            continue
+        
+        # 将该店的部门写入一列
+        ws_ref.cell(row=1, column=col_idx, value=store)
+        for i, dept in enumerate(depts):
+            ws_ref.cell(row=i+2, column=col_idx, value=dept)
+        
+        # 创建命名范围：HR_STORE_SanitizedName
+        # 必须加上前缀避免与单元格地址(如B1)冲突，并处理特殊字符
+        sanitized_store = re.sub(r'[^a-zA-Z0-9]', '_', store)
+        range_name = f"HR_STORE_{sanitized_store}"
+        
+        col_letter = get_column_letter(col_idx)
+        dn = DefinedName(range_name, attr_text=f"'Reference'!${col_letter}$2:${col_letter}${len(depts)+1}")
+        wb.defined_names.add(dn)
+        col_idx += 1
+
+    ws_ref.sheet_state = "hidden"
+
+    # 4. 数据验证
+    # Store 列使用 StoreList
+    store_validation = DataValidation(type="list", formula1="=StoreList", allow_blank=True, showErrorMessage=True, errorTitle='无效门店', error='请选择有效门店')
+    ws_data.add_data_validation(store_validation)
+    store_validation.add("A2:A500")
+
+    # Department 列使用 INDIRECT 引用对应门店的 Named Range
+    dept_validation = DataValidation(type="list", formula1='=INDIRECT("HR_STORE_"&SUBSTITUTE(A2," ","_"))', allow_blank=True, showErrorMessage=True, errorTitle='无效部门', error='请选择该门店下的有效部门')
+    ws_data.add_data_validation(dept_validation)
+    dept_validation.add("B2:B500")
+
+    stream = BytesIO()
+    wb.save(stream)
+    stream.seek(0)
+
+    return StreamingResponse(
+        stream,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=hr_cost_template.xlsx"},
+    )
+
+@router.post("/upload/hr", summary="上传hr成本 Excel 文件")
+async def upload_hr_cost_xlsx(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db_cost),
+    user=Depends(PermissionChecker(required_roles=["cost:insert"])),
+):
+    if not file.filename.endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="请上传 xlsx 文件")
+
+    contents = await file.read()
+
+    try:
+        wb = load_workbook(BytesIO(contents), data_only=True)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"无法读取文件: {e}")
+
+    if "Data" not in wb.sheetnames:
+        raise HTTPException(status_code=400, detail="缺少 Data sheet")
+    ws = wb["Data"]
+
+    header = [str(cell.value).strip().lower() for cell in next(ws.iter_rows(max_row=1))]
+    # other_cost 是可选的，但在新表中是必须字段(允许为空)，这里检查excel是否有这一列
+    required_cols = {"store", "department", "year", "month", "cost"}
+    if not required_cols.issubset(header):
+        raise HTTPException(status_code=400, detail=f"缺少必须列: {required_cols}")
+
+    col_idx = {name: header.index(name) for name in header}
+    valid_stores = getHRStore()
+
+    # 缓存: store -> { full_name -> {id, short_name} }
+    store_dept_map_cache = {}
+
+    for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+        store = str(row[col_idx["store"]]).strip() if row[col_idx["store"]] else None
+        dept_full = str(row[col_idx["department"]]).strip() if row[col_idx["department"]] else None
+        year_cell = row[col_idx["year"]]
+        month_cell = row[col_idx["month"]]
+        cost_val = row[col_idx["cost"]]
+        other_cost_val = row[col_idx["other_cost"]] if "other_cost" in col_idx and row[col_idx["other_cost"]] is not None else 0
+
+        if not store and not dept_full and year_cell is None:
+            continue
+
+        if not store or not dept_full or year_cell is None or month_cell is None or cost_val is None:
+            continue
+
+        year = str(year_cell).strip()
+        month = str(month_cell).strip()
+
+        try:
+            month_str = parse_year_month(year, month)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"第{i}行: {e}")
+
+        if store not in valid_stores:
+            raise HTTPException(status_code=400, detail=f"第{i}行: {store} 不是有效HR门店")
+
+        # 加载并缓存该门店的 HR 部门信息
+        if store not in store_dept_map_cache:
+            param = DepartmentSearchParameter(HR=True, Store=store)
+            try:
+                depts_data = getDepartments(param)
+                mapping = {}
+                for d in depts_data.departments:
+                    fname = d.name.get("en_us", "")
+                    if fname:
+                        sname = fname.split("/")[-1] # 取最后一段作为简单名称
+                        mapping[fname] = {"id": d.id, "name": sname}
+                store_dept_map_cache[store] = mapping
+            except Exception:
+                store_dept_map_cache[store] = {}
+
+        if dept_full not in store_dept_map_cache[store]:
+             raise HTTPException(status_code=400, detail=f"第{i}行: {dept_full} 不是门店 {store} 的有效部门")
+
+        dept_info = store_dept_map_cache[store][dept_full]
+        dept_id = dept_info["id"]
+        dept_simple_name = dept_info["name"]
+
+        try:
+            cost = float(cost_val)
+            other_cost = float(other_cost_val)
+        except Exception:
+            raise HTTPException(status_code=400, detail=f"第{i}行: cost/other_cost 数值无效")
+
+        total_cost = cost + other_cost
+
+        # 检查是否存在记录 (按 store, department_id, month)
+        stmt = select(CostHRImport).where(
+            CostHRImport.store == store,
+            CostHRImport.department_id == str(dept_id),
+            CostHRImport.month == month_str,
+        )
+        result = await db.execute(stmt)
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            existing.cost = cost
+            existing.other_cost = other_cost
+            existing.total_cost = total_cost
+            existing.department = dept_simple_name
+            existing.department_full_name = dept_full
+            existing.updated_at = datetime.datetime.now()
+        else:
+            new_record = CostHRImport(
+                store=store,
+                department=dept_simple_name,
+                month=month_str,
+                cost=cost,
+                created_at=datetime.datetime.now(),
+                updated_at=datetime.datetime.now(),
+                department_full_name=dept_full,
+                department_id=str(dept_id),
+                other_cost=other_cost,
+                total_cost=total_cost,
+                creator_id=str(user.id)
+            )
+            db.add(new_record)
+
+    await db.commit()
+
+    filename = f"HR_{datetime.datetime.now():%Y%m%d%H%M%S}_{file.filename}"
+    file_path = UPLOAD_DIR / filename
+    file_path.write_bytes(contents)
+
+    return {"message": "HR成本导入完成并已更新现有记录", "saved_file": str(file_path)}
 
 @router.post("/upload", summary="上传成本 Excel 文件")
 async def upload_cost_xlsx(

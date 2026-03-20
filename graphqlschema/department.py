@@ -3,10 +3,57 @@ import os
 from helper import getHODB
 from graphqlschema.schema import DepartmentSearchParameter, DepartmentData, Department, SubDepartmentSearchParameter, SubDepartmentData, SubDepartment
 
+def get_hr_departments(param: DepartmentSearchParameter) -> DepartmentData:
+    try:
+        # 获取当前文件 (department.py) 的目录
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # 构建 json 文件的绝对路径: ../routers/report/hr_departments_mapping.json
+        json_path = os.path.join(current_dir, '..', 'routers', 'report', 'hr_departments_mapping.json')
+        
+        # 规范化路径
+        json_path = os.path.abspath(json_path)
+
+        if os.path.exists(json_path):
+            with open(json_path, 'r', encoding='utf-8') as f:
+                mappings = json.load(f)
+            
+            # 查找匹配的 store
+            store_info = next((item for item in mappings if item['name'] == param.Store), None)
+            
+            if store_info:
+                department_list = []
+
+                # 定义递归函数来构建全名 (Fullname)
+                def collect_departments(depts, parent_name=""):
+                    for dept in depts:
+                        # 拼接名称，如果存在父级名称则为 "Parent/Child"，否则为 "Child"
+                        full_name = f"{parent_name}/{dept['name']}" if parent_name else dept['name']
+                        dept_entry = Department(id=dept["id"], name={
+                                "en_us": full_name
+                            })
+                        department_list.append(dept_entry)
+                        
+                        # 递归处理子部门
+                        if dept.get("departments"):
+                            collect_departments(dept["departments"], full_name)
+
+                # 开始遍历该门店的顶层部门
+                collect_departments(store_info.get("departments", []))
+                return DepartmentData(departments=department_list, items=len(department_list))
+            print(f"Error loading HR departments: {store_info}")
+            return DepartmentData(departments=[], items=0)
+
+    except Exception as e:
+        print(f"Error reading HR departments mapping: {e}")
+        # 发生错误时，可以选择返回空数据或继续执行原有逻辑
+        pass
+
 def getDepartments(param: DepartmentSearchParameter) -> DepartmentData:
     id = ""
     if param:
         id = param.ID
+        if getattr(param, 'HR', None) and getattr(param, 'Store', None):
+            return get_hr_departments(param)
         # 如果是 invoice 模式，则读取静态文件返回结果
         if getattr(param, "Invoice", False):
             try:

@@ -2,11 +2,12 @@ from fastapi import APIRouter, Query
 from typing import List, Optional
 from datetime import date
 from pydantic import BaseModel
-from helper import getShiftDB, getDB, getStoreMapping, getStores, getStoreWithId
+from helper import getShiftDB, getDB, getStoreMapping, getStores, getStoreWithId, getCostConfig
 from dependencies.permission import PermissionChecker
 from fastapi import Depends
 import json
 import os
+import psycopg2
 from collections import defaultdict
 import calendar
 
@@ -19,6 +20,7 @@ class LaborSalesDepartmentItem(BaseModel):
     labor_hours: float
     sales: float
     sales_per_labor_hour: float
+    
     children: List['LaborSalesDepartmentItem'] = []
 
 LaborSalesDepartmentItem.model_rebuild()
@@ -36,6 +38,9 @@ class MonthlyStat(BaseModel):
     labor_hours: float
     sales: float
     sales_per_labor_hour: float
+    cost: Optional[float] = 0.0
+    other_cost: Optional[float] = 0.0
+    total_cost: Optional[float] = 0.0
 
 class LaborSalesDepartmentMonthItem(BaseModel):
     id: str
@@ -445,6 +450,55 @@ def get_labor_vs_sales_month(
     except Exception as e:
         print(f"Error querying HR DB (Monthly): {e}")
 
+    # 创建一个从 HR 门店名称到销售门店代码的反向映射
+    hr_name_to_store_map = {v: k for k, v in store_mapping.items()}
+
+     # 2.5 Query Cost (Postgres - Cost DB)
+    store_monthly_costs = defaultdict(lambda: defaultdict(lambda: {"cost": 0.0, "other_cost": 0.0, "total_cost": 0.0}))
+    dept_monthly_costs = defaultdict(lambda: defaultdict(lambda: {"cost": 0.0, "other_cost": 0.0, "total_cost": 0.0}))
+
+    try:
+        (C_USER, C_PASS, C_HOST, C_DB, C_PORT) = getCostConfig()
+        with psycopg2.connect(database=C_DB, host=C_HOST, user=C_USER, password=C_PASS, port=C_PORT) as cost_conn:
+            with cost_conn.cursor() as cursor:
+                # Construct month range strings
+                s_m = f"{start_year}-{start_month:02d}"
+                e_m = f"{end_year}-{end_month:02d}"
+
+                stores_str = "'" + "','".join(mapping_stores) + "'"
+
+                sql_cost = f"""
+                    SELECT store, department_id, month, cost, other_cost, total_cost
+                    FROM cost_hr_imports
+                    WHERE month >= '{s_m}' AND month <= '{e_m}'
+                    AND store IN ({stores_str})
+                """
+                cursor.execute(sql_cost)
+                for row in cursor.fetchall():
+                    c_store, c_dept_id, c_month, c_cost, c_other, c_total = row
+                    try:
+                        y_str, m_str = c_month.split('-')
+                        y, m = int(y_str), int(m_str)
+                    except:
+                        continue
+                    sales_store = hr_name_to_store_map.get(c_store)
+                    if not sales_store:
+                        continue
+                    for k, v in [("cost", c_cost), ("other_cost", c_other), ("total_cost", c_total)]:
+                        val = float(v or 0)
+                        store_monthly_costs[c_store][(y, m)][k] += val
+                        store_monthly_costs[sales_store][(y, m)][k] += val
+                        if c_dept_id:
+                            dept_monthly_costs[(c_store, str(c_dept_id))][(y, m)][k] += val
+                            dept_monthly_costs[(sales_store, str(c_dept_id))][(y, m)][k] += val
+                    # for k, v in [("cost", c_cost), ("other_cost", c_other), ("total_cost", c_total)]:
+                    #     val = float(v or 0)
+                    #     store_monthly_costs[c_store][(y, m)][k] += val
+                    #     if c_dept_id:
+                    #         dept_monthly_costs[(c_store, str(c_dept_id))][(y, m)][k] += val
+    except Exception as e:
+        print(f"Error querying Cost DB: {e}")
+
     # 3. Build Response
     def build_month_dept_tree(node, store_code):
         monthly_data = []
@@ -458,18 +512,24 @@ def get_labor_vs_sales_month(
             hours = hr_dept_monthly_hours[str(node.get("id"))][(y, m)]
             sph = sales / hours if hours > 0 else 0.0
             
+            # 此处的 store_code 是销售门店代码 ('MS')，与我们处理过的字典键一致
+            # 使用 .get() 安全地访问，以防某些部门没有成本数据
+            c_data = dept_monthly_costs.get((store_code, str(node.get("id"))), {}).get((y, m), {"cost": 0.0, "other_cost": 0.0, "total_cost": 0.0})
+            
             monthly_data.append(MonthlyStat(
                 year=y,
                 month=m,
                 labor_hours=round(hours, 2),
                 sales=round(sales, 2),
-                sales_per_labor_hour=round(sph, 2)
+                sales_per_labor_hour=round(sph, 2),
+                cost=round(c_data["cost"], 2),
+                other_cost=round(c_data["other_cost"], 2),
+                total_cost=round(c_data["total_cost"], 2)
             ))
 
         children = []
         for child in node.get("departments", []):
             children.append(build_month_dept_tree(child, store_code))
-
         return LaborSalesDepartmentMonthItem(
             id=str(node.get("id")),
             name=node.get("name"),
@@ -485,12 +545,17 @@ def get_labor_vs_sales_month(
             sales = store_monthly_sales[s][(y, m)]
             hours = store_monthly_hours[s][(y, m)]
             sph = sales / hours if hours > 0 else 0.0
+            # 使用 .get() 安全地访问
+            c_data = store_monthly_costs.get(s, {}).get((y, m), {"cost": 0.0, "other_cost": 0.0, "total_cost": 0.0})
             store_monthly_stats.append(MonthlyStat(
                 year=y,
                 month=m,
                 labor_hours=round(hours, 2),
                 sales=round(sales, 2),
-                sales_per_labor_hour=round(sph, 2)
+                sales_per_labor_hour=round(sph, 2),
+                cost=round(c_data["cost"], 2),
+                other_cost=round(c_data["other_cost"], 2),
+                total_cost=round(c_data["total_cost"], 2)
             ))
         
         store_depts = []
