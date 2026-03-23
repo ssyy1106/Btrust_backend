@@ -1,5 +1,6 @@
 import json
 import os
+from collections import defaultdict
 from helper import getHODB
 from graphqlschema.schema import DepartmentSearchParameter, DepartmentData, Department, SubDepartmentSearchParameter, SubDepartmentData, SubDepartment
 
@@ -18,30 +19,36 @@ def get_hr_departments(param: DepartmentSearchParameter) -> DepartmentData:
                 mappings = json.load(f)
             
             # 查找匹配的 store
-            store_info = next((item for item in mappings if item['name'] == param.Store), None)
-            
+            if getattr(param, 'Store', None):
+                store_info = next((item for item in mappings if item['name'] == param.Store), None)
+            else:
+                store_info = None
+            dic_departments = defaultdict(bool)
+            # 定义递归函数来构建全名 (Fullname)
+            def collect_departments(depts, parent_name=""):
+                for dept in depts:
+                    # 拼接名称，如果存在父级名称则为 "Parent/Child"，否则为 "Child"
+                    full_name = f"{parent_name}/{dept['name']}" if parent_name else dept['name']
+                    if full_name in dic_departments:
+                        continue
+                    dic_departments[full_name] = True
+                    # 创建 Department 对象
+                    dept_entry = Department(id=dept["id"], name={
+                            "en_us": full_name
+                        })
+                    department_list.append(dept_entry)
+                    
+                    # 递归处理子部门
+                    if dept.get("departments"):
+                        collect_departments(dept["departments"], full_name)
+            department_list = []
             if store_info:
-                department_list = []
-
-                # 定义递归函数来构建全名 (Fullname)
-                def collect_departments(depts, parent_name=""):
-                    for dept in depts:
-                        # 拼接名称，如果存在父级名称则为 "Parent/Child"，否则为 "Child"
-                        full_name = f"{parent_name}/{dept['name']}" if parent_name else dept['name']
-                        dept_entry = Department(id=dept["id"], name={
-                                "en_us": full_name
-                            })
-                        department_list.append(dept_entry)
-                        
-                        # 递归处理子部门
-                        if dept.get("departments"):
-                            collect_departments(dept["departments"], full_name)
-
                 # 开始遍历该门店的顶层部门
                 collect_departments(store_info.get("departments", []))
                 return DepartmentData(departments=department_list, items=len(department_list))
-            print(f"Error loading HR departments: {store_info}")
-            return DepartmentData(departments=[], items=0)
+            for store in mappings:
+                collect_departments(store.get("departments", []))
+            return DepartmentData(departments=department_list, items=len(department_list))
 
     except Exception as e:
         print(f"Error reading HR departments mapping: {e}")
@@ -52,7 +59,7 @@ def getDepartments(param: DepartmentSearchParameter) -> DepartmentData:
     id = ""
     if param:
         id = param.ID
-        if getattr(param, 'HR', None) and getattr(param, 'Store', None):
+        if getattr(param, 'HR', None):
             return get_hr_departments(param)
         # 如果是 invoice 模式，则读取静态文件返回结果
         if getattr(param, "Invoice", False):
