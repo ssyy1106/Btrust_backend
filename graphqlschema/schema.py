@@ -95,6 +95,10 @@ class UPCSearchParameter:
     #Store: str = strawberry.field(description="Search UPC with Store MS NY TE MT RH")
     ID: str = strawberry.field(description="Search UPC with ID", default = "")
 
+@strawberry.input
+class StoreSearchParameter:
+    HR: Optional[bool] = strawberry.field(description="Search HR stores", default = False)
+
 @strawberry.type
 class UPC:
     nameenglish: str = strawberry.field(description="English name", default = "")

@@ -30,6 +30,7 @@ from graphqlschema.schema import (
     SubDepartmentData, 
     SubDepartmentSearchParameter, 
     UPCSearchParameter, 
+    StoreSearchParameter,
     UPCData, 
     StoreData,
     TransactionSearchParameter,
@@ -71,8 +72,8 @@ def get_subdepartments_data(param: SubDepartmentSearchParameter = None) -> SubDe
 def get_upc_data(param: UPCSearchParameter = None) -> UPCData:
     return getUPCs(param)
 
-def get_store_data() -> StoreData:
-    return getStores()
+def get_store_data(param: StoreSearchParameter = None) -> StoreData:
+    return getStores(param)
 
 def get_transaction_data(param: TransactionSearchParameter) -> TransactionData:
     return getTransactions(param)

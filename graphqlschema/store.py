@@ -1,9 +1,12 @@
-from helper import getStore, getStoreDescription
-from graphqlschema.schema import StoreData, StoreDetail
+from helper import getStore, getStoreDescription, getHRStore
+from graphqlschema.schema import StoreData, StoreDetail, StoreSearchParameter
 
-def getStores() -> StoreData:
+def getStores(param:StoreSearchParameter) -> StoreData:
     try:
-        stores = getStore()
+        if param and param.HR:
+            stores = getHRStore()
+        else:
+            stores = getStore()
         descriptions = getStoreDescription()
         details = []
         for store, desc in zip(stores, descriptions):
