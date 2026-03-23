@@ -155,7 +155,7 @@ async def download_hr_cost_template(
     # 2. Data Sheet
     ws_data = wb.active
     ws_data.title = "Data"
-    ws_data.append(["store", "department", "year", "month", "cost", "other_cost"])
+    ws_data.append(["store", "department", "year", "month", "labor_cost", "other_cost"])
 
     # 3. Reference Sheet (用于存放下拉选项源数据)
     ws_ref = wb.create_sheet(title="Reference")
@@ -235,7 +235,7 @@ async def upload_hr_cost_xlsx(
 
     header = [str(cell.value).strip().lower() for cell in next(ws.iter_rows(max_row=1))]
     # other_cost 是可选的，但在新表中是必须字段(允许为空)，这里检查excel是否有这一列
-    required_cols = {"store", "department", "year", "month", "cost"}
+    required_cols = {"store", "department", "year", "month", "labor_cost"}
     if not required_cols.issubset(header):
         raise HTTPException(status_code=400, detail=f"缺少必须列: {required_cols}")
 
@@ -250,7 +250,7 @@ async def upload_hr_cost_xlsx(
         dept_full = str(row[col_idx["department"]]).strip() if row[col_idx["department"]] else None
         year_cell = row[col_idx["year"]]
         month_cell = row[col_idx["month"]]
-        cost_val = row[col_idx["cost"]]
+        cost_val = row[col_idx["labor_cost"]]
         other_cost_val = row[col_idx["other_cost"]] if "other_cost" in col_idx and row[col_idx["other_cost"]] is not None else 0
 
         if not store and not dept_full and year_cell is None:

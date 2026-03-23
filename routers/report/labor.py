@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Query
 from typing import List, Optional
-from datetime import date
+from datetime import date, datetime
 from pydantic import BaseModel
 from helper import getShiftDB, getDB, getStoreMapping, getStores, getStoreWithId, getCostConfig
 from dependencies.permission import PermissionChecker
@@ -38,9 +38,11 @@ class MonthlyStat(BaseModel):
     labor_hours: float
     sales: float
     sales_per_labor_hour: float
-    cost: Optional[float] = 0.0
+    labor_cost: Optional[float] = 0.0
     other_cost: Optional[float] = 0.0
     total_cost: Optional[float] = 0.0
+    turnover_count: Optional[int] = 0
+    start_headcount: Optional[int] = 0
 
 class LaborSalesDepartmentMonthItem(BaseModel):
     id: str
@@ -311,6 +313,7 @@ def get_labor_vs_sales_month(
     # store -> (year, month) -> val
     store_monthly_sales = defaultdict(lambda: defaultdict(float))
     store_monthly_hours = defaultdict(lambda: defaultdict(float))
+    store_monthly_user_stats = defaultdict(lambda: defaultdict(lambda: {"start": 0, "turnover": 0}))
     
     # (store, dept_id) -> (year, month) -> val
     dept_monthly_sales = defaultdict(lambda: defaultdict(float))
@@ -318,6 +321,7 @@ def get_labor_vs_sales_month(
     
     # hr_dept_id -> (year, month) -> val
     hr_dept_monthly_hours = defaultdict(lambda: defaultdict(float))
+    dept_monthly_user_stats = defaultdict(lambda: defaultdict(lambda: {"start": 0, "turnover": 0}))
 
     # Load Mapping
     mapping_path = os.path.join(os.path.dirname(__file__), "hr_departments_mapping.json")
@@ -447,6 +451,65 @@ def get_labor_vs_sales_month(
                     cursor.execute(sql_dept_hours)
                     for row in cursor.fetchall():
                         hr_dept_monthly_hours[str(row[0])][(row[1], row[2])] = float(row[3]) if row[3] else 0.0
+                
+                # --- Get User Stats (Start Headcount & Turnover) ---
+                # Build dept hierarchy for efficient store lookup locally
+                cursor.execute("SELECT Id, ParentId FROM SysDepartment")
+                dept_hierarchy = {row[0]: row[1] for row in cursor.fetchall()}
+                
+                dept_store_cache = {}
+                for sid, sname in hr_store_id_map.items():
+                    dept_store_cache[sid] = sname
+
+                def get_store_for_dept(did):
+                    if did in dept_store_cache: return dept_store_cache[did]
+                    curr, path = did, []
+                    found_store = None
+                    while curr in dept_hierarchy and curr is not None:
+                        if curr in dept_store_cache:
+                            found_store = dept_store_cache[curr]; break
+                        path.append(curr)
+                        curr = dept_hierarchy[curr]
+                        if curr in path: break
+                    for p in path: dept_store_cache[p] = found_store
+                    return found_store
+
+                month_ranges = []
+                for y, m in months_list:
+                    s_date = date(y, m, 1)
+                    l_day = calendar.monthrange(y, m)[1]
+                    e_date = date(y, m, l_day)
+                    month_ranges.append(((y, m), s_date, e_date))
+
+                cursor.execute("SELECT DepartmentId, HireDate, TerminalDate FROM SysUser")
+                for u_row in cursor.fetchall():
+                    dept_id, h_str, t_str = u_row
+                    if not dept_id: continue
+                    target_store = get_store_for_dept(dept_id)
+                    if not target_store: continue
+                    
+                    try:
+                        h_date = datetime.strptime(h_str, "%Y-%m-%d").date() if h_str else None
+                    except: h_date = None
+                    if not h_date: continue
+                    
+                    try:
+                        t_date = datetime.strptime(t_str, "%Y-%m-%d").date() if t_str else None
+                    except: t_date = None
+                    
+                    for (y, m), m_start, m_end in month_ranges:
+                        # Start Headcount: Active at start
+                        if h_date <= m_start and (not t_date or t_date >= m_start):
+                            store_monthly_user_stats[target_store][(y, m)]["start"] += 1
+                            if str(dept_id) in hr_dept_ids:
+                                dept_monthly_user_stats[str(dept_id)][(y, m)]["start"] += 1
+                        
+                        # Turnover: Terminated in month
+                        if t_date and m_start <= t_date <= m_end:
+                            store_monthly_user_stats[target_store][(y, m)]["turnover"] += 1
+                            if str(dept_id) in hr_dept_ids:
+                                dept_monthly_user_stats[str(dept_id)][(y, m)]["turnover"] += 1
+
     except Exception as e:
         print(f"Error querying HR DB (Monthly): {e}")
 
@@ -516,15 +579,19 @@ def get_labor_vs_sales_month(
             # 使用 .get() 安全地访问，以防某些部门没有成本数据
             c_data = dept_monthly_costs.get((store_code, str(node.get("id"))), {}).get((y, m), {"cost": 0.0, "other_cost": 0.0, "total_cost": 0.0})
             
+            u_data = dept_monthly_user_stats[str(node.get("id"))][(y, m)]
+            
             monthly_data.append(MonthlyStat(
                 year=y,
                 month=m,
                 labor_hours=round(hours, 2),
                 sales=round(sales, 2),
                 sales_per_labor_hour=round(sph, 2),
-                cost=round(c_data["cost"], 2),
+                labor_cost=round(c_data["cost"], 2),
                 other_cost=round(c_data["other_cost"], 2),
-                total_cost=round(c_data["total_cost"], 2)
+                total_cost=round(c_data["total_cost"], 2),
+                turnover_count=u_data["turnover"],
+                start_headcount=u_data["start"]
             ))
 
         children = []
@@ -547,15 +614,18 @@ def get_labor_vs_sales_month(
             sph = sales / hours if hours > 0 else 0.0
             # 使用 .get() 安全地访问
             c_data = store_monthly_costs.get(s, {}).get((y, m), {"cost": 0.0, "other_cost": 0.0, "total_cost": 0.0})
+            u_data = store_monthly_user_stats[s][(y, m)]
             store_monthly_stats.append(MonthlyStat(
                 year=y,
                 month=m,
                 labor_hours=round(hours, 2),
                 sales=round(sales, 2),
                 sales_per_labor_hour=round(sph, 2),
-                cost=round(c_data["cost"], 2),
+                labor_cost=round(c_data["cost"], 2),
                 other_cost=round(c_data["other_cost"], 2),
-                total_cost=round(c_data["total_cost"], 2)
+                total_cost=round(c_data["total_cost"], 2),
+                turnover_count=u_data["turnover"],
+                start_headcount=u_data["start"]
             ))
         
         store_depts = []
