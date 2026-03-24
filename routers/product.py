@@ -239,20 +239,44 @@ async def get_product_sales(
     main_barcode_for_sales = product_info['barcode']
 
     def sync_get_sales_data(b, s, sd, ed):
+        sales_count = 0
+        sales_amount = 0.0
+        upc_to_query = b.lstrip('0') if b else ''
+        if not upc_to_query:
+            return (0, 0.0)
+        
+        today = date.today()
+        hist_end = min(ed, today - timedelta(days=1))
+
         with getDB() as conn:
             with conn.cursor() as cursor:
-                upc_to_query = b.lstrip('0') if b else ''
-                if not upc_to_query:
-                    return (0, 0.0)
+                # 1. Historical Data
+                if sd <= hist_end:
+                    sql = """
+                        SELECT COALESCE(SUM(total_count) , 0), COALESCE(SUM(total_amount), 0)
+                        FROM day_upc_aggregate
+                        WHERE normalized_upc = %s AND store = %s AND day BETWEEN %s AND %s
+                    """
+                    cursor.execute(sql, (upc_to_query, s, sd, hist_end))
+                    result = cursor.fetchone()
+                    if result:
+                        sales_count += float(result[0] or 0)
+                        sales_amount += float(result[1] or 0)
                 
-                sql = """
-                    SELECT COALESCE(SUM(total_count) , 0), COALESCE(SUM(total_amount), 0)
-                    FROM day_upc_aggregate
-                    WHERE normalized_upc = %s AND store = %s AND day BETWEEN %s AND %s
-                """
-                cursor.execute(sql, (upc_to_query, s, sd, ed))
-                result = cursor.fetchone()
-                return result or (0, 0.0)
+                # 2. Today's Data
+                if sd <= today <= ed:
+                    qty_logic = "CASE WHEN weight IS NOT NULL AND weight <> 'NaN' THEN weight WHEN sales_qty IS NOT NULL AND sales_qty <> 'NaN' THEN sales_qty ELSE CASE WHEN unit_price = 0 OR unit_price IS NULL THEN 0 ELSE CASE WHEN MOD(total_amount + COALESCE(total_discount, 0), unit_price) = 0 THEN (total_amount + COALESCE(total_discount, 0)) / unit_price WHEN MOD(total_amount, unit_price) = 0 THEN total_amount / unit_price ELSE (total_amount + COALESCE(total_discount, 0)) / unit_price END END END"
+                    sql = f"""
+                        SELECT COALESCE(SUM({qty_logic}), 0), COALESCE(SUM(total_amount), 0)
+                        FROM sale_item
+                        WHERE ltrim(upc, '0') = %s AND store = %s AND date = %s
+                    """
+                    cursor.execute(sql, (upc_to_query, s, today))
+                    result = cursor.fetchone()
+                    if result:
+                        sales_count += float(result[0] or 0)
+                        sales_amount += float(result[1] or 0)
+        return (sales_count, sales_amount)
 
     sales_count, sales_amount = await run_in_threadpool(sync_get_sales_data, main_barcode_for_sales, store, start_date, end_date)
     product_info['sales_count'] = sales_count
@@ -271,13 +295,38 @@ async def get_product_sales(
         if not barcodes: return sales_data
         upcs_to_query = tuple(b.lstrip('0') for b in barcodes if b)
         if not upcs_to_query: return sales_data
+        
+        today = date.today()
+        hist_end = min(ed, today - timedelta(days=1))
 
         with getDB() as conn:
             with conn.cursor() as cursor:
-                sql = "SELECT normalized_upc, COALESCE(SUM(total_count) , 0), COALESCE(SUM(total_amount), 0) FROM day_upc_aggregate WHERE normalized_upc IN %s AND store = %s AND day BETWEEN %s AND %s GROUP BY normalized_upc"
-                cursor.execute(sql, (upcs_to_query, s, sd, ed))
-                for row in cursor.fetchall():
-                    sales_data[row[0]] = {"sales_count": row[1], "sales_amount": row[2]}
+                # 1. Historical Data
+                if sd <= hist_end:
+                    sql = "SELECT normalized_upc, COALESCE(SUM(total_count) , 0), COALESCE(SUM(total_amount), 0) FROM day_upc_aggregate WHERE normalized_upc IN %s AND store = %s AND day BETWEEN %s AND %s GROUP BY normalized_upc"
+                    cursor.execute(sql, (upcs_to_query, s, sd, hist_end))
+                    for row in cursor.fetchall():
+                        u = row[0]
+                        if u not in sales_data: sales_data[u] = {"sales_count": 0, "sales_amount": 0.0}
+                        sales_data[u]["sales_count"] += float(row[1] or 0)
+                        sales_data[u]["sales_amount"] += float(row[2] or 0)
+                
+                # 2. Today's Data
+                if sd <= today <= ed:
+                    qty_logic = "CASE WHEN weight IS NOT NULL AND weight <> 'NaN' THEN weight WHEN sales_qty IS NOT NULL AND sales_qty <> 'NaN' THEN sales_qty ELSE CASE WHEN unit_price = 0 OR unit_price IS NULL THEN 0 ELSE CASE WHEN MOD(total_amount + COALESCE(total_discount, 0), unit_price) = 0 THEN (total_amount + COALESCE(total_discount, 0)) / unit_price WHEN MOD(total_amount, unit_price) = 0 THEN total_amount / unit_price ELSE (total_amount + COALESCE(total_discount, 0)) / unit_price END END END"
+                    sql = f"""
+                        SELECT ltrim(upc, '0'), COALESCE(SUM({qty_logic}), 0), COALESCE(SUM(total_amount), 0)
+                        FROM sale_item
+                        WHERE ltrim(upc, '0') IN %s AND store = %s AND date = %s
+                        GROUP BY ltrim(upc, '0')
+                    """
+                    cursor.execute(sql, (upcs_to_query, s, today))
+                    for row in cursor.fetchall():
+                        u = row[0]
+                        if u not in sales_data: sales_data[u] = {"sales_count": 0, "sales_amount": 0.0}
+                        sales_data[u]["sales_count"] += float(row[1] or 0)
+                        sales_data[u]["sales_amount"] += float(row[2] or 0)
+
         return sales_data
     
     if mix_id:

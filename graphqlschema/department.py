@@ -29,14 +29,13 @@ def get_hr_departments(param: DepartmentSearchParameter) -> DepartmentData:
                 for dept in depts:
                     # 拼接名称，如果存在父级名称则为 "Parent/Child"，否则为 "Child"
                     full_name = f"{parent_name}/{dept['name']}" if parent_name else dept['name']
-                    if full_name in dic_departments:
-                        continue
-                    dic_departments[full_name] = True
                     # 创建 Department 对象
                     dept_entry = Department(id=dept["id"], name={
                             "en_us": full_name
                         })
-                    department_list.append(dept_entry)
+                    if full_name not in dic_departments:
+                        department_list.append(dept_entry)
+                    dic_departments[full_name] = True
                     
                     # 递归处理子部门
                     if dept.get("departments"):
