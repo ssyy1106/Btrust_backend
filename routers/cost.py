@@ -454,7 +454,7 @@ async def list_hr_costs(
     if store:
         data_stmt = data_stmt.where(CostHRImport.store == store)
     if department:
-        data_stmt = data_stmt.where(CostHRImport.department == department)
+        data_stmt = data_stmt.where(CostHRImport.department_full_name == department)
     if month:
         data_stmt = data_stmt.where(CostHRImport.month == month)
 
@@ -463,7 +463,7 @@ async def list_hr_costs(
     if store:
         count_stmt = count_stmt.where(CostHRImport.store == store)
     if department:
-        count_stmt = count_stmt.where(CostHRImport.department == department)
+        count_stmt = count_stmt.where(CostHRImport.department_full_name == department)
     if month:
         count_stmt = count_stmt.where(CostHRImport.month == month)
 
