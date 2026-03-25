@@ -133,7 +133,7 @@ async def download_cost_template(
 
 @router.get("/template/hr", summary="下载HR成本录入模板（含限制）")
 async def download_hr_cost_template(
-    user=Depends(PermissionChecker(required_roles=["cost:download"])),
+    user=Depends(PermissionChecker(required_roles=["hrreport:upload"])),
     db: AsyncSession = Depends(get_db_cost),
 ):
     valid_stores = getHRStore()
@@ -217,7 +217,7 @@ async def download_hr_cost_template(
 async def upload_hr_cost_xlsx(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db_cost),
-    user=Depends(PermissionChecker(required_roles=["cost:insert"])),
+    user=Depends(PermissionChecker(required_roles=["hrreport:upload"])),
 ):
     if not file.filename.endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="请上传 xlsx 文件")
@@ -447,7 +447,7 @@ async def list_hr_costs(
         description="排序方向 asc 或 desc",
     ),
     db: AsyncSession = Depends(get_db_cost),
-    user=Depends(PermissionChecker(required_roles=["cost:search"])),
+    user=Depends(PermissionChecker(required_roles=["hrreport:search"])),
 ):
     # 先构造筛选条件，用于数据查询
     data_stmt = select(CostHRImport)

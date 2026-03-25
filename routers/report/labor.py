@@ -62,7 +62,7 @@ def get_labor_vs_sales(
     start_date: date,
     end_date: date,
     store: Optional[List[str]] = Query(None, description="门店（多个）"),
-    user = Depends(PermissionChecker(required_roles=["organization:user:add"]))
+    user = Depends(PermissionChecker(required_roles=["hrreport:search"]))
     #store: Optional[str] = Query(None, description="Store code: MS, NY, TE, MT, RH")
 ):
     target_stores = getStores(user, store)
@@ -285,7 +285,7 @@ def get_labor_vs_sales_month(
     end_year: int,
     end_month: int,
     store: Optional[List[str]] = Query(None, description="门店（多个）"),
-    user = Depends(PermissionChecker(required_roles=["organization:user:add"]))
+    user = Depends(PermissionChecker(required_roles=["hrreport:search"]))
 ):
     target_stores = getStores(user, store)
     store_mapping = getStoreMapping()
