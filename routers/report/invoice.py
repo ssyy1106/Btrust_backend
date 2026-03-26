@@ -277,7 +277,12 @@ async def invoice_vs_sales(
         
         all_items_list.extend(period_items_list)
         grand_invoice_total += sum(invoice_map.values())
-        grand_sales_total += sum(sales_map.values())
+
+        # 如果指定了部门，合计值为所选部门的销售额；否则为门店总销售额
+        if department:
+            grand_sales_total += sum(dept_sales_map.values()) + sum(subdept_sales_map.values())
+        else:
+            grand_sales_total += sum(sales_map.values())
 
     # 6. Sorting
     sortable_fields = {
