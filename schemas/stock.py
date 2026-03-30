@@ -41,6 +41,7 @@ class StockByLocationItem(BaseModel):
     creator_id: Optional[str] = None
     modifier_id: Optional[str] = None
     image_url: Optional[str] = None
+    store: Optional[str] = None
 
     @field_validator("price", "qty", mode="before")
     def clean_nan(cls, v):
@@ -70,6 +71,7 @@ class StocktakeUpload(BaseModel):
     id: UUID
     timestamp: datetime
     deviceId: str
+    store: Optional[str] = None
     #user_id: str   # 新增，必填
     stocktake: List[StocktakeItemBase]
 
@@ -88,6 +90,7 @@ class StocktakeItemOut(BaseModel):
     create_time: datetime
     update_time: datetime
     price: Optional[float] = None
+    store: Optional[str] = None
 
     @field_validator("price", "qty", mode="before")
     def clean_nan(cls, v):
@@ -128,6 +131,7 @@ class StocktakeItemOutV2(BaseModel):
     specification: Optional[str] = None
     unit_type: Optional[str] = None
     image_url: Optional[str] = None
+    store: Optional[str] = None
 
     @field_validator("regular_price", "active_price", "package_price", "package_count", mode="before")
     def clean_nan(cls, v):
@@ -158,6 +162,7 @@ class StocktakeSessionWithItems(BaseModel):
     modifier_id: Optional[str]
     create_time: datetime
     update_time: datetime
+    store: Optional[str] = None
     items: List[StocktakeItemOut]
 
     model_config = ConfigDict(from_attributes=True) 
@@ -186,6 +191,7 @@ class StocktakeSessionOut(BaseModel):
     modifier_id: Optional[str]
     create_time: datetime
     update_time: datetime
+    store: Optional[str] = None
 
     class Config:
         orm_mode = True

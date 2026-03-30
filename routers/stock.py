@@ -101,7 +101,7 @@ async def upload_async(data: StocktakeUpload, db: AsyncSession = Depends(get_db_
         ContentType="application/json",
     )
 
-    job = Job(id=job_id, status="pending", payload_key=payload_key)
+    job = Job(id=job_id, status="pending", payload_key=payload_key) # payload 已包含 store
     db.add(job)
     await db.commit()
     celery_app.send_task(
@@ -126,6 +126,7 @@ async def upload_stocktake(data: StocktakeUpload, db: AsyncSession = Depends(get
             id=session_id,
             device_id=data.deviceId,
             timestamp=data.timestamp,
+            store=data.store,
             creator_id=str(session_creator),
             modifier_id=str(session_creator),
             create_time=now,
@@ -155,7 +156,7 @@ async def upload_stocktake(data: StocktakeUpload, db: AsyncSession = Depends(get
         await db.commit()
         await db.refresh(session)
 
-        result = {"status": "success", "session_id": session.id}
+        result = {"status": "success", "session_id": session.id, "store": session.store}
         await log_operation(db, "POST /", data.model_dump(), result)
         return session
 
@@ -191,6 +192,7 @@ async def search_stocktake_items(
     upload_end_date: Optional[datetime] = Query(None),
     location: Optional[str] = Query(None, description="按库位模糊查询"),
     barcode: Optional[str] = Query(None, description="按条码精确查询"),
+    store: Optional[str] = Query(None, description="按门店过滤"),
     item_name: Optional[str] = Query(None, description="按中英文品名模糊查询"),
     creator_id: Optional[str] = Query(None, description="按创建人过滤"),
     page: int = Query(1, ge=1, description="页码，从1开始"),
@@ -220,6 +222,8 @@ async def search_stocktake_items(
             upload_end_date = upload_end_date + timedelta(days=1) - timedelta(microseconds=1)
         item_conditions.append(StocktakeItem.create_time <= upload_end_date)
 
+    if store:
+        session_conditions.append(StocktakeSession.store == store)
     if location:
         item_conditions.append(StocktakeItem.location.ilike(f"%{location}%"))
     if barcode:
@@ -236,7 +240,7 @@ async def search_stocktake_items(
 
     # 主查询：StocktakeItem 联 StocktakeSession 和 ProductInfo
     stmt = (
-        select(StocktakeItem, ProductInfo)
+        select(StocktakeItem, ProductInfo, StocktakeSession.store)
         .join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id)
         .outerjoin(ProductInfo, StocktakeItem.barcode == ProductInfo.barcode)
     )
@@ -257,7 +261,7 @@ async def search_stocktake_items(
                .limit(page_size)
 
     result = await db.execute(stmt)
-    rows = result.all()  # [(StocktakeItem, ProductInfo), ...]
+    rows = result.all()  # [(StocktakeItem, ProductInfo, store), ...]
 
 
     items_list = [
@@ -274,9 +278,10 @@ async def search_stocktake_items(
             "creator_id": item.creator_id,
             "modifier_id": item.modifier_id,
             "create_time": item.create_time,
-            "update_time": item.update_time
+            "update_time": item.update_time,
+            "store": item_store
         })
-        for item, product in rows
+        for item, product, item_store in rows
     ]
 
     logout = {
@@ -297,6 +302,7 @@ async def search_stocktake_items(
             "upload_end_date": upload_end_date,
             "location": location,
             "barcode": barcode,
+            "store": store,
             "item_name": item_name,
             "creator_id": creator_id, 
             "page": page,
@@ -324,6 +330,7 @@ async def search_stocktake_items_v2(
     upload_end_date: Optional[datetime] = Query(None),
     location: Optional[str] = Query(None, description="模糊匹配库位"),
     barcode: Optional[str] = Query(None, description="模糊匹配条码"),
+    store: Optional[str] = Query(None, description="按门店过滤"),
     item_name: Optional[str] = Query(None, description="模糊匹配中英文名称"),
     creator_id: Optional[str] = Query(None, description="模糊匹配创建人"),
     duplicate: bool = Query(False, description="true: return all rows; false: keep last upload per location+barcode"),
@@ -351,6 +358,8 @@ async def search_stocktake_items_v2(
             upload_end_date = upload_end_date + timedelta(days=1) - timedelta(microseconds=1)
         item_conditions.append(StocktakeItem.create_time <= upload_end_date)
 
+    if store:
+        session_conditions.append(StocktakeSession.store == store)
     if location:
         item_conditions.append(StocktakeItem.location.ilike(f"%{location}%"))
     if barcode:
@@ -378,7 +387,7 @@ async def search_stocktake_items_v2(
     item_order_col = StocktakeItem.create_time
     if duplicate:
         stmt = (
-            select(StocktakeItem)
+            select(StocktakeItem, StocktakeSession.store)
             .join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id)
         )
         if item_name_condition is not None:
@@ -399,6 +408,7 @@ async def search_stocktake_items_v2(
         base_stmt = (
             select(
                 StocktakeItem,
+                StocktakeSession.store.label("session_store"),
                 func.row_number().over(
                     partition_by=(StocktakeItem.location, StocktakeItem.barcode),
                     order_by=(StocktakeItem.create_time.desc(), StocktakeItem.id.desc()),
@@ -423,7 +433,7 @@ async def search_stocktake_items_v2(
         base_subq = base_stmt.subquery()
         item_alias = aliased(StocktakeItem, base_subq)
         item_order_col = item_alias.create_time
-        stmt = select(item_alias).where(base_subq.c.rn == 1)
+        stmt = select(item_alias, base_subq.c.session_store).where(base_subq.c.rn == 1)
 
     count_stmt = select(func.count()).select_from(stmt.subquery())
     result_count = await db.execute(count_stmt)
@@ -435,10 +445,12 @@ async def search_stocktake_items_v2(
 
     result = await db.execute(stmt)
     items = result.scalars().all()
+    rows = result.all()
 
     items_list: List[StocktakeItemOutV2] = []
 
     snapshot_map: Dict[str, ProductSnapshot] = {}
+    items = [r[0] for r in rows]
     if items:
         barcodes = {item.barcode.zfill(14) for item in items if item.barcode}
         if barcodes:
@@ -449,7 +461,7 @@ async def search_stocktake_items_v2(
                 for snapshot in snapshot_result.scalars().all()
             }
 
-        for item in items:
+        for item, item_store in rows:
             barcode_padded = item.barcode.zfill(14)
             snapshot = snapshot_map.get(barcode_padded)
             items_list.append(
@@ -474,7 +486,8 @@ async def search_stocktake_items_v2(
                     "modifier_id": item.modifier_id,
                     "create_time": item.create_time,
                     "update_time": item.update_time,
-                    "image_url": get_image_url(barcode_padded)
+                    "image_url": get_image_url(barcode_padded),
+                    "store": item_store
                 })
             )
 
@@ -496,6 +509,7 @@ async def search_stocktake_items_v2(
             "upload_end_date": upload_end_date,
             "location": location,
             "barcode": barcode,
+            "store": store,
             "duplicate": duplicate,
             "item_name": item_name,
             "creator_id": creator_id,
@@ -524,6 +538,7 @@ async  def search_stocktake(
     upload_end_date: Optional[datetime] = Query(None),
     location: Optional[str] = Query(None, description="按库位模糊查询"),
     barcode: Optional[str] = Query(None, description="按条码精确查询"),
+    store: Optional[str] = Query(None, description="按门店过滤"),
     item_name: Optional[str] = Query(None, description="按中英文品名模糊查询"),
     creator_id: Optional[str] = Query(None, description="按创建人过滤"),
     page: int = Query(1, ge=1, description="页码，从1开始"),
@@ -536,6 +551,8 @@ async  def search_stocktake(
 
     if session_id:
         session_conditions.append(StocktakeSession.id == session_id)
+    if store:
+        session_conditions.append(StocktakeSession.store == store)
     if stock_take_start_date:
         session_conditions.append(StocktakeSession.timestamp >= stock_take_start_date)
     if stock_take_end_date:
@@ -626,6 +643,7 @@ async  def search_stocktake(
                "modifier_id": v["session"].modifier_id,
                "create_time": v["session"].create_time,
                "update_time": v["session"].update_time,
+               "store": v["session"].store,
                "items": v["items"]}
         })
         for v in session_dict.values()
@@ -645,6 +663,7 @@ async  def search_stocktake(
 async def get_stock_by_location(
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
+    store: Optional[str] = Query(None, description="按门店过滤"),
     db: AsyncSession = Depends(get_db_stock)
 ):
     conditions = []
@@ -655,9 +674,12 @@ async def get_stock_by_location(
         if end_date.time() == datetime.min.time():
             end_date = end_date + timedelta(days=1) - timedelta(microseconds=1)
         conditions.append(StocktakeItem.time <= end_date)
+    if store:
+        conditions.append(StocktakeSession.store == store)
 
     #stmt = select(StocktakeItem)
-    stmt = select(StocktakeItem, ProductInfo).outerjoin(ProductInfo, StocktakeItem.barcode == ProductInfo.barcode)
+    #stmt = select(StocktakeItem, ProductInfo).outerjoin(ProductInfo, StocktakeItem.barcode == ProductInfo.barcode)
+    stmt = select(StocktakeItem, ProductInfo, StocktakeSession.store).join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id).outerjoin(ProductInfo, StocktakeItem.barcode == ProductInfo.barcode)
     if conditions:
         stmt = stmt.where(and_(*conditions))
 
@@ -665,7 +687,7 @@ async def get_stock_by_location(
     items = result.all()
 
     location_data = defaultdict(list)
-    for item, product in items:
+    for item, product, item_store in items:
         location_data[item.location].append({
             "session_id": str(item.session_id),
             "barcode": item.barcode,
@@ -677,9 +699,10 @@ async def get_stock_by_location(
             "create_time": item.create_time,
             "creator_id": item.creator_id,
             "modifier_id": item.modifier_id,
+            "store": item_store
         })
     logout = {"status": "success", "location_data": location_data}
-    await log_operation(db, f"get /by-location", {"start_date": start_date, "end_date": end_date}, logout)
+    await log_operation(db, f"get /by-location", {"start_date": start_date, "end_date": end_date, "store": store}, logout)
     return location_data
 
 @router.get("/by-location/v2", response_model=StockByLocationResponse)
@@ -687,6 +710,7 @@ async def get_stock_by_location_v2(
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     location: Optional[str] = Query(None, description="模糊查询货架location"),
+    store: Optional[str] = Query(None, description="按门店过滤"),
     duplicate: bool = Query(False, description="true: return all rows; false: keep last upload per location+barcode"),
     db: AsyncSession = Depends(get_db_stock)
 ):
@@ -699,30 +723,35 @@ async def get_stock_by_location_v2(
         conditions.append(StocktakeItem.time <= end_date)
     if location:
         conditions.append(StocktakeItem.location.ilike(f"%{location}%"))
+    if store:
+        conditions.append(StocktakeSession.store == store)
 
     if duplicate:
-        stmt = select(StocktakeItem)
+        stmt = select(StocktakeItem, StocktakeSession.store).join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id)
         if conditions:
             stmt = stmt.where(and_(*conditions))
     else:
         base_stmt = select(
             StocktakeItem,
+            StocktakeSession.store.label("session_store"),
             func.row_number().over(
                 partition_by=(StocktakeItem.location, StocktakeItem.barcode),
                 order_by=(StocktakeItem.create_time.desc(), StocktakeItem.id.desc()),
             ).label("rn"),
-        )
+        ).join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id)
         if conditions:
             base_stmt = base_stmt.where(and_(*conditions))
         base_subq = base_stmt.subquery()
         item_alias = aliased(StocktakeItem, base_subq)
-        stmt = select(item_alias).where(base_subq.c.rn == 1)
+        stmt = select(item_alias, base_subq.c.session_store).where(base_subq.c.rn == 1)
 
     result = await db.execute(stmt)
     items = result.scalars().all()
+    rows = result.all()
 
     location_data = defaultdict(list)
     snapshot_map: Dict[str, ProductSnapshot] = {}
+    items = [r[0] for r in rows]
     if items:
         barcodes = {item.barcode.zfill(14) for item in items if item.barcode}
         if barcodes:
@@ -733,7 +762,7 @@ async def get_stock_by_location_v2(
                 for snapshot in snapshot_result.scalars().all()
             }
 
-    for item in items:
+    for item, item_store in rows:
         barcode_padded = item.barcode.zfill(14)
         snapshot = snapshot_map.get(barcode_padded)
         image_url = get_image_url(barcode_padded)
@@ -752,13 +781,14 @@ async def get_stock_by_location_v2(
             "create_time": item.create_time,
             "creator_id": item.creator_id,
             "modifier_id": item.modifier_id,
-            "image_url": image_url
+            "image_url": image_url,
+            "store": item_store
         })
     logout = {"status": "success", "location_data": location_data}
     await log_operation(
         db,
         "get /by-location/v2",
-        {"start_date": start_date, "end_date": end_date, "location": location, "duplicate": duplicate},
+        {"start_date": start_date, "end_date": end_date, "location": location, "store": store, "duplicate": duplicate},
         logout,
     )
     return location_data
@@ -767,6 +797,7 @@ async def get_stock_by_location_v2(
 async def export_stock_by_location(
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
+    store: Optional[str] = Query(None, description="按门店过滤"),
     db: AsyncSession = Depends(get_db_stock)
 ):
     conditions = []
@@ -777,9 +808,11 @@ async def export_stock_by_location(
         if end_date.time() == datetime.min.time():
             end_date = end_date + timedelta(days=1) - timedelta(microseconds=1)
         conditions.append(StocktakeItem.time <= end_date)
+    if store:
+        conditions.append(StocktakeSession.store == store)
 
     #stmt = select(StocktakeItem)
-    stmt = select(StocktakeItem, ProductInfo).outerjoin(ProductInfo, StocktakeItem.barcode == ProductInfo.barcode)
+    stmt = select(StocktakeItem, ProductInfo, StocktakeSession.store).join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id).outerjoin(ProductInfo, StocktakeItem.barcode == ProductInfo.barcode)
     if conditions:
         stmt = stmt.where(and_(*conditions))
 
@@ -790,6 +823,7 @@ async def export_stock_by_location(
         raise HTTPException(status_code=404, detail="No data found for the given time range.")
 
     data = [{
+        "Store": item_store,
         "Location": item.location,
         "Barcode": item.barcode,
         "Name CH": product.name_ch if product else None,
@@ -800,7 +834,7 @@ async def export_stock_by_location(
         "Upload Date": item.create_time.replace(tzinfo=None),  # 去掉时区
         "creator_id": item.creator_id,
         "modifier_id": item.modifier_id,
-    } for item, product in rows]
+    } for item, product, item_store in rows]
 
     df = pd.DataFrame(data)
     df.sort_values(by=["Location", "Stock Take Date"], inplace=True)
@@ -810,7 +844,7 @@ async def export_stock_by_location(
         file_path = tmp.name
         df.to_excel(file_path, index=False)
     logout = {"status": "success", "data": data}
-    await log_operation(db, f"get /by-location/export", {"start_date": start_date, "end_date": end_date}, logout)
+    await log_operation(db, f"get /by-location/export", {"start_date": start_date, "end_date": end_date, "store": store}, logout)
     return FileResponse(
         path=file_path,
         filename="stock_by_location.xlsx",
@@ -821,6 +855,7 @@ async def export_stock_by_location(
 async def export_stock_by_location_v2(
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
+    store: Optional[str] = Query(None, description="按门店过滤"),
     db: AsyncSession = Depends(get_db_stock)
 ):
     conditions = []
@@ -830,18 +865,22 @@ async def export_stock_by_location_v2(
         if end_date.time() == datetime.min.time():
             end_date = end_date + timedelta(days=1) - timedelta(microseconds=1)
         conditions.append(StocktakeItem.time <= end_date)
+    if store:
+        conditions.append(StocktakeSession.store == store)
 
-    stmt = select(StocktakeItem)
+    stmt = select(StocktakeItem, StocktakeSession.store).join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id)
     if conditions:
         stmt = stmt.where(and_(*conditions))
 
     result = await db.execute(stmt)
     items = result.scalars().all()
+    rows = result.all()
 
-    if not items:
+    if not rows:
         raise HTTPException(status_code=404, detail="No data found for the given time range.")
 
     snapshot_map: Dict[str, ProductSnapshot] = {}
+    items = [r[0] for r in rows]
     barcodes = {item.barcode.zfill(14) for item in items if item.barcode}
     if barcodes:
         snapshot_stmt = select(ProductSnapshot).where(ProductSnapshot.barcode.in_(barcodes))
@@ -852,10 +891,11 @@ async def export_stock_by_location_v2(
         }
 
     data = []
-    for item in items:
+    for item, item_store in rows:
         barcode_padded = item.barcode.zfill(14)
         snapshot = snapshot_map.get(barcode_padded)
         data.append({
+            "Store": item_store,
             "Location": item.location,
             "Barcode": barcode_padded,
             "Barcode Original": item.barcode,
@@ -879,7 +919,7 @@ async def export_stock_by_location_v2(
         file_path = tmp.name
         df.to_excel(file_path, index=False)
     logout = {"status": "success", "data": data}
-    await log_operation(db, "get /by-location/export/v2", {"start_date": start_date, "end_date": end_date}, logout)
+    await log_operation(db, "get /by-location/export/v2", {"start_date": start_date, "end_date": end_date, "store": store}, logout)
     return FileResponse(
         path=file_path,
         filename="stock_by_location_v2.xlsx",

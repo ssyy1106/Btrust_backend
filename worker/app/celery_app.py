@@ -115,6 +115,7 @@ async def _fetch_payload(job_id: str, payload_key: str) -> dict:
 
 
 async def _process_stocktake(conn, payload: dict):
+    store = payload.get("store") or None
     session_id = payload.get("id")
     if not session_id:
         raise ValueError("payload.id is missing")
@@ -133,9 +134,9 @@ async def _process_stocktake(conn, payload: dict):
     await conn.execute(
         """
         INSERT INTO stocktake_session
-            (id, device_id, timestamp, creator_id, modifier_id, create_time, update_time)
+            (id, device_id, timestamp, creator_id, modifier_id, create_time, update_time, store)
         VALUES
-            ($1, $2, $3, $4, $5, $6, $7)
+            ($1, $2, $3, $4, $5, $6, $7, $8)
         """,
         session_id,
         device_id,
@@ -144,6 +145,7 @@ async def _process_stocktake(conn, payload: dict):
         str(session_creator),
         now,
         now,
+        store
     )
 
     for item in stocktake:

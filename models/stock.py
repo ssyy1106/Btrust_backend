@@ -14,6 +14,7 @@ class StocktakeSession(Base_stock):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     device_id = Column(String, nullable=False)
     timestamp = Column(DateTime(timezone=True), nullable=False)  # 前端上传时间
+    store = Column(String, nullable=True)
 
     creator_id = Column(String, nullable=True)
     modifier_id = Column(String, nullable=True)
