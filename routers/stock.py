@@ -444,7 +444,7 @@ async def search_stocktake_items_v2(
                .limit(page_size)
 
     result = await db.execute(stmt)
-    items = result.scalars().all()
+    #items = result.scalars().all()
     rows = result.all()
 
     items_list: List[StocktakeItemOutV2] = []
@@ -746,7 +746,7 @@ async def get_stock_by_location_v2(
         stmt = select(item_alias, base_subq.c.session_store).where(base_subq.c.rn == 1)
 
     result = await db.execute(stmt)
-    items = result.scalars().all()
+    #items = result.scalars().all()
     rows = result.all()
 
     location_data = defaultdict(list)
@@ -873,7 +873,7 @@ async def export_stock_by_location_v2(
         stmt = stmt.where(and_(*conditions))
 
     result = await db.execute(stmt)
-    items = result.scalars().all()
+    #items = result.scalars().all()
     rows = result.all()
 
     if not rows:
