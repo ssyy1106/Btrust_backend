@@ -40,6 +40,7 @@ class StockByLocationItem(BaseModel):
     create_time: datetime
     creator_id: Optional[str] = None
     modifier_id: Optional[str] = None
+    image_url: Optional[str] = None
 
     @field_validator("price", "qty", mode="before")
     def clean_nan(cls, v):
@@ -126,6 +127,7 @@ class StocktakeItemOutV2(BaseModel):
     tax: Optional[int] = None
     specification: Optional[str] = None
     unit_type: Optional[str] = None
+    image_url: Optional[str] = None
 
     @field_validator("regular_price", "active_price", "package_price", "package_count", mode="before")
     def clean_nan(cls, v):

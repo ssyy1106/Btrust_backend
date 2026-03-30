@@ -10,6 +10,7 @@ from sqlalchemy import select, delete, and_, func, or_
 from fastapi.responses import JSONResponse, FileResponse
 from datetime import datetime, timedelta
 from models.stock import OperateLog, StocktakeSession, StocktakeItem, ProductInfo, ProductSnapshot, Job
+from routers.product import get_image_url
 from schemas.stock import (
     StocktakeSessionOut,
     StocktakeUpload,
@@ -472,7 +473,8 @@ async def search_stocktake_items_v2(
                     "creator_id": item.creator_id,
                     "modifier_id": item.modifier_id,
                     "create_time": item.create_time,
-                    "update_time": item.update_time
+                    "update_time": item.update_time,
+                    "image_url": get_image_url(barcode_padded)
                 })
             )
 
@@ -734,6 +736,7 @@ async def get_stock_by_location_v2(
     for item in items:
         barcode_padded = item.barcode.zfill(14)
         snapshot = snapshot_map.get(barcode_padded)
+        image_url = get_image_url(barcode_padded)
         location_data[item.location].append({
             "session_id": str(item.session_id),
             "barcode": barcode_padded,
@@ -749,6 +752,7 @@ async def get_stock_by_location_v2(
             "create_time": item.create_time,
             "creator_id": item.creator_id,
             "modifier_id": item.modifier_id,
+            "image_url": image_url
         })
     logout = {"status": "success", "location_data": location_data}
     await log_operation(

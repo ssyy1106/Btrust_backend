@@ -26,6 +26,13 @@ router = APIRouter(prefix="/product", tags=["Product"])
 
 NETWORK_IMAGE_DIR = r"\\172.16.30.8\image"
 
+def get_image_url(barcode: str) -> str | None:
+    image_file_name = f"{barcode}.png"
+    image_file_name2 = f"{barcode.strip()}.png"
+    image_path = os.path.join(NETWORK_IMAGE_DIR, image_file_name)
+    image_path2 = os.path.join(NETWORK_IMAGE_DIR, image_file_name2)
+    return f"/product/image/{barcode}" if os.path.exists(image_path) else f"/product/image/{barcode.strip()}" if os.path.exists(image_path2) else None
+
 def normalize_end_date(end_date: datetime):
     """把结束日期的时间补到当天 23:59:59"""
     if end_date and end_date.time() == datetime.min.time():
@@ -155,9 +162,7 @@ async def _get_product_common(
     tax = 1 if any(_is_tax_on(v) for v in tax_fields) else 0
 
     # --- 6️⃣ 图片 ---
-    image_file_name = f"{barcode.strip()}.png"
-    image_path = os.path.join(NETWORK_IMAGE_DIR, image_file_name)
-    image_url = f"/product/image/{barcode}" if os.path.exists(image_path) else None
+    image_url = get_image_url(barcode)
 
     # --- 返回结果 ---
     return {
