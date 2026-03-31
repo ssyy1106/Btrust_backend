@@ -146,6 +146,7 @@ async def upload_stocktake(data: StocktakeUpload, db: AsyncSession = Depends(get
                 barcode=barcode,
                 qty=item.qty,
                 time=item.time,
+                store=item.store or data.store,
                 creator_id=str(item.user_id),
                 modifier_id=str(item.user_id),
                 create_time=now,
@@ -222,8 +223,6 @@ async def search_stocktake_items(
             upload_end_date = upload_end_date + timedelta(days=1) - timedelta(microseconds=1)
         item_conditions.append(StocktakeItem.create_time <= upload_end_date)
 
-    if store:
-        session_conditions.append(StocktakeSession.store == store)
     if location:
         item_conditions.append(StocktakeItem.location.ilike(f"%{location}%"))
     if barcode:
@@ -235,12 +234,14 @@ async def search_stocktake_items(
                 ProductInfo.name_en.ilike(f"%{item_name}%")
             )
         )
+    if store:
+        item_conditions.append(StocktakeItem.store == store)
     if creator_id:
         item_conditions.append(StocktakeItem.creator_id.ilike(f"%{creator_id}%"))
 
     # 主查询：StocktakeItem 联 StocktakeSession 和 ProductInfo
     stmt = (
-        select(StocktakeItem, ProductInfo, StocktakeSession.store)
+        select(StocktakeItem, ProductInfo)
         .join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id)
         .outerjoin(ProductInfo, StocktakeItem.barcode == ProductInfo.barcode)
     )
@@ -261,7 +262,7 @@ async def search_stocktake_items(
                .limit(page_size)
 
     result = await db.execute(stmt)
-    rows = result.all()  # [(StocktakeItem, ProductInfo, store), ...]
+    rows = result.all()  # [(StocktakeItem, ProductInfo), ...]
 
 
     items_list = [
@@ -279,9 +280,9 @@ async def search_stocktake_items(
             "modifier_id": item.modifier_id,
             "create_time": item.create_time,
             "update_time": item.update_time,
-            "store": item_store
+            "store": item.store
         })
-        for item, product, item_store in rows
+        for item, product in rows
     ]
 
     logout = {
@@ -358,8 +359,6 @@ async def search_stocktake_items_v2(
             upload_end_date = upload_end_date + timedelta(days=1) - timedelta(microseconds=1)
         item_conditions.append(StocktakeItem.create_time <= upload_end_date)
 
-    if store:
-        session_conditions.append(StocktakeSession.store == store)
     if location:
         item_conditions.append(StocktakeItem.location.ilike(f"%{location}%"))
     if barcode:
@@ -381,13 +380,15 @@ async def search_stocktake_items_v2(
             ProductSnapshot.name_cn.ilike(f"%{item_name}%"),
             ProductSnapshot.name_en.ilike(f"%{item_name}%"),
         )
+    if store:
+        item_conditions.append(StocktakeItem.store == store)
     if creator_id:
         item_conditions.append(StocktakeItem.creator_id.ilike(f"%{creator_id}%"))
 
     item_order_col = StocktakeItem.create_time
     if duplicate:
         stmt = (
-            select(StocktakeItem, StocktakeSession.store)
+            select(StocktakeItem)
             .join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id)
         )
         if item_name_condition is not None:
@@ -408,7 +409,6 @@ async def search_stocktake_items_v2(
         base_stmt = (
             select(
                 StocktakeItem,
-                StocktakeSession.store.label("session_store"),
                 func.row_number().over(
                     partition_by=(StocktakeItem.location, StocktakeItem.barcode),
                     order_by=(StocktakeItem.create_time.desc(), StocktakeItem.id.desc()),
@@ -433,7 +433,7 @@ async def search_stocktake_items_v2(
         base_subq = base_stmt.subquery()
         item_alias = aliased(StocktakeItem, base_subq)
         item_order_col = item_alias.create_time
-        stmt = select(item_alias, base_subq.c.session_store).where(base_subq.c.rn == 1)
+        stmt = select(item_alias).where(base_subq.c.rn == 1)
 
     count_stmt = select(func.count()).select_from(stmt.subquery())
     result_count = await db.execute(count_stmt)
@@ -461,7 +461,7 @@ async def search_stocktake_items_v2(
                 for snapshot in snapshot_result.scalars().all()
             }
 
-        for item, item_store in rows:
+        for item in items:
             barcode_padded = item.barcode.zfill(14)
             snapshot = snapshot_map.get(barcode_padded)
             items_list.append(
@@ -487,7 +487,7 @@ async def search_stocktake_items_v2(
                     "create_time": item.create_time,
                     "update_time": item.update_time,
                     "image_url": get_image_url(barcode_padded),
-                    "store": item_store
+                    "store": item.store
                 })
             )
 
@@ -551,8 +551,6 @@ async  def search_stocktake(
 
     if session_id:
         session_conditions.append(StocktakeSession.id == session_id)
-    if store:
-        session_conditions.append(StocktakeSession.store == store)
     if stock_take_start_date:
         session_conditions.append(StocktakeSession.timestamp >= stock_take_start_date)
     if stock_take_end_date:
@@ -578,6 +576,8 @@ async  def search_stocktake(
                 ProductInfo.name_en.ilike(f"%{item_name}%")
             )
         )
+    if store:
+        item_conditions.append(StocktakeItem.store == store)
     if creator_id:
         item_conditions.append(StocktakeItem.creator_id.ilike(f"%{creator_id}%"))
 
@@ -630,6 +630,7 @@ async  def search_stocktake(
                 "modifier_id": item.modifier_id,
                 "create_time": item.create_time,
                 "update_time": item.update_time,
+                "store": item.store
             })
         )
 
@@ -675,11 +676,11 @@ async def get_stock_by_location(
             end_date = end_date + timedelta(days=1) - timedelta(microseconds=1)
         conditions.append(StocktakeItem.time <= end_date)
     if store:
-        conditions.append(StocktakeSession.store == store)
+        conditions.append(StocktakeItem.store == store)
 
     #stmt = select(StocktakeItem)
     #stmt = select(StocktakeItem, ProductInfo).outerjoin(ProductInfo, StocktakeItem.barcode == ProductInfo.barcode)
-    stmt = select(StocktakeItem, ProductInfo, StocktakeSession.store).join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id).outerjoin(ProductInfo, StocktakeItem.barcode == ProductInfo.barcode)
+    stmt = select(StocktakeItem, ProductInfo).join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id).outerjoin(ProductInfo, StocktakeItem.barcode == ProductInfo.barcode)
     if conditions:
         stmt = stmt.where(and_(*conditions))
 
@@ -687,7 +688,7 @@ async def get_stock_by_location(
     items = result.all()
 
     location_data = defaultdict(list)
-    for item, product, item_store in items:
+    for item, product in items:
         location_data[item.location].append({
             "session_id": str(item.session_id),
             "barcode": item.barcode,
@@ -699,7 +700,7 @@ async def get_stock_by_location(
             "create_time": item.create_time,
             "creator_id": item.creator_id,
             "modifier_id": item.modifier_id,
-            "store": item_store
+            "store": item.store
         })
     logout = {"status": "success", "location_data": location_data}
     await log_operation(db, f"get /by-location", {"start_date": start_date, "end_date": end_date, "store": store}, logout)
@@ -724,16 +725,15 @@ async def get_stock_by_location_v2(
     if location:
         conditions.append(StocktakeItem.location.ilike(f"%{location}%"))
     if store:
-        conditions.append(StocktakeSession.store == store)
+        conditions.append(StocktakeItem.store == store)
 
     if duplicate:
-        stmt = select(StocktakeItem, StocktakeSession.store).join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id)
+        stmt = select(StocktakeItem).join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id)
         if conditions:
             stmt = stmt.where(and_(*conditions))
     else:
         base_stmt = select(
             StocktakeItem,
-            StocktakeSession.store.label("session_store"),
             func.row_number().over(
                 partition_by=(StocktakeItem.location, StocktakeItem.barcode),
                 order_by=(StocktakeItem.create_time.desc(), StocktakeItem.id.desc()),
@@ -743,7 +743,7 @@ async def get_stock_by_location_v2(
             base_stmt = base_stmt.where(and_(*conditions))
         base_subq = base_stmt.subquery()
         item_alias = aliased(StocktakeItem, base_subq)
-        stmt = select(item_alias, base_subq.c.session_store).where(base_subq.c.rn == 1)
+        stmt = select(item_alias).where(base_subq.c.rn == 1)
 
     result = await db.execute(stmt)
     #items = result.scalars().all()
@@ -762,7 +762,7 @@ async def get_stock_by_location_v2(
                 for snapshot in snapshot_result.scalars().all()
             }
 
-    for item, item_store in rows:
+    for item in items:
         barcode_padded = item.barcode.zfill(14)
         snapshot = snapshot_map.get(barcode_padded)
         image_url = get_image_url(barcode_padded)
@@ -782,7 +782,7 @@ async def get_stock_by_location_v2(
             "creator_id": item.creator_id,
             "modifier_id": item.modifier_id,
             "image_url": image_url,
-            "store": item_store
+            "store": item.store
         })
     logout = {"status": "success", "location_data": location_data}
     await log_operation(
@@ -809,10 +809,10 @@ async def export_stock_by_location(
             end_date = end_date + timedelta(days=1) - timedelta(microseconds=1)
         conditions.append(StocktakeItem.time <= end_date)
     if store:
-        conditions.append(StocktakeSession.store == store)
+        conditions.append(StocktakeItem.store == store)
 
     #stmt = select(StocktakeItem)
-    stmt = select(StocktakeItem, ProductInfo, StocktakeSession.store).join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id).outerjoin(ProductInfo, StocktakeItem.barcode == ProductInfo.barcode)
+    stmt = select(StocktakeItem, ProductInfo).join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id).outerjoin(ProductInfo, StocktakeItem.barcode == ProductInfo.barcode)
     if conditions:
         stmt = stmt.where(and_(*conditions))
 
@@ -823,7 +823,7 @@ async def export_stock_by_location(
         raise HTTPException(status_code=404, detail="No data found for the given time range.")
 
     data = [{
-        "Store": item_store,
+        "Store": item.store,
         "Location": item.location,
         "Barcode": item.barcode,
         "Name CH": product.name_ch if product else None,
@@ -834,7 +834,7 @@ async def export_stock_by_location(
         "Upload Date": item.create_time.replace(tzinfo=None),  # 去掉时区
         "creator_id": item.creator_id,
         "modifier_id": item.modifier_id,
-    } for item, product, item_store in rows]
+    } for item, product in rows]
 
     df = pd.DataFrame(data)
     df.sort_values(by=["Location", "Stock Take Date"], inplace=True)
@@ -866,9 +866,9 @@ async def export_stock_by_location_v2(
             end_date = end_date + timedelta(days=1) - timedelta(microseconds=1)
         conditions.append(StocktakeItem.time <= end_date)
     if store:
-        conditions.append(StocktakeSession.store == store)
+        conditions.append(StocktakeItem.store == store)
 
-    stmt = select(StocktakeItem, StocktakeSession.store).join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id)
+    stmt = select(StocktakeItem).join(StocktakeSession, StocktakeItem.session_id == StocktakeSession.id)
     if conditions:
         stmt = stmt.where(and_(*conditions))
 
@@ -891,11 +891,11 @@ async def export_stock_by_location_v2(
         }
 
     data = []
-    for item, item_store in rows:
+    for item in items:
         barcode_padded = item.barcode.zfill(14)
         snapshot = snapshot_map.get(barcode_padded)
         data.append({
-            "Store": item_store,
+            "Store": item.store,
             "Location": item.location,
             "Barcode": barcode_padded,
             "Barcode Original": item.barcode,
@@ -1069,6 +1069,7 @@ async def update_session(
     for item_data in session_data.stocktake:
         item_dict = item_data.model_dump()
         item_dict["session_id"] = session_id
+        item_dict["store"] = item_data.store or session_data.store
         item = StocktakeItem(**item_dict)
         db.add(item)
 
@@ -1100,5 +1101,3 @@ async def delete_session(session_id: str, db: AsyncSession = Depends(get_db_stoc
     result = {"status": "deleted", "session_id": session_id}
     await log_operation(db, f"delete /{session_id}", {"session_id": session_id}, result)
     return result
-
-

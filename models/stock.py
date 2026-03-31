@@ -34,6 +34,7 @@ class StocktakeItem(Base_stock):
     barcode = Column(String, nullable=False)
     qty = Column(Integer, nullable=False)
     time = Column(DateTime(timezone=True), nullable=False)  # 前端上传时间
+    store = Column(String, nullable=True)
 
     creator_id = Column(String, nullable=True)
     modifier_id = Column(String, nullable=True)
