@@ -64,7 +64,7 @@ class StocktakeItemBase(BaseModel):
     barcode: str
     qty: int
     time: datetime
-    store: Optional[str] = None
+    store: str
     user_id: str   # 每条 item 自己的用户 ID
 
 
