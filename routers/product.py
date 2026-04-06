@@ -401,6 +401,177 @@ async def get_product_sales(
     product_info["like_match"] = {"items": like_match_items}
     return product_info
 
+@router.get("/sales/trend/{barcode}")
+async def get_product_sales_trend(
+    barcode: str,
+    request: Request,
+    store: str = Query(..., description="store 参数必填"),
+    count: int = Query(4, ge=1, description="返回周期数"),
+    mode: str = Query("W", pattern="^[WM]$"),
+    db: AsyncSession = Depends(get_db_from_store)
+):
+    # 1. 获取基础商品信息
+    barcode_padded = barcode.zfill(14)
+    try:
+        product_info = await _get_product_common(barcode_padded, store, db, try_without_checkdigit=True)
+    except HTTPException as e:
+        if e.status_code == 404:
+            raise HTTPException(status_code=404, detail=f"Product with barcode {barcode} not found in store {store}")
+        raise e
+
+    # 2. 确定时间周期
+    today = date.today()
+    periods = []
+    if mode == 'W':
+        # MT: 从周四(3)开始。其它: 从周五(4)开始。
+        target_start_weekday = 3 if store == 'MT' else 4
+        # 找到最近的一个起始日期（即本周的起始日）
+        p1_start = today - timedelta(days=(today.weekday() - target_start_weekday + 7) % 7)
+        for i in range(count):
+            start = p1_start - timedelta(weeks=i)
+            end = start + timedelta(days=6)
+            # 对于 Period 1，如果结束日期在未来，则只统计到今天
+            periods.append((start, min(end, today) if i == 0 else end))
+    else: # 月度模式
+        curr = today
+        for i in range(count):
+            p_start = curr.replace(day=1)
+            p_end = curr # 当前月到今天，之前的月到月末
+            periods.append((p_start, p_end))
+            # 移动到上个月最后一天
+            curr = p_start - timedelta(days=1)
+
+    # 3. 定义同步销售查询函数 (复用 get_product_sales 逻辑)
+    def sync_get_sales_data(b, s, sd, ed):
+        sales_count = 0
+        sales_amount = 0.0
+        upc_to_query = b.lstrip('0') if b else ''
+        if not upc_to_query:
+            return (0, 0.0)
+        
+        today_val = date.today()
+        hist_end = min(ed, today_val - timedelta(days=1))
+
+        with getDB() as conn:
+            with conn.cursor() as cursor:
+                if sd <= hist_end:
+                    sql = """
+                        SELECT COALESCE(SUM(total_count) , 0), COALESCE(SUM(total_amount), 0)
+                        FROM day_upc_aggregate
+                        WHERE normalized_upc = %s AND store = %s AND day BETWEEN %s AND %s
+                    """
+                    cursor.execute(sql, (upc_to_query, s, sd, hist_end))
+                    result = cursor.fetchone()
+                    if result:
+                        sales_count += float(result[0] or 0)
+                        sales_amount += float(result[1] or 0)
+                
+                if sd <= today_val <= ed:
+                    qty_logic = "CASE WHEN weight IS NOT NULL AND weight <> 'NaN' THEN weight WHEN sales_qty IS NOT NULL AND sales_qty <> 'NaN' THEN sales_qty ELSE CASE WHEN unit_price = 0 OR unit_price IS NULL THEN 0 ELSE CASE WHEN MOD(total_amount + COALESCE(total_discount, 0), unit_price) = 0 THEN (total_amount + COALESCE(total_discount, 0)) / unit_price WHEN MOD(total_amount, unit_price) = 0 THEN total_amount / unit_price ELSE (total_amount + COALESCE(total_discount, 0)) / unit_price END END END"
+                    sql = f"""
+                        SELECT COALESCE(SUM({qty_logic}), 0), COALESCE(SUM(total_amount), 0)
+                        FROM sale_item
+                        WHERE ltrim(upc, '0') = %s AND store = %s AND date = %s
+                    """
+                    cursor.execute(sql, (upc_to_query, s, today_val))
+                    result = cursor.fetchone()
+                    if result:
+                        sales_count += float(result[0] or 0)
+                        sales_amount += float(result[1] or 0)
+        return (sales_count, sales_amount)
+
+    def sync_get_sales_for_barcodes(barcodes, s, sd, ed):
+        sales_data = {}
+        if not barcodes: return sales_data
+        upcs_to_query = tuple(b.lstrip('0') for b in barcodes if b)
+        if not upcs_to_query: return sales_data
+        
+        today_val = date.today()
+        hist_end = min(ed, today_val - timedelta(days=1))
+
+        with getDB() as conn:
+            with conn.cursor() as cursor:
+                if sd <= hist_end:
+                    sql = "SELECT normalized_upc, COALESCE(SUM(total_count) , 0), COALESCE(SUM(total_amount), 0) FROM day_upc_aggregate WHERE normalized_upc IN %s AND store = %s AND day BETWEEN %s AND %s GROUP BY normalized_upc"
+                    cursor.execute(sql, (upcs_to_query, s, sd, hist_end))
+                    for row in cursor.fetchall():
+                        u = row[0]
+                        if u not in sales_data: sales_data[u] = {"sales_count": 0, "sales_amount": 0.0}
+                        sales_data[u]["sales_count"] += float(row[1] or 0)
+                        sales_data[u]["sales_amount"] += float(row[2] or 0)
+                
+                if sd <= today_val <= ed:
+                    qty_logic = "CASE WHEN weight IS NOT NULL AND weight <> 'NaN' THEN weight WHEN sales_qty IS NOT NULL AND sales_qty <> 'NaN' THEN sales_qty ELSE CASE WHEN unit_price = 0 OR unit_price IS NULL THEN 0 ELSE CASE WHEN MOD(total_amount + COALESCE(total_discount, 0), unit_price) = 0 THEN (total_amount + COALESCE(total_discount, 0)) / unit_price WHEN MOD(total_amount, unit_price) = 0 THEN total_amount / unit_price ELSE (total_amount + COALESCE(total_discount, 0)) / unit_price END END END"
+                    sql = f"""
+                        SELECT ltrim(upc, '0'), COALESCE(SUM({qty_logic}), 0), COALESCE(SUM(total_amount), 0)
+                        FROM sale_item
+                        WHERE ltrim(upc, '0') IN %s AND store = %s AND date = %s
+                        GROUP BY ltrim(upc, '0')
+                    """
+                    cursor.execute(sql, (upcs_to_query, s, today_val))
+                    for row in cursor.fetchall():
+                        u = row[0]
+                        if u not in sales_data: sales_data[u] = {"sales_count": 0, "sales_amount": 0.0}
+                        sales_data[u]["sales_count"] += float(row[1] or 0)
+                        sales_data[u]["sales_amount"] += float(row[2] or 0)
+        return sales_data
+
+    # 4. 获取趋势销售数据
+    main_barcode = product_info['barcode']
+    sales_trend = []
+    for i, (p_start, p_end) in enumerate(periods):
+        sc, sa = await run_in_threadpool(sync_get_sales_data, main_barcode, store, p_start, p_end)
+        sales_trend.append({
+            "period": i + 1,
+            "start_date": p_start.strftime("%Y-%m-%d"),
+            "end_date": p_end.strftime("%Y-%m-%d"),
+            "sales_count": sc,
+            "sales_amount": float(sa)
+        })
+    product_info["sales"] = sales_trend
+
+    # 5. 为 Period 1 获取 mix_match 和 like_match
+    p1_start, p1_end = periods[0]
+    
+    # 5.1 Mix Match
+    mix_match_items = []
+    mix_id_query = text("SELECT TOP 1 F32 FROM PRICEACT_TAB WHERE F01 = :barcode AND F32 >= 1")
+    mix_id_result = await db.execute(mix_id_query, {"barcode": main_barcode})
+    mix_id = mix_id_result.scalar_one_or_none()
+    if mix_id:
+        mix_match_query = text(f"SELECT DISTINCT p.F01 as UPC, o.F155 as Brand, o.F29 as ENG, CASE WHEN '{store}' = 'MT' THEN NULL ELSE p.F2095 END as CHN, CASE WHEN '{store}' = 'MT' THEN p.F2095 ELSE NULL END as FRN, o.F22 as Size, pr.F32 as Mix_ID, m.F1019 as Mix_Name FROM POS_TAB p LEFT JOIN PRICEACT_TAB pr ON p.F01 = pr.F01 LEFT JOIN OBJ_TAB o ON p.F01 = o.F01 LEFT JOIN MIX_TAB m ON pr.F32 = m.F32 WHERE pr.F32 = :mix_id")
+        mix_match_result = await db.execute(mix_match_query, {"mix_id": mix_id})
+        mix_rows = mix_match_result.all()
+        barcodes_in_mix = [row.UPC.strip() for row in mix_rows if row.UPC]
+        sales_map = await run_in_threadpool(sync_get_sales_for_barcodes, barcodes_in_mix, store, p1_start, p1_end)
+        for row in mix_rows:
+            u_sql = row.UPC.strip() if row.UPC else ''
+            if not u_sql: continue
+            u_sales_map = u_sql.lstrip('0')
+            sales = sales_map.get(u_sales_map, {"sales_count": 0, "sales_amount": 0.0})
+            mix_match_items.append({"barcode": u_sql, "name_en": row.ENG.strip() if row.ENG else None, "name_cn": row.CHN.strip() if row.CHN else None, "name_fr": row.FRN.strip() if row.FRN else None, "sales": sales["sales_count"], "sales_count": sales["sales_count"], "sales_amount": float(sales["sales_amount"]), "brand": row.Brand.strip() if row.Brand else None, "size": row.Size.strip() if row.Size else None, "mix_id": row.Mix_ID, "mix_name": row.Mix_Name.strip() if row.Mix_Name else None})
+    product_info["mix_match"] = {"items": mix_match_items}
+
+    # 5.2 Like Match
+    like_match_items = []
+    like_code = product_info.get('like_code')
+    if like_code:
+        like_match_query = text(f"SELECT DISTINCT o.F01 as UPC, o.F155 as Brand, o.F29 as ENG, CASE WHEN '{store}' = 'MT' THEN NULL ELSE p.F2095 END as CHN, CASE WHEN '{store}' = 'MT' THEN p.F2095 ELSE NULL END as FRN, o.F22 as Size, o.F122 as Like_Code FROM OBJ_TAB o LEFT JOIN POS_TAB p ON o.F01 = p.F01 WHERE o.F122 = :like_code ORDER BY o.F01")
+        like_match_result = await db.execute(like_match_query, {"like_code": like_code})
+        like_rows = like_match_result.all()
+        if len(like_rows) > 1:
+            barcodes_in_like = [row.UPC.strip() for row in like_rows if row.UPC]
+            like_sales_map = await run_in_threadpool(sync_get_sales_for_barcodes, barcodes_in_like, store, p1_start, p1_end)
+            for row in like_rows:
+                u_sql = row.UPC.strip() if row.UPC else ''
+                if not u_sql: continue
+                u_sales_map = u_sql.lstrip('0')
+                sales = like_sales_map.get(u_sales_map, {"sales_count": 0, "sales_amount": 0.0})
+                like_match_items.append({"barcode": u_sql, "name_en": row.ENG.strip() if row.ENG else None, "name_cn": row.CHN.strip() if row.CHN else None, "name_fr": row.FRN.strip() if row.FRN else None, "sales": sales["sales_count"], "sales_count": sales["sales_count"], "sales_amount": float(sales["sales_amount"]), "brand": row.Brand.strip() if row.Brand else None, "size": row.Size.strip() if row.Size else None, "like_code": row.Like_Code.strip() if row.Like_Code else None})
+    product_info["like_match"] = {"items": like_match_items}
+
+    return product_info
+
 @router.get("", summary="获取过去几天下过订单或有库存无订单的产品信息", response_model=ProductListResponse)
 async def get_products(
     days: Optional[int] = Query(7, description="过去几天的订单，默认7天，-1表示不限时间"),
