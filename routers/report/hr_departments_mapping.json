@@ -67,11 +67,8 @@
             {"id": "671197532159741952", "name": "Meat", "map_departments": ["800"], "map_subdepartments": [], "departments": []},
             {"id": "678447805659877376", "name": "Seafood", "map_departments": ["900"], "map_subdepartments": [], "departments": []},
             {"id": "676214681093804032", "name": "Frozen", "map_departments": ["700"], "map_subdepartments": [], "departments": []},
-            {"id": "678447245095342080", "name": "Produce", "map_departments": ["500"], "map_subdepartments": [], 
-                "departments": [
-                    {"id": "676215434076229632", "name": "Veg", "map_departments": [], "map_subdepartments": ["500"], "departments": []},
-                    {"id": "676217003719004160", "name": "Fruit", "map_departments": [], "map_subdepartments": ["600"], "departments": []}
-                ]},
+            {"id": "676215434076229632", "name": "Veg", "map_departments": ["700"], "map_subdepartments": ["500"], "departments": []},
+            {"id": "676217003719004160", "name": "Fruit", "map_departments": ["700"], "map_subdepartments": ["600"], "departments": []},
             {"id": "999999", "name": "Others", "map_departments": ["770","999", "300", "170", "270", "100", "1"], "map_subdepartments": [], "departments": []}
         ]
     },
