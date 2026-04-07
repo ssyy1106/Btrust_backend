@@ -401,6 +401,31 @@ async def get_product_sales(
     product_info["like_match"] = {"items": like_match_items}
     return product_info
 
+def calculate_periods(store: str, mode: str, count: int, today: date):
+    """
+    辅助函数：模拟 routers/product.py 中 get_product_sales_trend 的周期计算逻辑
+    """
+    periods = []
+    if mode == 'W':
+        # MT: 周四(3)开始。其它: 周五(4)开始。
+        target_start_weekday = 3 if store == 'MT' else 4
+        # 找到最近的一个起始日期（即本周的起始日）
+        p1_start = today - timedelta(days=(today.weekday() - target_start_weekday + 7) % 7)
+        for i in range(count):
+            start = p1_start - timedelta(weeks=i)
+            end = start + timedelta(days=6)
+            # 对于 Period 1，如果结束日期在未来，则只统计到今天
+            periods.append((start, min(end, today) if i == 0 else end))
+    else:  # 月度模式
+        curr = today
+        for i in range(count):
+            p_start = curr.replace(day=1)
+            p_end = curr # 当前月到今天，之前的月到月末
+            periods.append((p_start, p_end))
+            # 移动到上个月最后一天
+            curr = p_start - timedelta(days=1)
+    return periods
+
 @router.get("/sales/trend/{barcode}")
 async def get_product_sales_trend(
     barcode: str,
@@ -421,25 +446,7 @@ async def get_product_sales_trend(
 
     # 2. 确定时间周期
     today = date.today()
-    periods = []
-    if mode == 'W':
-        # MT: 从周四(3)开始。其它: 从周五(4)开始。
-        target_start_weekday = 3 if store == 'MT' else 4
-        # 找到最近的一个起始日期（即本周的起始日）
-        p1_start = today - timedelta(days=(today.weekday() - target_start_weekday + 7) % 7)
-        for i in range(count):
-            start = p1_start - timedelta(weeks=i)
-            end = start + timedelta(days=6)
-            # 对于 Period 1，如果结束日期在未来，则只统计到今天
-            periods.append((start, min(end, today) if i == 0 else end))
-    else: # 月度模式
-        curr = today
-        for i in range(count):
-            p_start = curr.replace(day=1)
-            p_end = curr # 当前月到今天，之前的月到月末
-            periods.append((p_start, p_end))
-            # 移动到上个月最后一天
-            curr = p_start - timedelta(days=1)
+    periods = calculate_periods(store, mode, count, today)
 
     # 3. 定义同步销售查询函数 (复用 get_product_sales 逻辑)
     def sync_get_sales_data(b, s, sd, ed):
