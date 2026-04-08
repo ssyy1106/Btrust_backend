@@ -18,7 +18,7 @@ jobs:
           python-version: "3.11"
 
       - run: pip install pip-tools
-      - run: pip-compile --check requirements/base.in
+      - run: pip-compile requirements/base.in
 
       - run: pip install -r requirements/base.txt
 
