@@ -7,7 +7,7 @@ def test_period_calculation_mt_weekly():
     # 假设今天是 2024-05-24 (周五，weekday 4)。MT 周从周四(3)开始。
     today = date(2024, 5, 24)
     periods = calculate_periods("MT", "W", 2, today)
-    assert periods[0] == (date(2024, 5, 22), date(2024, 5, 24)) # 本周：周四到周五(今天)
+    assert periods[0] == (date(2024, 5, 23), date(2024, 5, 24)) # 本周：周四到周五(今天)
     assert periods[1] == (date(2024, 5, 16), date(2024, 5, 22)) # 上周：周四到周三
 
 def test_period_calculation_other_weekly():
