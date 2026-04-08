@@ -1,5 +1,5 @@
 import getopt
-from hdbcli import dbapi
+#from hdbcli import dbapi
 import logging
 import sys
 import datetime
@@ -241,6 +241,7 @@ def getShiftDB():
         return None
 
 def getHanaDB():
+    from hdbcli import dbapi
     try:
         conn = dbapi.connect(
             address=get_config()['Hana']['address'],
