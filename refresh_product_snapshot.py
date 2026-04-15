@@ -5,14 +5,20 @@ from datetime import datetime
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
+from pathlib import Path
 
 from database import get_db_stock, get_db_store_sqlserver_factory
 from helper import getStore, log_and_save
 from models.product import ObjTab
 from models.stock import ProductSnapshot, StocktakeItem
 from routers.product import _get_product_common
+from config_log_env import init_config
+from database import init_database
 
 DEFAULT_BATCH_SIZE = 500
+BASE_DIR = Path(__file__).resolve().parent  # main.py 所在目录
+CONFIG_PATH = BASE_DIR / "config.ini"
+config = None
 
 
 async def upsert_batch(stock_db, batch):
@@ -39,7 +45,7 @@ async def refresh_product_snapshot(
     store_list = getStore()
     seen = set()
 
-    async for stock_db in get_db_stock():
+    async with get_db_stock() as stock_db:
         stocktake_barcodes = None
         if only_stocktake_barcodes:
             stocktake_stmt = select(StocktakeItem.barcode).distinct()
@@ -51,7 +57,7 @@ async def refresh_product_snapshot(
             }
         for store in store_list:
             store_db_gen = get_db_store_sqlserver_factory(store)
-            async for store_db in store_db_gen():
+            async with store_db_gen() as store_db:
                 result = await store_db.execute(select(ObjTab.F01))
                 barcodes = [row[0] for row in result.all()]
                 batch = []
@@ -125,6 +131,9 @@ async def refresh_product_snapshot(
 
 
 def main():
+    global config
+    config = init_config(CONFIG_PATH)
+    init_database()
     parser = argparse.ArgumentParser(description="Refresh product_snapshot table.")
     parser.add_argument(
         "--batch-size",
