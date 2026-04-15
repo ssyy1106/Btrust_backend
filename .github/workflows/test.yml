@@ -17,15 +17,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      - run: pip install pip-tools
-      - run: pip-compile requirements/base.in
-
-      - run: pip install -r requirements/base.txt
-
-      - run: pip-compile requirements/dev.in -o requirements/dev.txt
-
-      - run: pip install -r requirements/dev.txt
+      - name: Install dependencies
+        run: |
+          pip install -r requirements/base.txt
+          pip install -r requirements/dev.txt
 
       - name: Run tests
         run: |
-          python -m pytest
+          python -m pytest --asyncio-mode=auto
