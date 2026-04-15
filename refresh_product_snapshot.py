@@ -126,8 +126,8 @@ async def refresh_product_snapshot(
                 if batch:
                     await upsert_batch(stock_db, batch)
                     await stock_db.commit()
-                break
-        break
+                
+
 
 
 def main():
