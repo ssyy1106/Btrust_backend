@@ -147,12 +147,19 @@ def main():
         help="Only sync barcodes that exist in stocktake_item."
     )
     args = parser.parse_args()
-    asyncio.run(
-        refresh_product_snapshot(
-            batch_size=args.batch_size,
-            only_stocktake_barcodes=args.only_stocktake_barcodes
-        )
-    )
+
+    async def run_and_cleanup():
+        try:
+            await refresh_product_snapshot(
+                batch_size=args.batch_size,
+                only_stocktake_barcodes=args.only_stocktake_barcodes
+            )
+        finally:
+            # 脚本结束前释放所有数据库连接，解决 Unclosed connection 报错
+            from database import dispose_engines
+            await dispose_engines()
+
+    asyncio.run(run_and_cleanup())
 
 
 if __name__ == "__main__":

@@ -24,6 +24,7 @@ def get_db_store_sqlserver_factory(store: str):
         DATABASE_URL_SQLSERVER = (
             f"mssql+aioodbc://{USERNAME}:{PASSWORD}@{HOST}/{DATABASE}"
             f"?driver={DRIVER.replace(' ', '+')}"
+            f"&Mars_Connection=Yes"
         )
 
         # 创建 engine + sessionmaker
@@ -165,6 +166,17 @@ async def get_db():
             yield session
         finally:
             await session.close()
+
+async def dispose_engines():
+    """显式释放所有数据库引擎的连接池"""
+    global engine_cost, engine, engine_stock, engine_odoo, engine_storestock
+    engines = [engine_cost, engine, engine_stock, engine_odoo, engine_storestock]
+    for eng in engines:
+        if eng:
+            await eng.dispose()
+    for session_factory in store_sessions.values():
+        await session_factory.kw['bind'].dispose()
+    store_sessions.clear()
 
 async def get_db_cost():
     session_maker = _require_sessionmaker(AsyncSessionLocal_cost, "AsyncSessionLocal_cost")
