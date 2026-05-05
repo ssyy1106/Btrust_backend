@@ -134,6 +134,22 @@ async def _get_product_common(
     original_price_obj = next((p for p in prices if p.F113.strip() == "REG"), None)
     original_price = original_price_obj.F30 if original_price_obj else None
 
+    # --- 新增：提取各类型的详细价格信息 ---
+    def _format_price_detail(p):
+        if not p:
+            return None
+        return {
+            "unit_price": p.F30,
+            "pack_qty": p.F142,
+            "pack_price": p.F140,
+            "valid_from": p.F35,
+            "valid_to": p.F129.replace(hour=23, minute=59, second=59) if p.F129 else None
+        }
+
+    instore_price_obj = next((p for p in valid_prices if p.F113.strip() == "INSTORE"), None)
+    special_price_obj = next((p for p in valid_prices if p.F113.strip() not in ("REG", "INSTORE")), None)
+    regular_price_obj = next((p for p in valid_prices if p.F113.strip() == "REG"), None)
+
     # --- 4️⃣ 判断单位类型 ---
     if (product.F82 and product.F82.strip() == "1") or (chosen_price.F33 and chosen_price.F33.strip() == "I"):
         unit_type = "lb"
@@ -185,6 +201,9 @@ async def _get_product_common(
         "image_url": image_url,
         "tax": tax,
         "like_code": product.F122.strip() if product.F122 else None,
+        "instore_price": _format_price_detail(instore_price_obj),
+        "special_price": _format_price_detail(special_price_obj),
+        "regular_price": _format_price_detail(regular_price_obj),
     }
 
 # --- v2 接口 ---

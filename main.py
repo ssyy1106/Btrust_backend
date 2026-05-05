@@ -19,7 +19,7 @@ from hana import getSalesOrder, getDeliveryOrder, getPurchaseOrder, getWeekOrder
 from PO import getPOStoreOrder, getPOWareOrder
 from mygraphql import graphql_app
 from pydantic import BaseModel
-from helper import LoginShift, verify_token, create_jwt_token, verify_jwt_token, get_user_information
+from helper import LoginShift, verify_token, create_jwt_token, verify_jwt_token, get_user_information, LoginWithAccessCode
 from graphqlschema.schema import UserInformation
 from routers import attachments, bos_api, cost, download, invoice, pickup, product, stock, storepickup, storestock, supplier
 from routers.report import invoice as report_invoice
@@ -202,6 +202,9 @@ class Login(BaseModel):
     username: str
     password: str
 
+class AccessCodeLogin(BaseModel):
+    access_code: str
+
 @app.post("/login")
 async def login(user: Login):
     ok, userId = LoginShift(user.username, user.password)
@@ -212,6 +215,19 @@ async def login(user: Login):
             detail="Invalid username or password",
         )
     
+    token_data = {"sub": str(userId)}
+    token = create_jwt_token(data=token_data)
+    return {"access_token": token, "token_type": "bearer"}
+
+@app.post("/login/access-code")
+async def login_with_access_code(data: AccessCodeLogin):
+    ok, userId = LoginWithAccessCode(data.access_code)
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid access code",
+        )
+
     token_data = {"sub": str(userId)}
     token = create_jwt_token(data=token_data)
     return {"access_token": token, "token_type": "bearer"}

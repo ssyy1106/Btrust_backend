@@ -330,6 +330,27 @@ def LoginShift(btrustId: str, password: str) -> tuple:
                 print(e)
                 return (False, 0)
 
+def LoginWithAccessCode(access_code: str) -> tuple:
+    with getShiftDB() as conn:
+        with conn.cursor() as cursor:
+            try:
+                sql = """
+                select id 
+                from sysuser 
+                where accesscode=? and BaseIsDelete=0
+                """
+                cursor.execute(sql, access_code)
+                row = cursor.fetchone()
+                if not row:
+                    return (False, 0)
+                
+                user_id = row[0]
+
+                return (True, user_id)
+            except Exception as e:
+                print(e)
+                return (False, 0)
+
 def EncryptUserPassword(password: str, salt: str) -> str:
     md = hashlib.md5(password.encode()).hexdigest()
     return hashlib.md5((md + salt).encode()).hexdigest()
