@@ -6,6 +6,7 @@ import datetime
 import functools
 import psycopg2
 import os
+import json
 import configparser
 import pyodbc
 import hashlib
@@ -15,9 +16,9 @@ import time
 from zoneinfo import ZoneInfo
 from fastapi import HTTPException, status, Header
 from typing import Optional, List
-from graphqlschema.schema import (
-    UserInformation
+from graphqlschema.schema import (UserInformation, StoreDepartment, DepartmentItem
 )
+
 from config_log_env import get_config
 
 
@@ -449,7 +450,105 @@ def get_user_db(userid) -> UserInformation:
                 row = cursor.fetchone()
                 if not row:
                     return None
-                return UserInformation(id=userid, realname=row[1], username=row[0],lastvisit=row[3], department=row[2],store=getStoreName(getStoreWithId(row[4])), authorize=authorize)
+
+                # --- Calculate store_department permissions based on Sales System mappings ---
+                store_department = []
+                try:
+                    json_path = os.path.join(os.path.dirname(__file__), "routers", "report", "hr_departments_mapping.json")
+                    if os.path.exists(json_path):
+                        with open(json_path, 'r', encoding='utf-8') as f:
+                            mappings = json.load(f)
+                        
+                        codes = getStore()
+                        descs = getStoreDescription()
+                        store_code_map = dict(zip(descs, codes))
+                        store_code_map.update({"B1": "MS", "B2": "NY", "Terra": "TE", "Montreal": "MT", "BVW": "RH", "Mississauga": "MS", "North York": "NY"})
+
+                        target_dept_name = row[2]
+                        target_dept_id = str(row[4])
+
+                        # Helper to collect sales IDs and resolve their names from HODB
+                        def collect_sales_info(hr_depts):
+                            sales_depts = []
+                            sales_subs = []
+                            for d in hr_depts:
+                                # Resolve map_departments (Sales Departments)
+                                for sid in d.get('map_departments', []):
+                                    name = getDepartmentName(str(sid))
+                                    sales_depts.append(DepartmentItem(department_name=name, department_id=str(sid)))
+                                # Resolve map_subdepartments (Sales Sub-departments)
+                                for sid in d.get('map_subdepartments', []):
+                                    name = getDepartmentName(str(sid))
+                                    sales_subs.append(DepartmentItem(department_name=name, department_id=str(sid)))
+                                # Recurse into nested HR departments
+                                if d.get('departments'):
+                                    nested_depts, nested_subs = collect_sales_info(d['departments'])
+                                    sales_depts.extend(nested_depts)
+                                    sales_subs.extend(nested_subs)
+                            return sales_depts, sales_subs
+
+                        # 辅助函数：查找特定 HR 部门及其映射的销售系统 ID
+                        def find_target_hr_dept_in_store(hr_depts, current_store_code):
+                            for d in hr_depts:
+                                if str(d.get('id')) == target_dept_id:
+                                    sales_depts, sales_subs = collect_sales_info([d])
+                                    unique_depts = {dept.department_id: dept for dept in sales_depts}.values()
+                                    unique_subs = {sub.department_id: sub for sub in sales_subs}.values()
+                                    return True, StoreDepartment(storename=current_store_code, departments=list(unique_depts), subdepartments=list(unique_subs))
+                                
+                                if d.get('departments'):
+                                    found, result = find_target_hr_dept_in_store(d['departments'], current_store_code)
+                                    if found:
+                                        return True, result
+                            return False, None
+
+                        if target_dept_name == 'Btrust':
+                            # Btrust department has access to all stores and all mapped sales departments
+                            for s_item in mappings:
+                                s_name = s_item.get('name')
+                                s_code = store_code_map.get(s_name, s_name)
+                                sales_depts, sales_subs = collect_sales_info(s_item.get('departments', []))
+                                # Deduplicate based on ID
+                                unique_depts = {d.department_id: d for d in sales_depts}.values()
+                                unique_subs = {s.department_id: s for s in sales_subs}.values()
+                                store_department.append(StoreDepartment(storename=s_code, departments=list(unique_depts), subdepartments=list(unique_subs)))
+                        else: # 非 Btrust 用户，需要查找具体权限
+                            has_instore_view = 'instoreprice:view' in authorize
+                            user_belong_store_id = str(getStoreWithId(int(target_dept_id)))
+
+                            for s_item in mappings:
+                                s_name = s_item.get('name')
+                                s_code = store_code_map.get(s_name, s_name)
+                                s_id_str = str(s_item.get('id', ''))
+                                
+                                # 新增逻辑：如果用户的 departmentid 匹配到门店的顶层 ID，或者用户有 'instore:view' 权限且所属该店
+                                if s_id_str == target_dept_id or (has_instore_view and s_id_str == user_belong_store_id):
+                                    # 用户拥有该门店下所有 HR 部门映射的销售系统部门和子部门的权限
+                                    sales_depts, sales_subs = collect_sales_info(s_item.get('departments', []))
+                                    # 去重
+                                    unique_depts = {dept.department_id: dept for dept in sales_depts}.values()
+                                    unique_subs = {sub.department_id: sub for sub in sales_subs}.values()
+                                    store_department.append(StoreDepartment(storename=s_code, departments=list(unique_depts), subdepartments=list(unique_subs)))
+                                    break
+                                else:
+                                    # 如果没有匹配到门店顶层 ID，则继续查找是否匹配到门店内的某个具体 HR 部门
+                                    found, result_obj = find_target_hr_dept_in_store(s_item.get('departments', []), s_code)
+                                    if found:
+                                        store_department.append(result_obj)
+                                        break # 找到权限，跳出门店循环
+                except Exception as ex:
+                    print(f"Error building store_department: {ex}")
+
+                return UserInformation(
+                    id=userid, 
+                    realname=row[1], 
+                    username=row[0], 
+                    lastvisit=row[3], 
+                    department=row[2], 
+                    store=getStoreName(getStoreWithId(row[4])), 
+                    authorize=authorize,
+                    store_department=store_department
+                )
             except Exception as e:
                 print(e)
                 return None
@@ -478,4 +577,3 @@ def resolve_attachment_path(attachment_path_from_db: str) -> str:
         path = path[len("thumbnails/"):]
         return os.path.join(THUMBNAIL_ROOT, path)
     return os.path.join(ATTACHMENT_ROOT, path)
-

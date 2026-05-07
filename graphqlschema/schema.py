@@ -225,6 +225,17 @@ class TodayData:
     topproduct: typing.List[Product] 
 
 @strawberry.type
+class DepartmentItem:
+    department_name: str
+    department_id: str
+
+@strawberry.type
+class StoreDepartment:
+    storename: str
+    departments: typing.List[DepartmentItem]
+    subdepartments: typing.List[DepartmentItem]
+
+@strawberry.type
 class UserInformation:
     id: str
     realname: str
@@ -233,6 +244,7 @@ class UserInformation:
     store: typing.List[str]
     lastvisit: str
     authorize: typing.List[str] 
+    store_department: typing.List[StoreDepartment]
 
 @strawberry.type
 class MonthPaymentSummary:
