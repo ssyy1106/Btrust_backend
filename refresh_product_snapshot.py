@@ -38,13 +38,20 @@ async def upsert_batch(stock_db, batch):
     )
 
 
+def sanitize_date(dt):
+    if dt and dt.year > 2099:
+        # 处理异常日期，防止超出数据库或 Python 处理范围
+        return dt.replace(year=2099, month=1, day=1)
+    return dt
+
+
 async def refresh_product_snapshot(
     batch_size: int = DEFAULT_BATCH_SIZE,
     only_stocktake_barcodes: bool = False
 ):
     store_list = getStore()
 
-    async with get_db_stock() as stock_db:
+    async for stock_db in get_db_stock():
         stocktake_barcodes = None
         if only_stocktake_barcodes:
             stocktake_stmt = select(StocktakeItem.barcode).distinct()
@@ -56,7 +63,7 @@ async def refresh_product_snapshot(
             }
         for store in store_list:
             store_db_gen = get_db_store_sqlserver_factory(store)
-            async with store_db_gen() as store_db:
+            async for store_db in store_db_gen():
                 seen_in_store = set()
                 result = await store_db.execute(select(ObjTab.F01))
                 barcodes = [row[0] for row in result.all()]
@@ -108,13 +115,15 @@ async def refresh_product_snapshot(
                         "unit_price": product.get("unit_price"),
                         "pack_qty": product.get("pack_qty"),
                         "pack_price": product.get("pack_price"),
-                        "valid_from": product.get("valid_from"),
-                        "valid_to": product.get("valid_to"),
+                        "valid_from": sanitize_date(product.get("valid_from")),
+                        "valid_to": sanitize_date(product.get("valid_to")),
                         "original_price": product.get("original_price"),
                         "tax": product.get("tax"),
                         "unit_type": product.get("unit_type"),
                         "image_url": product.get("image_url"),
                         "store": store,
+                        "department": product.get("department"),
+                        "subdepartment": product.get("subdepartment"),
                         "update_time": datetime.now()
                     })
 
@@ -126,9 +135,6 @@ async def refresh_product_snapshot(
                 if batch:
                     await upsert_batch(stock_db, batch)
                     await stock_db.commit()
-                
-
-
 
 def main():
     global config

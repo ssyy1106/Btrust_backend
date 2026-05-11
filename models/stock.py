@@ -1,8 +1,8 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, BigInteger, Float, Numeric
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, BigInteger, Float, Numeric, Boolean, Date
 from sqlalchemy.orm import relationship
 from database import Base_stock
+from sqlalchemy.dialects.postgresql import UUID, ARRAY
 import datetime
-from sqlalchemy.dialects.postgresql import UUID
 import uuid
 
 def utcnow():
@@ -83,6 +83,8 @@ class ProductSnapshot(Base_stock):
     unit_type = Column(String, nullable=True)
     image_url = Column(String, nullable=True)
     store = Column(String, primary_key=True)
+    department = Column(String, nullable=True)
+    subdepartment = Column(String, nullable=True)
     update_time = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 class Job(Base_stock):
@@ -93,4 +95,36 @@ class Job(Base_stock):
     payload_key = Column(String, nullable=False)
     create_time = Column(DateTime(timezone=True), default=utcnow)
     update_time = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+class InstorePriceSession(Base_stock):
+    __tablename__ = 'instoreprice_session'
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    creator_id = Column(String(50), nullable=False)
+    modifier_id = Column(String(50), nullable=True)
+    create_time = Column(DateTime(timezone=True), default=utcnow)
+    update_time = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    items = relationship("InstorePriceItem", back_populates="session", cascade="all, delete-orphan")
+
+class InstorePriceItem(Base_stock):
+    __tablename__ = 'instoreprice_item'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    session_id = Column(UUID(as_uuid=True), ForeignKey('instoreprice_session.id', ondelete="CASCADE"), nullable=False)
+    upc = Column(String(50), nullable=False)
+    status = Column(String(20), nullable=False, default='pending')
+    price_type = Column(String(30), nullable=False, default='instore')
+    old_price = Column(Numeric(10,2), nullable=True)
+    new_price = Column(Numeric(10,2), nullable=False)
+    from_date = Column(Date, nullable=True)
+    to_date = Column(Date, nullable=True)
+    package_deal_enabled = Column(Boolean, nullable=False, default=False)
+    package_qty = Column(Integer, nullable=True)
+    package_price = Column(Numeric(10,2), nullable=True)
+    label_types = Column(ARRAY(Integer), nullable=True)
+    create_time = Column(DateTime(timezone=True), default=utcnow)
+    update_time = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    session = relationship("InstorePriceSession", back_populates="items")
     

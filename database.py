@@ -2,7 +2,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from sqlalchemy.orm import declarative_base
 from helper import getInvoiceConfig, getCostConfig, getStockConfig, getOdooConfig, getStoreStockConfig, getStoreDBConfig, getLocalStore
 from typing import Optional
-from contextlib import asynccontextmanager
 
 
 Base_store_sqlserver = declarative_base()
@@ -44,7 +43,6 @@ def get_db_store_sqlserver_factory(store: str):
         store_sessions[store] = AsyncSessionLocal_sqlserver
 
     # 实际的依赖函数
-    @asynccontextmanager
     async def _get_db():
         async with store_sessions[store]() as session:
             try:
@@ -186,7 +184,6 @@ async def get_db_cost():
         finally:
             await session.close()
 
-@asynccontextmanager
 async def get_db_stock():
     session_maker = _require_sessionmaker(AsyncSessionLocal_stock, "AsyncSessionLocal_stock")
     async with session_maker() as session:

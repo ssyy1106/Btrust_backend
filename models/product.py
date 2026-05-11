@@ -30,7 +30,19 @@ class PosTab(Base_store_sqlserver):
     F97 = Column(String)   # PF Tax
     F98 = Column(String)   # Tax 4
     F89 = Column(String)   # TAX 5
+    F04 = Column(String)   # Sub-department ID
     F01 = Column(String, primary_key=True) # ID
+
+class SdpTab(Base_store_sqlserver):
+    __tablename__ = "SDP_TAB"
+    F04 = Column(String, primary_key=True)  # Sub-department ID
+    F1022 = Column(String)                  # Sub-department Name
+    F03 = Column(String)                    # Department ID
+
+class DeptTab(Base_store_sqlserver):
+    __tablename__ = "DEPT_TAB"
+    F03 = Column(String, primary_key=True)  # Department ID
+    F238 = Column(String)                   # Department Name
 
 class CatTab(Base_store_sqlserver):
     __tablename__ = "CAT_TAB"

@@ -11,8 +11,8 @@ from fastapi.concurrency import run_in_threadpool
 
 from dependencies.permission import PermissionChecker
 from database import get_db_odoo, get_db_store_sqlserver_factory, get_db_stock
-from models.product import ProductProduct, ProductTemplate, IrAttachment, ProductCategory, StockQuant, ObjTab, CatTab, PriceTab, UMETab, PosTab
-from models.stock import ProductSnapshot
+from models.product import ProductProduct, ProductTemplate, ProductCategory, StockQuant, ObjTab, CatTab, PriceTab, UMETab, PosTab, SdpTab, DeptTab
+from models.stock import ProductSnapshot, InstorePriceSession, InstorePriceItem
 from models.pickup import SaleOrder, SaleOrderLine
 from schemas.product import ProductListResponse, ProductCategoryResponse
 from helper import getOdooAccount, to_utc_naive, getDB, verify_token
@@ -161,8 +161,17 @@ async def _get_product_common(
     # --- 5️⃣ 中文名 / 法文名 ---
     chinese_name = product.F255.strip() if product.F255 else None
     french_name = None
-    pos_result = await db.execute(select(PosTab).where(PosTab.F01 == barcode))
-    pos = pos_result.scalars().first()
+    # 联表查询 POS_TAB, SDP_TAB, DEPT_TAB 获取部门和子部门名称
+    pos_stmt = (
+        select(PosTab, SdpTab.F1022, DeptTab.F238)
+        .outerjoin(SdpTab, PosTab.F04 == SdpTab.F04)
+        .outerjoin(DeptTab, SdpTab.F03 == DeptTab.F03)
+        .where(PosTab.F01 == barcode)
+    )
+    pos_res = await db.execute(pos_stmt)
+    pos_row = pos_res.first()
+    pos, subdept_name, dept_name = pos_row if pos_row else (None, None, None)
+
     if pos and pos.F2095:
         if store == 'MT':
             french_name = pos.F2095
@@ -203,6 +212,8 @@ async def _get_product_common(
         "image_url": image_url,
         "tax": tax,
         "like_code": product.F122.strip() if product.F122 else None,
+        "department": dept_name.strip() if dept_name else None,
+        "subdepartment": subdept_name.strip() if subdept_name else None,
         "instore_price": _format_price_detail(instore_price_obj),
         "special_price": _format_price_detail(special_price_obj),
         "regular_price": _format_price_detail(regular_price_obj),
@@ -259,10 +270,112 @@ async def search_products(
             "unit_type": p.unit_type,
             "image_url": p.image_url,
             "tax": p.tax,
-            "store": p.store
+            "store": p.store,
+            "department": p.department,
+            "subdepartment": p.subdepartment
         }
         for p in products
     ]
+
+@router.get("/search/{barcode}")
+async def search_product_with_details(
+    barcode: str,
+    store: str = Query(..., description="店名"),
+    db_stock: AsyncSession = Depends(get_db_stock),
+    db_sqlserver: AsyncSession = Depends(get_db_from_store),
+    user: UserInformation = Depends(verify_token)
+):
+    if store not in user.store:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this store."
+        )
+
+    # 1. 获取基础商品信息 (复用 _get_product_common)
+    try:
+        product_info = await _get_product_common(barcode, store, db_sqlserver, try_without_checkdigit=True)
+    except HTTPException as e:
+        if e.status_code == 404:
+            raise HTTPException(status_code=404, detail=f"Product with barcode {barcode} not found in store {store}")
+        raise e
+
+    main_barcode_for_sales = product_info['barcode'] # _get_product_common 可能会返回填充后的条码
+
+    # 2. 获取 mix_match 信息 (不含销量)
+    mix_match_items = []
+    mix_id_query = text("SELECT TOP 1 F32 FROM PRICEACT_TAB WHERE F01 = :barcode AND F32 >= 1")
+    mix_id_result = await db_sqlserver.execute(mix_id_query, {"barcode": main_barcode_for_sales})
+    mix_id = mix_id_result.scalar_one_or_none()
+
+    if mix_id:
+        mix_match_query = text(f"""
+            SELECT DISTINCT p.F01 as UPC, o.F155 as Brand, o.F29 as ENG,
+                            CASE WHEN '{store}' = 'MT' THEN NULL ELSE p.F2095 END as CHN,
+                            CASE WHEN '{store}' = 'MT' THEN p.F2095 ELSE NULL END as FRN,
+                            o.F22 as Size, pr.F32 as Mix_ID, m.F1019 as Mix_Name
+            FROM POS_TAB p
+            LEFT JOIN PRICEACT_TAB pr ON p.F01 = pr.F01
+            LEFT JOIN OBJ_TAB o ON p.F01 = o.F01
+            LEFT JOIN MIX_TAB m ON pr.F32 = m.F32
+            WHERE pr.F32 = :mix_id
+        """)
+        mix_match_result = await db_sqlserver.execute(mix_match_query, {"mix_id": mix_id})
+        mix_rows = mix_match_result.all()
+
+        for row in mix_rows:
+            upc_from_sql = row.UPC.strip() if row.UPC else ''
+            if not upc_from_sql: continue
+            mix_match_items.append({
+                "barcode": upc_from_sql,
+                "name_en": row.ENG.strip() if row.ENG else None,
+                "name_cn": row.CHN.strip() if row.CHN else None,
+                "name_fr": row.FRN.strip() if row.FRN else None,
+                "brand": row.Brand.strip() if row.Brand else None,
+                "size": row.Size.strip() if row.Size else None,
+                "mix_id": row.Mix_ID,
+                "mix_name": row.Mix_Name.strip() if row.Mix_Name else None
+            })
+    product_info["mix_match"] = {"items": mix_match_items}
+
+    # 3. 查询 pendingRequest 信息
+    pending_request = None
+    # 查找该 UPC 对应的 pending 状态的 InstorePriceItem
+    stmt_item = select(InstorePriceItem).where(
+        InstorePriceItem.upc == main_barcode_for_sales,
+        InstorePriceItem.status == 'pending'
+    )
+    item_result = await db_stock.execute(stmt_item)
+    instore_item = item_result.scalar_one_or_none()
+
+    if instore_item:
+        # 如果找到了 item，则查询对应的 session
+        stmt_session = select(InstorePriceSession).where(
+            InstorePriceSession.id == instore_item.session_id
+        )
+        session_result = await db_stock.execute(stmt_session)
+        instore_session = session_result.scalar_one_or_none()
+
+        if instore_session:
+            # 构造 pendingRequest 字典
+            pending_request = {
+                "status": instore_item.status,
+                "session_id": str(instore_session.id),
+                "submittedBy": instore_session.creator_id, # 假设 creator_id 就是提交人名称或ID
+                "submittedAt": instore_session.create_time.isoformat() if instore_session.create_time else None,
+                "price_type": instore_item.price_type,
+                "old_price": float(instore_item.old_price) if instore_item.old_price is not None else None,
+                "new_price": float(instore_item.new_price),
+                "fromDate": instore_item.from_date.isoformat() if instore_item.from_date else None,
+                "toDate": instore_item.to_date.isoformat() if instore_item.to_date else None,
+                "package_deal_enabled": instore_item.package_deal_enabled,
+                "pack_qty": instore_item.package_qty,
+                "package_price": float(instore_item.package_price) if instore_item.package_price is not None else None,
+                "label_types": instore_item.label_types if instore_item.label_types else []
+            }
+
+    product_info["pendingRequest"] = pending_request
+
+    return product_info
 
 # --- v2 接口 ---
 @router.get("/v2/{barcode}")
