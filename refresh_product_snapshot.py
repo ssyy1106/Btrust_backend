@@ -28,11 +28,11 @@ async def upsert_batch(stock_db, batch):
     update_cols = {
         col.name: getattr(stmt.excluded, col.name)
         for col in ProductSnapshot.__table__.columns
-        if col.name != "barcode"
+        if col.name not in ["barcode", "store"]
     }
     await stock_db.execute(
         stmt.on_conflict_do_update(
-            index_elements=[ProductSnapshot.barcode],
+            index_elements=[ProductSnapshot.barcode, ProductSnapshot.store],
             set_=update_cols
         )
     )
@@ -43,7 +43,6 @@ async def refresh_product_snapshot(
     only_stocktake_barcodes: bool = False
 ):
     store_list = getStore()
-    seen = set()
 
     async with get_db_stock() as stock_db:
         stocktake_barcodes = None
@@ -58,6 +57,7 @@ async def refresh_product_snapshot(
         for store in store_list:
             store_db_gen = get_db_store_sqlserver_factory(store)
             async with store_db_gen() as store_db:
+                seen_in_store = set()
                 result = await store_db.execute(select(ObjTab.F01))
                 barcodes = [row[0] for row in result.all()]
                 batch = []
@@ -71,7 +71,7 @@ async def refresh_product_snapshot(
                     barcode_padded = barcode_str.zfill(14)
                     if stocktake_barcodes is not None and barcode_padded not in stocktake_barcodes:
                         continue
-                    if barcode_padded in seen:
+                    if barcode_padded in seen_in_store:
                         continue
 
                     try:
@@ -91,10 +91,10 @@ async def refresh_product_snapshot(
                     if not snapshot_barcode:
                         continue
                     snapshot_barcode = snapshot_barcode.zfill(14)
-                    if snapshot_barcode in seen:
+                    if snapshot_barcode in seen_in_store:
                         continue
 
-                    seen.add(snapshot_barcode)
+                    seen_in_store.add(snapshot_barcode)
                     batch.append({
                         "barcode": snapshot_barcode,
                         "name_en": product.get("name_en"),

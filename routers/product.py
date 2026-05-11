@@ -1,6 +1,6 @@
 import json
 import os
-from fastapi import APIRouter, Query, Depends, HTTPException, Response, Request
+from fastapi import APIRouter, Query, Depends, HTTPException, Response, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func, or_, text
 from typing import Optional, List
@@ -10,11 +10,13 @@ import asyncio
 from fastapi.concurrency import run_in_threadpool
 
 from dependencies.permission import PermissionChecker
-from database import get_db_odoo, get_db_store_sqlserver_factory
+from database import get_db_odoo, get_db_store_sqlserver_factory, get_db_stock
 from models.product import ProductProduct, ProductTemplate, IrAttachment, ProductCategory, StockQuant, ObjTab, CatTab, PriceTab, UMETab, PosTab
+from models.stock import ProductSnapshot
 from models.pickup import SaleOrder, SaleOrderLine
 from schemas.product import ProductListResponse, ProductCategoryResponse
-from helper import getOdooAccount, to_utc_naive, getDB
+from helper import getOdooAccount, to_utc_naive, getDB, verify_token
+from graphqlschema.schema import UserInformation
 
 router = APIRouter(prefix="/product", tags=["Product"])
 
@@ -205,6 +207,62 @@ async def _get_product_common(
         "special_price": _format_price_detail(special_price_obj),
         "regular_price": _format_price_detail(regular_price_obj),
     }
+
+@router.get("/search")
+async def search_products(
+    q: str = Query(..., description="搜索关键词"),
+    store: str = Query(..., description="店名"),
+    limit: int = Query(10, ge=1, le=100, description="返回最多条数"),
+    db: AsyncSession = Depends(get_db_stock),
+    user: UserInformation = Depends(verify_token)
+):
+    if store not in user.store:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this store."
+        )
+
+    query_str = f"%{q}%"
+    stmt = (
+        select(ProductSnapshot)
+        .where(
+            ProductSnapshot.store == store,
+            or_(
+                ProductSnapshot.barcode.ilike(query_str),
+                ProductSnapshot.name_en.ilike(query_str),
+                ProductSnapshot.name_fr.ilike(query_str),
+                ProductSnapshot.name_cn.ilike(query_str)
+            )
+        )
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    products = result.scalars().all()
+
+    return [
+        {
+            "barcode": p.barcode,
+            "name_en": p.name_en,
+            "name_cn": p.name_cn,
+            "name_fr": p.name_fr,
+            "brand": p.brand,
+            "specification": p.specification,
+            "category_code": str(p.category_code) if p.category_code else None,
+            "category_name": p.category_name,
+            "price_type": p.price_type,
+            "unit_price": p.unit_price,
+            "pack_qty": p.pack_qty,
+            "pack_price": p.pack_price,
+            "valid_from": p.valid_from,
+            "valid_to": p.valid_to,
+            "original_price": p.original_price,
+            "unit_type": p.unit_type,
+            "image_url": p.image_url,
+            "tax": p.tax,
+            "store": p.store
+        }
+        for p in products
+    ]
 
 # --- v2 接口 ---
 @router.get("/v2/{barcode}")

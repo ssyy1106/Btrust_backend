@@ -82,7 +82,7 @@ class ProductSnapshot(Base_stock):
     tax = Column(Integer, nullable=True)
     unit_type = Column(String, nullable=True)
     image_url = Column(String, nullable=True)
-    store = Column(String, nullable=True)
+    store = Column(String, primary_key=True)
     update_time = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 class Job(Base_stock):

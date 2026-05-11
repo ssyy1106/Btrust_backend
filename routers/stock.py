@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException, Depends, APIRouter, Query, File, Upl
 from sqlalchemy.orm import Session, selectinload, aliased
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, and_, func, or_
+from sqlalchemy import select, delete, and_, func, or_, tuple_
 from fastapi.responses import JSONResponse, FileResponse
 from datetime import datetime, timedelta
 from models.stock import OperateLog, StocktakeSession, StocktakeItem, ProductInfo, ProductSnapshot, Job
@@ -449,21 +449,23 @@ async def search_stocktake_items_v2(
 
     items_list: List[StocktakeItemOutV2] = []
 
-    snapshot_map: Dict[str, ProductSnapshot] = {}
+    snapshot_map: Dict[tuple, ProductSnapshot] = {}
     items = [r[0] for r in rows]
     if items:
-        barcodes = {item.barcode.zfill(14) for item in items if item.barcode}
-        if barcodes:
-            snapshot_stmt = select(ProductSnapshot).where(ProductSnapshot.barcode.in_(barcodes))
+        pairs = {(item.barcode.zfill(14), item.store) for item in items if item.barcode and item.store}
+        if pairs:
+            snapshot_stmt = select(ProductSnapshot).where(
+                tuple_(ProductSnapshot.barcode, ProductSnapshot.store).in_(list(pairs))
+            )
             snapshot_result = await db.execute(snapshot_stmt)
             snapshot_map = {
-                snapshot.barcode: snapshot
+                (snapshot.barcode, snapshot.store): snapshot
                 for snapshot in snapshot_result.scalars().all()
             }
 
         for item in items:
             barcode_padded = item.barcode.zfill(14)
-            snapshot = snapshot_map.get(barcode_padded)
+            snapshot = snapshot_map.get((barcode_padded, item.store))
             items_list.append(
                 StocktakeItemOutV2.model_validate({
                     "id": item.id,
@@ -750,21 +752,23 @@ async def get_stock_by_location_v2(
     rows = result.all()
 
     location_data = defaultdict(list)
-    snapshot_map: Dict[str, ProductSnapshot] = {}
+    snapshot_map: Dict[tuple, ProductSnapshot] = {}
     items = [r[0] for r in rows]
     if items:
-        barcodes = {item.barcode.zfill(14) for item in items if item.barcode}
-        if barcodes:
-            snapshot_stmt = select(ProductSnapshot).where(ProductSnapshot.barcode.in_(barcodes))
+        pairs = {(item.barcode.zfill(14), item.store) for item in items if item.barcode and item.store}
+        if pairs:
+            snapshot_stmt = select(ProductSnapshot).where(
+                tuple_(ProductSnapshot.barcode, ProductSnapshot.store).in_(list(pairs))
+            )
             snapshot_result = await db.execute(snapshot_stmt)
             snapshot_map = {
-                snapshot.barcode: snapshot
+                (snapshot.barcode, snapshot.store): snapshot
                 for snapshot in snapshot_result.scalars().all()
             }
 
     for item in items:
         barcode_padded = item.barcode.zfill(14)
-        snapshot = snapshot_map.get(barcode_padded)
+        snapshot = snapshot_map.get((barcode_padded, item.store))
         image_url = get_image_url(barcode_padded)
         location_data[item.location].append({
             "session_id": str(item.session_id),
@@ -879,21 +883,23 @@ async def export_stock_by_location_v2(
     if not rows:
         raise HTTPException(status_code=404, detail="No data found for the given time range.")
 
-    snapshot_map: Dict[str, ProductSnapshot] = {}
+    snapshot_map: Dict[tuple, ProductSnapshot] = {}
     items = [r[0] for r in rows]
-    barcodes = {item.barcode.zfill(14) for item in items if item.barcode}
-    if barcodes:
-        snapshot_stmt = select(ProductSnapshot).where(ProductSnapshot.barcode.in_(barcodes))
+    pairs = {(item.barcode.zfill(14), item.store) for item in items if item.barcode and item.store}
+    if pairs:
+        snapshot_stmt = select(ProductSnapshot).where(
+            tuple_(ProductSnapshot.barcode, ProductSnapshot.store).in_(list(pairs))
+        )
         snapshot_result = await db.execute(snapshot_stmt)
         snapshot_map = {
-            snapshot.barcode: snapshot
+            (snapshot.barcode, snapshot.store): snapshot
             for snapshot in snapshot_result.scalars().all()
         }
 
     data = []
     for item in items:
         barcode_padded = item.barcode.zfill(14)
-        snapshot = snapshot_map.get(barcode_padded)
+        snapshot = snapshot_map.get((barcode_padded, item.store))
         data.append({
             "Store": item.store,
             "Location": item.location,
