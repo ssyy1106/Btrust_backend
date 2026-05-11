@@ -81,9 +81,11 @@ async def test_product_found():
     mock_db.execute.side_effect = [
         FakeResult([(fake_product, "水果")]),  # ObjTab 查询
         FakeResult([fake_price]),             # Price 查询
-        FakeResult([fake_pos])                # Pos 查询
+        FakeResult([(fake_pos, "SubName", "DeptName")]) # Pos + Join 联表查询
     ]
 
     result = await _get_product_common("123", "MT", mock_db)
 
     assert result["name_fr"] == fake_pos.F2095
+    assert result["department"] == "DeptName"
+    assert result["subdepartment"] == "SubName"
