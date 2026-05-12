@@ -132,7 +132,7 @@ class InstorePriceApprovalLog(Base_stock):
     __tablename__ = 'instoreprice_approval_log'
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    item_id = Column(BigInteger, ForeignKey('instoreprice_item.id', ondelete="CASCADE"), nullable=False)
+    item_id = Column(BigInteger, ForeignKey('instoreprice_item.id', ondelete="SET NULL"), nullable=True)
     session_id = Column(UUID(as_uuid=True), nullable=False)
     upc = Column(String(50), nullable=False)
     action = Column(String(20), nullable=False) # approve, reject, auto_reject, cancel

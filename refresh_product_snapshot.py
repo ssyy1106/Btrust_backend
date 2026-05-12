@@ -130,8 +130,8 @@ async def refresh_product_snapshot(
                     if len(batch) >= batch_size:
                         await upsert_batch(stock_db, batch)
                         await stock_db.commit()
-                        batch = []
                         print(f"store: {store} Product snapshot refresh completed. batch size: {len(batch)}")
+                        batch = [] 
 
                 if batch:
                     await upsert_batch(stock_db, batch)

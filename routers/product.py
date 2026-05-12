@@ -1,11 +1,13 @@
 import json
 import os
+from functools import lru_cache
 from fastapi import APIRouter, Query, Depends, HTTPException, Response, Request, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, func, or_, text
+from sqlalchemy import select, func, or_, text, and_
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta, date
+from uuid import UUID
 import asyncio
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
@@ -16,7 +18,7 @@ from models.product import ProductProduct, ProductTemplate, ProductCategory, Sto
 from models.stock import ProductSnapshot, InstorePriceSession, InstorePriceItem, InstorePriceApprovalLog
 from models.pickup import SaleOrder, SaleOrderLine
 from schemas.product import ProductListResponse, ProductCategoryResponse
-from helper import getOdooAccount, to_utc_naive, getDB, verify_token
+from helper import getOdooAccount, to_utc_naive, getDB, verify_token, getStoreMapping
 from graphqlschema.schema import UserInformation
 
 router = APIRouter(prefix="/product", tags=["Product"])
@@ -28,6 +30,15 @@ router = APIRouter(prefix="/product", tags=["Product"])
 # odoo_cookies = None
 
 NETWORK_IMAGE_DIR = r"\\172.16.30.8\image"
+
+INSTOREPRICE_SORT_FIELDS = {
+    "submitted_date": InstorePriceSession.create_time,
+    "submitted_at": InstorePriceSession.create_time,
+    "submitted_by": InstorePriceSession.creator_id,
+    "status": InstorePriceItem.status,
+    "upc": InstorePriceItem.upc,
+    "price": InstorePriceItem.new_price,
+}
 
 def get_image_url(barcode: str) -> str | None:
     image_file_name = f"{barcode}.png"
@@ -49,6 +60,89 @@ async def get_db_from_store(request: Request):
     get_db = get_db_store_sqlserver_factory(store)
     async for db in get_db():
         yield db
+
+@lru_cache(maxsize=1)
+def _load_hr_department_mapping():
+    mapping_path = os.path.join(os.path.dirname(__file__), "report", "hr_departments_mapping.json")
+    with open(mapping_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def _get_sales_permissions_for_store(user: UserInformation, store: str):
+    store_permission = next((item for item in (user.store_department or []) if item.storename == store), None)
+    department_names = {item.department_name for item in (store_permission.departments if store_permission else []) if item.department_name}
+    subdepartment_names = {item.department_name for item in (store_permission.subdepartments if store_permission else []) if item.department_name}
+    department_ids = {str(item.department_id) for item in (store_permission.departments if store_permission else []) if item.department_id}
+    subdepartment_ids = {str(item.department_id) for item in (store_permission.subdepartments if store_permission else []) if item.department_id}
+    return {
+        "departments": department_names,
+        "subdepartments": subdepartment_names,
+        "department_ids": department_ids,
+        "subdepartment_ids": subdepartment_ids,
+    }
+
+def _collect_hr_sales_mapping(nodes, target_name: str, parent_name: str = ""):
+    for node in nodes:
+        node_name = node.get("name", "")
+        full_name = f"{parent_name}/{node_name}" if parent_name else node_name
+        if node_name == target_name or full_name == target_name:
+            sales_department_ids = {str(item) for item in node.get("map_departments", [])}
+            sales_subdepartment_ids = {str(item) for item in node.get("map_subdepartments", [])}
+            return sales_department_ids, sales_subdepartment_ids
+        found_departments, found_subdepartments = _collect_hr_sales_mapping(
+            node.get("departments", []),
+            target_name,
+            full_name,
+        )
+        if found_departments or found_subdepartments:
+            return found_departments, found_subdepartments
+    return set(), set()
+
+def _resolve_requested_sales_scope(
+    user: UserInformation,
+    store: str,
+    hr_department: Optional[str],
+):
+    store_permission = next((item for item in (user.store_department or []) if item.storename == store), None)
+    permissions = _get_sales_permissions_for_store(user, store)
+    allowed_departments = set(permissions["departments"])
+    allowed_subdepartments = set(permissions["subdepartments"])
+
+    if not allowed_departments and not allowed_subdepartments:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to access this store department.")
+
+    if not hr_department:
+        return allowed_departments, allowed_subdepartments
+
+    hr_store_name = getStoreMapping().get(store)
+    if not hr_store_name:
+        raise HTTPException(status_code=400, detail="Invalid store.")
+
+    hr_store_node = next((item for item in _load_hr_department_mapping() if item.get("name") == hr_store_name), None)
+    if not hr_store_node:
+        raise HTTPException(status_code=400, detail="HR department mapping not found for store.")
+
+    mapped_department_ids, mapped_subdepartment_ids = _collect_hr_sales_mapping(hr_store_node.get("departments", []), hr_department)
+    if not mapped_department_ids and not mapped_subdepartment_ids:
+        raise HTTPException(status_code=400, detail="Invalid HR department for this store.")
+
+    requested_departments = {
+        item.department_name
+        for item in (store_permission.departments if store_permission else [])
+        if item.department_name and str(item.department_id) in mapped_department_ids
+    }
+    requested_subdepartments = {
+        item.department_name
+        for item in (store_permission.subdepartments if store_permission else [])
+        if item.department_name and str(item.department_id) in mapped_subdepartment_ids
+    }
+
+    requested_departments &= allowed_departments
+    requested_subdepartments &= allowed_subdepartments
+
+    if not requested_departments and not requested_subdepartments:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to access this department.")
+
+    return requested_departments, requested_subdepartments
 
 @router.get("/category", summary="获取产品分类信息", response_model=ProductCategoryResponse)
 async def get_product_categories(
@@ -288,6 +382,10 @@ class InstorePriceCreateRequest(BaseModel):
     package_price: Optional[float] = None
     label_type: List[int] = []
 
+class InstorePriceApprovalRequest(BaseModel):
+    session_ids: List[UUID]
+    status: str  # 'approve' or 'reject'
+
 @router.get("/search/{barcode}")
 async def search_product_with_details(
     barcode: str,
@@ -388,6 +486,71 @@ async def search_product_with_details(
 
     return product_info
 
+@router.post("/instoreprice/approvals")
+async def approve_instore_price_requests(
+    body: InstorePriceApprovalRequest,
+    db_stock: AsyncSession = Depends(get_db_stock),
+    user: UserInformation = Depends(verify_token)
+):
+    # 校验状态参数
+    if body.status not in ['approve', 'reject']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Status must be either 'approve' or 'reject'."
+        )
+
+    # 1. 查找对应 session_id 的所有 items
+    stmt = select(InstorePriceItem).where(InstorePriceItem.session_id.in_(body.session_ids))
+    result = await db_stock.execute(stmt)
+    items = result.scalars().all()
+
+    if not items:
+        return {
+            "status": "success",
+            "message": "No items found for the provided session IDs.",
+            "processed_count": 0
+        }
+
+    current_user_name = user.realname or user.username
+
+    for item in items:
+        # 2. 将数据记录到审批日志表
+        log_entry = InstorePriceApprovalLog(
+            item_id=item.id,
+            session_id=item.session_id,
+            upc=item.upc,
+            action=body.status,
+            action_by=current_user_name,
+            action_time=datetime.now(),
+            snapshot_price=item.new_price,
+            snapshot_data={
+                "price_type": item.price_type,
+                "old_price": float(item.old_price) if item.old_price is not None else None,
+                "new_price": float(item.new_price),
+                "from_date": item.from_date.isoformat() if item.from_date else None,
+                "to_date": item.to_date.isoformat() if item.to_date else None,
+                "package_deal_enabled": item.package_deal_enabled,
+                "package_qty": item.package_qty,
+                "package_price": float(item.package_price) if item.package_price else None,
+                "label_types": item.label_types,
+                "original_status": item.status
+            }
+        )
+        db_stock.add(log_entry)
+
+        # 3. 清除 instoreprice_item 里的数据
+        # 注意：由于数据库中针对 item_id 存在 ON DELETE CASCADE 约束，
+        # 如果需要保留日志，请确保数据库中的该约束不会在删除 item 时删掉 log。
+        await db_stock.delete(item)
+
+    await db_stock.commit()
+
+    return {
+        "status": "success",
+        "processed_count": len(items),
+        "action": body.status
+    }
+
 @router.post("/instoreprice/{barcode}")
 async def create_instore_price_request(
     barcode: str,
@@ -485,6 +648,152 @@ async def create_instore_price_request(
         "status": "success",
         "session_id": str(new_session.id),
         "submitted_at": new_session.create_time.strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+@router.get("/instoreprice/search")
+async def search_instore_price_items(
+    store: str = Query(..., description="Store code"),
+    q: Optional[str] = Query(None, description="Search keyword"),
+    department: Optional[str] = Query(None, description="HR department name"),
+    from_date: Optional[date] = Query(None, description="Submitted date from"),
+    to_date: Optional[date] = Query(None, description="Submitted date to"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=200),
+    sort_by: str = Query("submitted_date"),
+    sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
+    db_stock: AsyncSession = Depends(get_db_stock),
+    user: UserInformation = Depends(verify_token)
+):
+    if store not in user.store:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this store."
+        )
+
+    allowed_departments, allowed_subdepartments = _resolve_requested_sales_scope(user, store, department)
+
+    sort_column = INSTOREPRICE_SORT_FIELDS.get(sort_by)
+    if sort_column is None:
+        raise HTTPException(status_code=400, detail=f"Unsupported sort_by: {sort_by}")
+
+    conditions = [ProductSnapshot.store == store]
+
+    department_conditions = []
+    if allowed_departments:
+        department_conditions.append(ProductSnapshot.department.in_(sorted(allowed_departments)))
+    if allowed_subdepartments:
+        department_conditions.append(ProductSnapshot.subdepartment.in_(sorted(allowed_subdepartments)))
+    if department_conditions:
+        conditions.append(or_(*department_conditions))
+
+    if q and q.strip():
+        keyword = f"%{q.strip()}%"
+        conditions.append(
+            or_(
+                ProductSnapshot.barcode.ilike(keyword),
+                ProductSnapshot.name_en.ilike(keyword),
+                ProductSnapshot.name_cn.ilike(keyword),
+                ProductSnapshot.name_fr.ilike(keyword),
+                ProductSnapshot.department.ilike(keyword),
+                ProductSnapshot.subdepartment.ilike(keyword),
+            )
+        )
+
+    if from_date:
+        conditions.append(func.date(InstorePriceSession.create_time) >= from_date)
+    if to_date:
+        conditions.append(func.date(InstorePriceSession.create_time) <= to_date)
+
+    base_stmt = (
+        select(InstorePriceItem, InstorePriceSession, ProductSnapshot)
+        .join(InstorePriceSession, InstorePriceSession.id == InstorePriceItem.session_id)
+        .join(
+            ProductSnapshot,
+            and_(
+                ProductSnapshot.barcode == InstorePriceItem.upc,
+                ProductSnapshot.store == store,
+            )
+        )
+        .where(*conditions)
+    )
+
+    count_stmt = (
+        select(func.count())
+        .select_from(InstorePriceItem)
+        .join(InstorePriceSession, InstorePriceSession.id == InstorePriceItem.session_id)
+        .join(
+            ProductSnapshot,
+            and_(
+                ProductSnapshot.barcode == InstorePriceItem.upc,
+                ProductSnapshot.store == store,
+            )
+        )
+        .where(*conditions)
+    )
+
+    order_clause = sort_column.asc() if sort_dir == "asc" else sort_column.desc()
+    stmt = (
+        base_stmt
+        .order_by(order_clause, InstorePriceItem.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+
+    total_result = await db_stock.execute(count_stmt)
+    total = total_result.scalar() or 0
+
+    result = await db_stock.execute(stmt)
+    rows = result.all()
+
+    items = []
+    for instore_item, instore_session, snapshot in rows:
+        reviewed_by = instore_session.modifier_id
+        reviewed_at = instore_session.update_time if reviewed_by and instore_item.status != "pending" else None
+
+        items.append({
+            "session_id": str(instore_session.id),
+            "item": {
+                "upc": snapshot.barcode,
+                "name_en": snapshot.name_en,
+                "name_ch": snapshot.name_cn,
+                "specification": snapshot.specification,
+                "unit_type": snapshot.unit_type,
+                "image_url": snapshot.image_url,
+                "department": snapshot.department,
+                "subdepartment": snapshot.subdepartment,
+            },
+            "current_price": {
+                "price_type": snapshot.price_type.lower() if snapshot.price_type else "instore",
+                "price": float(snapshot.unit_price) if snapshot.unit_price is not None else None,
+                "from_date": snapshot.valid_from.date().isoformat() if snapshot.valid_from else None,
+                "to_date": snapshot.valid_to.date().isoformat() if snapshot.valid_to else None,
+                "package_qty": snapshot.pack_qty,
+                "package_price": float(snapshot.pack_price) if snapshot.pack_price is not None else None,
+            },
+            "proposed_price": {
+                "price_type": instore_item.price_type,
+                "price": float(instore_item.new_price) if instore_item.new_price is not None else None,
+                "from_date": instore_item.from_date.isoformat() if instore_item.from_date else None,
+                "to_date": instore_item.to_date.isoformat() if instore_item.to_date else None,
+                "package_qty": instore_item.package_qty if instore_item.package_deal_enabled else None,
+                "package_price": float(instore_item.package_price) if instore_item.package_price is not None and instore_item.package_deal_enabled else None,
+            },
+            "status": instore_item.status,
+            "reviewed_by": reviewed_by,
+            "reviewed_at": reviewed_at.isoformat() if reviewed_at else None,
+            "submitted_at": instore_session.create_time.isoformat() if instore_session.create_time else None,
+            "submitted_by": instore_session.creator_id,
+        })
+
+    pages = (total + page_size - 1) // page_size if total else 0
+    return {
+        "Items": items,
+        "pagination": {
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "pages": pages,
+        }
     }
 
 # --- v2 接口 ---
