@@ -135,6 +135,7 @@ async def refresh_product_snapshot(
                 if batch:
                     await upsert_batch(stock_db, batch)
                     await stock_db.commit()
+                    print(f"store: {store} Product snapshot refresh completed. batch size: {len(batch)}")
 
 def main():
     global config
@@ -156,6 +157,7 @@ def main():
 
     async def run_and_cleanup():
         try:
+            print("Starting product snapshot refresh...")
             await refresh_product_snapshot(
                 batch_size=args.batch_size,
                 only_stocktake_barcodes=args.only_stocktake_barcodes
