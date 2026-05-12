@@ -8,11 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta, date
 import asyncio
 from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel
 
 from dependencies.permission import PermissionChecker
 from database import get_db_odoo, get_db_store_sqlserver_factory, get_db_stock
 from models.product import ProductProduct, ProductTemplate, ProductCategory, StockQuant, ObjTab, CatTab, PriceTab, UMETab, PosTab, SdpTab, DeptTab
-from models.stock import ProductSnapshot, InstorePriceSession, InstorePriceItem
+from models.stock import ProductSnapshot, InstorePriceSession, InstorePriceItem, InstorePriceApprovalLog
 from models.pickup import SaleOrder, SaleOrderLine
 from schemas.product import ProductListResponse, ProductCategoryResponse
 from helper import getOdooAccount, to_utc_naive, getDB, verify_token
@@ -277,6 +278,16 @@ async def search_products(
         for p in products
     ]
 
+class InstorePriceCreateRequest(BaseModel):
+    price_type: str = "instore"
+    price: float
+    from_date: Optional[date] = None
+    to_date: Optional[date] = None
+    package_deal_enabled: bool = False
+    package_qty: Optional[int] = None
+    package_price: Optional[float] = None
+    label_type: List[int] = []
+
 @router.get("/search/{barcode}")
 async def search_product_with_details(
     barcode: str,
@@ -376,6 +387,105 @@ async def search_product_with_details(
     product_info["pendingRequest"] = pending_request
 
     return product_info
+
+@router.post("/instoreprice/{barcode}")
+async def create_instore_price_request(
+    barcode: str,
+    body: InstorePriceCreateRequest,
+    store: str = Query(..., description="店名"),
+    db_stock: AsyncSession = Depends(get_db_stock),
+    db_sqlserver: AsyncSession = Depends(get_db_from_store),
+    user: UserInformation = Depends(verify_token)
+):
+    if store not in user.store:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this store."
+        )
+
+    # 1. 获取当前商品价格信息 (用于 old_price)
+    try:
+        product_info = await _get_product_common(barcode, store, db_sqlserver, try_without_checkdigit=True)
+    except HTTPException:
+        raise HTTPException(status_code=404, detail="Product not found in store database")
+
+    current_price = product_info.get("unit_price")
+    barcode_padded = product_info['barcode'] 
+
+    # 2. 创建新 Session
+    new_session = InstorePriceSession(
+        creator_id=user.realname or user.username,
+        create_time=datetime.now()
+    )
+    db_stock.add(new_session)
+    await db_stock.flush() # 提前获取生成的 session.id
+
+    # 3. 检查是否存在旧记录
+    stmt_existing = select(InstorePriceItem).where(InstorePriceItem.upc == barcode_padded)
+    res_existing = await db_stock.execute(stmt_existing)
+    existing_item = res_existing.scalar_one_or_none()
+
+    if existing_item:
+        # 记录到审批日志 (将旧的 Item 状态快照存入日志，标记为 auto_reject)
+        log_entry = InstorePriceApprovalLog(
+            item_id=existing_item.id,
+            session_id=existing_item.session_id,
+            upc=existing_item.upc,
+            action='auto_reject',
+            action_by=user.realname or user.username,
+            snapshot_price=existing_item.new_price,
+            snapshot_data={
+                "price_type": existing_item.price_type,
+                "new_price": float(existing_item.new_price),
+                "from_date": existing_item.from_date.isoformat() if existing_item.from_date else None,
+                "to_date": existing_item.to_date.isoformat() if existing_item.to_date else None,
+                "package_deal_enabled": existing_item.package_deal_enabled,
+                "package_qty": existing_item.package_qty,
+                "package_price": float(existing_item.package_price) if existing_item.package_price else None,
+                "label_types": existing_item.label_types,
+                "status": existing_item.status
+            }
+        )
+        db_stock.add(log_entry)
+
+        # 更新现有记录为新申请的内容
+        existing_item.session_id = new_session.id
+        existing_item.status = 'pending'
+        existing_item.price_type = body.price_type
+        existing_item.old_price = current_price
+        existing_item.new_price = body.price
+        existing_item.from_date = body.from_date
+        existing_item.to_date = body.to_date
+        existing_item.package_deal_enabled = body.package_deal_enabled
+        existing_item.package_qty = body.package_qty
+        existing_item.package_price = body.package_price
+        existing_item.label_types = body.label_type
+        existing_item.update_time = datetime.now()
+    else:
+        # 创建全新的记录
+        new_item = InstorePriceItem(
+            session_id=new_session.id,
+            upc=barcode_padded,
+            status='pending',
+            price_type=body.price_type,
+            old_price=current_price,
+            new_price=body.price,
+            from_date=body.from_date,
+            to_date=body.to_date,
+            package_deal_enabled=body.package_deal_enabled,
+            package_qty=body.package_qty,
+            package_price=body.package_price,
+            label_types=body.label_type
+        )
+        db_stock.add(new_item)
+
+    await db_stock.commit()
+
+    return {
+        "status": "success",
+        "session_id": str(new_session.id),
+        "submitted_at": new_session.create_time.strftime("%Y-%m-%d %H:%M:%S")
+    }
 
 # --- v2 接口 ---
 @router.get("/v2/{barcode}")

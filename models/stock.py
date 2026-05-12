@@ -127,4 +127,19 @@ class InstorePriceItem(Base_stock):
     update_time = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     session = relationship("InstorePriceSession", back_populates="items")
+
+class InstorePriceApprovalLog(Base_stock):
+    __tablename__ = 'instoreprice_approval_log'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    item_id = Column(BigInteger, ForeignKey('instoreprice_item.id', ondelete="CASCADE"), nullable=False)
+    session_id = Column(UUID(as_uuid=True), nullable=False)
+    upc = Column(String(50), nullable=False)
+    action = Column(String(20), nullable=False) # approve, reject, auto_reject, cancel
+    action_by = Column(String(50), nullable=False)
+    action_time = Column(DateTime(timezone=True), default=utcnow)
+    snapshot_price = Column(Numeric(10,2))
+    snapshot_data = Column(JSON, nullable=False)
+
+    item = relationship("InstorePriceItem")
     
