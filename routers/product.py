@@ -259,13 +259,14 @@ async def _get_product_common(
     def _format_price_detail(p):
         if not p:
             return None
-        return {
+        detail = {
             "unit_price": p.F30,
             "pack_qty": p.F142,
             "pack_price": p.F140,
             "valid_from": p.F35,
             "valid_to": p.F129.replace(hour=23, minute=59, second=59) if p.F129 else None
         }
+        return None if all(value is None for value in detail.values()) else detail
 
     instore_price_obj = next((p for p in valid_prices if p.F113.strip() == "INSTORE"), None)
     special_price_obj = next((p for p in valid_prices if p.F113.strip() not in ("REG", "INSTORE")), None)
