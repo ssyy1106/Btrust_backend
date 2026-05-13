@@ -113,6 +113,7 @@ class InstorePriceItem(Base_stock):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     session_id = Column(UUID(as_uuid=True), ForeignKey('instoreprice_session.id', ondelete="CASCADE"), nullable=False)
     upc = Column(String(50), nullable=False)
+    store = Column(String, nullable=True)
     status = Column(String(20), nullable=False, default='pending')
     price_type = Column(String(30), nullable=False, default='instore')
     old_price = Column(Numeric(10,2), nullable=True)

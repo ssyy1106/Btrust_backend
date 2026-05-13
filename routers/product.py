@@ -144,6 +144,30 @@ def _resolve_requested_sales_scope(
 
     return requested_departments, requested_subdepartments
 
+def _build_sales_scope_filter(allowed_departments: set[str], allowed_subdepartments: set[str]):
+    department_conditions = []
+    if allowed_departments:
+        department_conditions.append(ProductSnapshot.department.in_(sorted(allowed_departments)))
+    if allowed_subdepartments:
+        department_conditions.append(ProductSnapshot.subdepartment.in_(sorted(allowed_subdepartments)))
+    return or_(*department_conditions) if department_conditions else None
+
+def _ensure_product_sales_scope(
+    user: UserInformation,
+    store: str,
+    department: Optional[str],
+    subdepartment: Optional[str],
+):
+    allowed_departments, allowed_subdepartments = _resolve_requested_sales_scope(user, store, None)
+    if department and department in allowed_departments:
+        return
+    if subdepartment and subdepartment in allowed_subdepartments:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="You don't have permission to access this department.",
+    )
+
 @router.get("/category", summary="获取产品分类信息", response_model=ProductCategoryResponse)
 async def get_product_categories(
     db: AsyncSession = Depends(get_db_odoo)
@@ -328,18 +352,25 @@ async def search_products(
             detail="You don't have permission to access this store."
         )
 
+    allowed_departments, allowed_subdepartments = _resolve_requested_sales_scope(user, store, None)
+    scope_filter = _build_sales_scope_filter(allowed_departments, allowed_subdepartments)
+
     query_str = f"%{q}%"
+    conditions = [
+        ProductSnapshot.store == store,
+        or_(
+            ProductSnapshot.barcode.ilike(query_str),
+            ProductSnapshot.name_en.ilike(query_str),
+            ProductSnapshot.name_fr.ilike(query_str),
+            ProductSnapshot.name_cn.ilike(query_str)
+        )
+    ]
+    if scope_filter is not None:
+        conditions.append(scope_filter)
+
     stmt = (
         select(ProductSnapshot)
-        .where(
-            ProductSnapshot.store == store,
-            or_(
-                ProductSnapshot.barcode.ilike(query_str),
-                ProductSnapshot.name_en.ilike(query_str),
-                ProductSnapshot.name_fr.ilike(query_str),
-                ProductSnapshot.name_cn.ilike(query_str)
-            )
-        )
+        .where(*conditions)
         .limit(limit)
     )
     result = await db.execute(stmt)
@@ -408,6 +439,13 @@ async def search_product_with_details(
             raise HTTPException(status_code=404, detail=f"Product with barcode {barcode} not found in store {store}")
         raise e
 
+    _ensure_product_sales_scope(
+        user,
+        store,
+        product_info.get("department"),
+        product_info.get("subdepartment"),
+    )
+
     main_barcode_for_sales = product_info['barcode'] # _get_product_common 可能会返回填充后的条码
 
     # 2. 获取 mix_match 信息 (不含销量)
@@ -451,6 +489,7 @@ async def search_product_with_details(
     # 查找该 UPC 对应的 pending 状态的 InstorePriceItem
     stmt_item = select(InstorePriceItem).where(
         InstorePriceItem.upc == main_barcode_for_sales,
+        InstorePriceItem.store == store,
         InstorePriceItem.status == 'pending'
     )
     item_result = await db_stock.execute(stmt_item)
@@ -489,9 +528,16 @@ async def search_product_with_details(
 @router.post("/instoreprice/approvals")
 async def approve_instore_price_requests(
     body: InstorePriceApprovalRequest,
+    store: str = Query(..., description="Store code"),
     db_stock: AsyncSession = Depends(get_db_stock),
     user: UserInformation = Depends(verify_token)
 ):
+    if store not in user.store:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this store."
+        )
+
     # 校验状态参数
     if body.status not in ['approve', 'reject']:
         raise HTTPException(
@@ -500,7 +546,10 @@ async def approve_instore_price_requests(
         )
 
     # 1. 查找对应 session_id 的所有 items
-    stmt = select(InstorePriceItem).where(InstorePriceItem.session_id.in_(body.session_ids))
+    stmt = select(InstorePriceItem).where(
+        InstorePriceItem.session_id.in_(body.session_ids),
+        InstorePriceItem.store == store,
+    )
     result = await db_stock.execute(stmt)
     items = result.scalars().all()
 
@@ -510,6 +559,40 @@ async def approve_instore_price_requests(
             "message": "No items found for the provided session IDs.",
             "processed_count": 0
         }
+
+    allowed_departments, allowed_subdepartments = _resolve_requested_sales_scope(user, store, None)
+    scope_filter = _build_sales_scope_filter(allowed_departments, allowed_subdepartments)
+    if scope_filter is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this department."
+        )
+
+    access_stmt = (
+        select(InstorePriceItem.id)
+        .join(
+            ProductSnapshot,
+            and_(
+                ProductSnapshot.barcode == InstorePriceItem.upc,
+                ProductSnapshot.store == InstorePriceItem.store,
+                ProductSnapshot.store == store,
+            )
+        )
+        .where(
+            InstorePriceItem.session_id.in_(body.session_ids),
+            InstorePriceItem.store == store,
+            scope_filter,
+        )
+        .distinct()
+    )
+    access_result = await db_stock.execute(access_stmt)
+    accessible_item_ids = set(access_result.scalars().all())
+    requested_item_ids = {item.id for item in items}
+    if accessible_item_ids != requested_item_ids:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to approve one or more items in this department.",
+        )
 
     current_user_name = user.realname or user.username
 
@@ -572,6 +655,13 @@ async def create_instore_price_request(
     except HTTPException:
         raise HTTPException(status_code=404, detail="Product not found in store database")
 
+    _ensure_product_sales_scope(
+        user,
+        store,
+        product_info.get("department"),
+        product_info.get("subdepartment"),
+    )
+
     current_price = product_info.get("unit_price")
     barcode_padded = product_info['barcode'] 
 
@@ -584,7 +674,10 @@ async def create_instore_price_request(
     await db_stock.flush() # 提前获取生成的 session.id
 
     # 3. 检查是否存在旧记录
-    stmt_existing = select(InstorePriceItem).where(InstorePriceItem.upc == barcode_padded)
+    stmt_existing = select(InstorePriceItem).where(
+        InstorePriceItem.upc == barcode_padded,
+        InstorePriceItem.store == store,
+    )
     res_existing = await db_stock.execute(stmt_existing)
     existing_item = res_existing.scalar_one_or_none()
 
@@ -613,6 +706,7 @@ async def create_instore_price_request(
 
         # 更新现有记录为新申请的内容
         existing_item.session_id = new_session.id
+        existing_item.store = store
         existing_item.status = 'pending'
         existing_item.price_type = body.price_type
         existing_item.old_price = current_price
@@ -629,6 +723,7 @@ async def create_instore_price_request(
         new_item = InstorePriceItem(
             session_id=new_session.id,
             upc=barcode_padded,
+            store=store,
             status='pending',
             price_type=body.price_type,
             old_price=current_price,
@@ -676,15 +771,14 @@ async def search_instore_price_items(
     if sort_column is None:
         raise HTTPException(status_code=400, detail=f"Unsupported sort_by: {sort_by}")
 
-    conditions = [ProductSnapshot.store == store]
+    conditions = [
+        ProductSnapshot.store == store,
+        InstorePriceItem.store == store,
+    ]
 
-    department_conditions = []
-    if allowed_departments:
-        department_conditions.append(ProductSnapshot.department.in_(sorted(allowed_departments)))
-    if allowed_subdepartments:
-        department_conditions.append(ProductSnapshot.subdepartment.in_(sorted(allowed_subdepartments)))
-    if department_conditions:
-        conditions.append(or_(*department_conditions))
+    scope_filter = _build_sales_scope_filter(allowed_departments, allowed_subdepartments)
+    if scope_filter is not None:
+        conditions.append(scope_filter)
 
     if q and q.strip():
         keyword = f"%{q.strip()}%"
@@ -711,6 +805,7 @@ async def search_instore_price_items(
             ProductSnapshot,
             and_(
                 ProductSnapshot.barcode == InstorePriceItem.upc,
+                ProductSnapshot.store == InstorePriceItem.store,
                 ProductSnapshot.store == store,
             )
         )
@@ -725,6 +820,7 @@ async def search_instore_price_items(
             ProductSnapshot,
             and_(
                 ProductSnapshot.barcode == InstorePriceItem.upc,
+                ProductSnapshot.store == InstorePriceItem.store,
                 ProductSnapshot.store == store,
             )
         )
