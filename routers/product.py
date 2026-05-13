@@ -371,6 +371,7 @@ async def search_products(
     stmt = (
         select(ProductSnapshot)
         .where(*conditions)
+        .order_by(ProductSnapshot.barcode.asc())
         .limit(limit)
     )
     result = await db.execute(stmt)
