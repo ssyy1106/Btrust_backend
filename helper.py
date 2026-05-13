@@ -313,6 +313,42 @@ def getDepartmentName(id: str) -> str:
         finally:
             cursor.close()
 
+def getOnlyDepartmentName(id: str) -> str:
+    with getHODB() as conn:
+        cursor = conn.cursor()
+        # search from [DEPT_TAB] firstly then from [SDP_TAB]
+        # 使用参数化查询防止SQL注入
+        try:
+            sql_dept = "select F238 from DEPT_TAB where F03=?"
+            cursor.execute(sql_dept, id)
+            row = cursor.fetchone()
+            if row:
+                return row[0]
+            return ""
+        except Exception as e:
+            print(f"getOnlyDepartmentName err {e} id is {id}")
+            return ""
+        finally:
+            cursor.close()
+
+def getOnlySubDepartmentName(id: str) -> str:
+    with getHODB() as conn:
+        cursor = conn.cursor()
+        # search from [DEPT_TAB] firstly then from [SDP_TAB]
+        # 使用参数化查询防止SQL注入
+        try:
+            sql_sdp = "select F1022 from SDP_TAB where F04=?"
+            cursor.execute(sql_sdp, id)
+            row = cursor.fetchone()
+            if row:
+                return row[0]
+            return ""
+        except Exception as e:
+            print(f"getOnlySubDepartmentName err {e} id is {id}")
+            return ""
+        finally:
+            cursor.close()
+
 def LoginShift(btrustId: str, password: str) -> tuple:
     with getShiftDB() as conn:
         with conn.cursor() as cursor:
@@ -474,11 +510,11 @@ def get_user_db(userid) -> UserInformation:
                             for d in hr_depts:
                                 # Resolve map_departments (Sales Departments)
                                 for sid in d.get('map_departments', []):
-                                    name = getDepartmentName(str(sid))
+                                    name = getOnlyDepartmentName(str(sid))
                                     sales_depts.append(DepartmentItem(department_name=name, department_id=str(sid)))
                                 # Resolve map_subdepartments (Sales Sub-departments)
                                 for sid in d.get('map_subdepartments', []):
-                                    name = getDepartmentName(str(sid))
+                                    name = getOnlySubDepartmentName(str(sid))
                                     sales_subs.append(DepartmentItem(department_name=name, department_id=str(sid)))
                                 # Recurse into nested HR departments
                                 if d.get('departments'):
