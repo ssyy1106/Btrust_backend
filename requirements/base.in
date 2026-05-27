@@ -21,3 +21,5 @@ openpyxl
 pytest
 PyJWT
 strawberry-graphql
+
+reportlab
