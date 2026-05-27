@@ -2,6 +2,7 @@ import json
 import os
 from functools import lru_cache
 from fastapi import APIRouter, Query, Depends, HTTPException, Response, Request, status
+from fastapi import APIRouter, Query, Depends, HTTPException, Response, Request, status, Body
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func, or_, text, and_
 from typing import Optional, List
@@ -20,6 +21,8 @@ from models.pickup import SaleOrder, SaleOrderLine
 from schemas.product import ProductListResponse, ProductCategoryResponse
 from helper import getOdooAccount, to_utc_naive, getDB, verify_token, getStoreMapping
 from graphqlschema.schema import UserInformation
+from label_print.template_loader import get_template_by_code
+from label_print.pdf_engine import LabelPDFEngine
 
 router = APIRouter(prefix="/product", tags=["Product"])
 
@@ -415,6 +418,14 @@ class InstorePriceCreateRequest(BaseModel):
     package_price: Optional[float] = None
     label_type: List[int] = []
 
+class PrintProductRequest(BaseModel):
+    barcode: str
+    print_count: int = 1
+
+class LabelPrintRequest(BaseModel):
+    template_id: str
+    products: List[PrintProductRequest]
+
 class InstorePriceApprovalRequest(BaseModel):
     session_ids: List[UUID]
     status: str  # 'approve' or 'reject'
@@ -635,6 +646,66 @@ async def approve_instore_price_requests(
         "processed_count": len(items),
         "action": body.status
     }
+
+@router.post("/labelprint/{barcode}")
+async def label_print(
+    barcode: str,
+    store: str = Query(..., description="门店代码"),
+    request_body: LabelPrintRequest = Body(...),
+    db: AsyncSession = Depends(get_db_stock),
+    user: UserInformation = Depends(verify_token)
+):
+    """
+    打印商品标签。
+    从 product_snapshot 表读取商品布局信息。
+    """
+    # 1. 权限检查
+    if store not in user.store:
+        raise HTTPException(status_code=403, detail="No permission for this store")
+
+    # 2. 获取模板
+    template_json = await get_template_by_code(db, request_body.template_id)
+    if not template_json:
+        raise HTTPException(status_code=404, detail="Label template not found")
+
+    # 3. 批量查询商品快照信息
+    request_barcodes = [p.barcode.zfill(14) for p in request_body.products]
+    # 建立 barcode -> print_count 的映射，方便后续合并
+    count_map = {p.barcode.zfill(14): p.print_count for p in request_body.products}
+
+    stmt = select(ProductSnapshot).where(
+        ProductSnapshot.barcode.in_(request_barcodes),
+        ProductSnapshot.store == store
+    )
+    result = await db.execute(stmt)
+    snapshots = result.scalars().all()
+
+    if not snapshots:
+        raise HTTPException(status_code=404, detail="No product information found in snapshot")
+
+    # 4. 组装打印数据
+    print_data = []
+    for p in snapshots:
+        item_dict = {
+            "barcode": p.barcode,
+            "name_cn": p.name_cn,
+            "name_en": p.name_en,
+            "unit_price": float(p.unit_price) if p.unit_price else 0.0,
+            "specification": p.specification,
+            "brand": p.brand,
+            "print_count": count_map.get(p.barcode, 1)
+        }
+        print_data.append(item_dict)
+
+    # 5. 生成 PDF
+    engine = LabelPDFEngine(template_json)
+    pdf_buffer = engine.generate(print_data)
+
+    return StreamingResponse(
+        pdf_buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="label_{barcode}.pdf"'}
+    )
 
 @router.post("/instoreprice/{barcode}")
 async def create_instore_price_request(
