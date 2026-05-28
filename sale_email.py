@@ -151,7 +151,7 @@ def _get_ses_client():
     )
     return sender, client
 
-def send_email(recipients, cc_recipients, subject, body, attachment_path):
+def send_email(recipients, cc_recipients, bcc_recipients, subject, body, attachment_path):
     """
     使用 AWS SES 发送带有 PDF 附件的邮件
     """
@@ -170,7 +170,7 @@ def send_email(recipients, cc_recipients, subject, body, attachment_path):
         msg.attach(part)
 
     try:
-        all_recipients = recipients + cc_recipients
+        all_recipients = recipients + cc_recipients + bcc_recipients
         response = client.send_raw_email(
             Source=sender,
             Destinations=all_recipients,
@@ -194,6 +194,7 @@ async def main():
 
         email_str = config['SaleEmail'].get('email', '')
         cc_str = config['SaleEmail'].get('cc', '')
+        bcc_str = config['SaleEmail'].get('bcc', '')
         subdept_str = config['SaleEmail'].get('subdepartment', '')
         store_str = config['SaleEmail'].get('store', '')
         filename_map_str = config['SaleEmail'].get('filename', '')
@@ -204,6 +205,7 @@ async def main():
 
         emails = [e.strip() for e in email_str.split(',') if e.strip()]
         cc_emails = [e.strip() for e in cc_str.split(',') if e.strip()]
+        bcc_emails = [e.strip() for e in bcc_str.split(',') if e.strip()]
         stores = [s.strip() for s in store_str.split(',') if s.strip()]
         subdepts = [sd.strip() for sd in subdept_str.split(',') if sd.strip()]
         filenames = [f.strip() for f in filename_map_str.split(',') if f.strip()]
@@ -239,7 +241,7 @@ async def main():
                 subject = f"Daily Sales Report - {store_display} - {date_str}"
                 body = f"Please find attached {store_display} Sales report of {date_str}."
                 
-                send_email(emails, cc_emails, subject, body, str(pdf_path))
+                send_email(emails, cc_emails, bcc_emails, subject, body, str(pdf_path))
                 
                 # 发送后清理 PDF 文件
                 if pdf_path.exists():
