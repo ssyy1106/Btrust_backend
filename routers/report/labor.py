@@ -2,7 +2,7 @@ from fastapi import APIRouter, Query
 from typing import List, Optional
 from datetime import date, datetime
 from pydantic import BaseModel
-from helper import getShiftDB, getDB, getStoreMapping, getStores, getStoreWithId, getCostConfig
+from helper import getShiftDB, getDB, getStoreMapping, getStores, getStoreWithId, getCostConfig, getStore
 from dependencies.permission import PermissionChecker
 from fastapi import Depends
 import json
@@ -65,7 +65,7 @@ def get_labor_vs_sales(
     user = Depends(PermissionChecker(required_roles=["hrreport:search"]))
     #store: Optional[str] = Query(None, description="Store code: MS, NY, TE, MT, RH")
 ):
-    target_stores = getStores(user, store)
+    target_stores = store if store else getStore()
     # Mapping: Sales Store -> HR Store Name
     # store_hr = B1,B2,Terra,Montreal,BVW corresponds to store = MS,NY,TE,MT,RH
     store_mapping = getStoreMapping()
@@ -287,7 +287,7 @@ def get_labor_vs_sales_month(
     store: Optional[List[str]] = Query(None, description="门店（多个）"),
     user = Depends(PermissionChecker(required_roles=["hrreport:search"]))
 ):
-    target_stores = getStores(user, store)
+    target_stores = store if store else getStore()
     store_mapping = getStoreMapping()
     mapping_stores = [store_mapping[store] for store in target_stores if store in store_mapping]
 
