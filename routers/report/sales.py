@@ -26,12 +26,19 @@ class SalesItem(BaseModel):
     total_amount: float
     total_weight: float
 
+class DailySummary(BaseModel):
+    date: str
+    total_qty: float
+    total_amount: float
+    total_weight: float
+
 class PaginatedSalesResponse(BaseModel):
     total: int
     page: int
     page_size: int
     total_pages: int
     items: List[SalesItem]
+    daily_summaries: List[DailySummary]
 
 @router.get("/items", response_model=PaginatedSalesResponse)
 async def get_sales_items(
@@ -92,6 +99,7 @@ async def get_sales_items(
 
     async_session_factory = get_db_store_sqlserver_factory(store)
     
+    daily_summaries = []
     total_items = 0
     items = []
 
@@ -114,6 +122,35 @@ async def get_sales_items(
         
         if total_items == 0:
             break
+
+        # 1.5) 获取搜寻时间段内该筛选范围的每日合计
+        summary_query = text(f"""
+            SELECT 
+                CAST(R.F254 AS DATE) as sale_date,
+                SUM(R.F64) as total_qty,
+                SUM(R.F65) as total_amount,
+                SUM(R.F67) as total_weight
+            FROM RPT_ITM_D R
+            LEFT JOIN OBJ_TAB O ON R.F01 = O.F01
+            LEFT JOIN POS_TAB P ON R.F01 = P.F01
+            LEFT JOIN SDP_TAB S ON P.F04 = S.F04
+            WHERE {where_str}
+            GROUP BY CAST(R.F254 AS DATE)
+            ORDER BY sale_date ASC
+        """)
+        if department: summary_query = summary_query.bindparams(bindparam("depts", expanding=True))
+        if subdepartment: summary_query = summary_query.bindparams(bindparam("subdepts", expanding=True))
+
+        summary_res = await db.execute(summary_query, params)
+        daily_summaries = [
+            DailySummary(
+                date=str(row.sale_date),
+                total_qty=float(row.total_qty or 0),
+                total_amount=float(row.total_amount or 0),
+                total_weight=float(row.total_weight or 0)
+            )
+            for row in summary_res.all()
+        ]
 
         # 2) 分页获取 UPC 列表及其汇总数据
         items_query = text(f"""
@@ -194,5 +231,6 @@ async def get_sales_items(
         page=page,
         page_size=page_size,
         total_pages=math.ceil(total_items / page_size) if page_size > 0 else 0,
-        items=items
+        items=items,
+        daily_summaries=daily_summaries
     )
