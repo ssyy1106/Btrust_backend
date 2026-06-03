@@ -50,7 +50,7 @@ async def get_sales_items(
     barcode: Optional[str] = Query(None, description="条码模糊查询"),
     name: Optional[str] = Query(None, description="名称模糊查询"),
     page: int = Query(1, ge=1, description="页码"),
-    page_size: int = Query(50, ge=1, le=500, description="每页数量"),
+    page_size: int = Query(50, ge=1, le=99999, description="每页数量"),
     sort_by: str = Query("amount", regex="^(qty|amount|weight|upc)$", description="排序字段"),
     sort_dir: str = Query("desc", regex="^(asc|desc)$", description="排序方向"),
     user: UserInformation = Depends(verify_token)
