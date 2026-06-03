@@ -40,6 +40,8 @@ async def get_sales_items(
     end_date: date = Query(..., description="结束日期 (YYYY-MM-DD)"),
     department: Optional[List[str]] = Query(None, description="部门 ID 列表"),
     subdepartment: Optional[List[str]] = Query(None, description="子部门 ID 列表"),
+    barcode: Optional[str] = Query(None, description="条码模糊查询"),
+    name: Optional[str] = Query(None, description="名称模糊查询"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(50, ge=1, le=500, description="每页数量"),
     sort_by: str = Query("amount", regex="^(qty|amount|weight|upc)$", description="排序字段"),
@@ -70,6 +72,12 @@ async def get_sales_items(
     if subdepartment:
         where_clauses.append("S.F04 IN :subdepts")
         params["subdepts"] = tuple(subdepartment)
+    if barcode:
+        where_clauses.append("R.F01 LIKE :barcode")
+        params["barcode"] = f"%{barcode}%"
+    if name:
+        where_clauses.append("(O.F29 LIKE :name OR O.F255 LIKE :name OR P.F2095 LIKE :name)")
+        params["name"] = f"%{name}%"
 
     where_str = " AND ".join(where_clauses)
     
@@ -92,6 +100,7 @@ async def get_sales_items(
         count_query = text(f"""
             SELECT COUNT(DISTINCT R.F01)
             FROM RPT_ITM_D R
+            LEFT JOIN OBJ_TAB O ON R.F01 = O.F01
             LEFT JOIN POS_TAB P ON R.F01 = P.F01
             LEFT JOIN SDP_TAB S ON P.F04 = S.F04
             WHERE {where_str}
