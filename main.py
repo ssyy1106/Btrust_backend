@@ -24,6 +24,7 @@ from graphqlschema.schema import UserInformation
 from routers import attachments, bos_api, cost, download, invoice, pickup, product, stock, storepickup, storestock, supplier
 from routers.report import invoice as report_invoice
 from routers.report import labor as report_labor
+from routers.report import sales as report_sales
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -91,6 +92,7 @@ app.include_router(storepickup.router)
 app.include_router(bos_api.router)
 app.include_router(report_invoice.router)
 app.include_router(report_labor.router)
+app.include_router(report_sales.router)
 
 app.include_router(graphql_app, prefix="/graphql")
 
