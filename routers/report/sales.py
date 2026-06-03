@@ -182,8 +182,11 @@ async def get_sales_items(
             
         paged_upcs = [row.upc for row in paged_rows]
         
-        # 3) 获取这些 UPC 在时间范围内的每日明细
-        details_query = text(f"""
+        # 3) 分批获取这些 UPC 在时间范围内的每日明细，防止 page_size 过大导致 SQL 参数超限或性能问题
+        details_map = defaultdict(list)
+        batch_size = 1000
+        
+        details_sql = text(f"""
             SELECT 
                 LTRIM(RTRIM(F01)) as upc,
                 CAST(F254 AS DATE) as sale_date,
@@ -197,23 +200,22 @@ async def get_sales_items(
             GROUP BY F01, CAST(F254 AS DATE)
             ORDER BY F01, sale_date ASC
         """).bindparams(bindparam("upcs", expanding=True))
-        
-        details_res = await db.execute(details_query, {
-            "start_date": start_date,
-            "end_date": end_date,
-            "upcs": tuple(paged_upcs)
-        })
-        details_rows = details_res.all()
-        
-        # 4) 聚合数据构建响应
-        details_map = defaultdict(list)
-        for d in details_rows:
-            details_map[d.upc].append(DailySales(
-                date=str(d.sale_date),
-                qty=float(d.qty or 0),
-                amount=float(d.amount or 0),
-                weight=float(d.weight or 0)
-            ))
+
+        for i in range(0, len(paged_upcs), batch_size):
+            batch_upcs = paged_upcs[i : i + batch_size]
+            details_res = await db.execute(details_sql, {
+                "start_date": start_date,
+                "end_date": end_date,
+                "upcs": tuple(batch_upcs)
+            })
+            
+            for d in details_res.all():
+                details_map[d.upc].append(DailySales(
+                    date=str(d.sale_date),
+                    qty=float(d.qty or 0),
+                    amount=float(d.amount or 0),
+                    weight=float(d.weight or 0)
+                ))
             
         for row in paged_rows:
             items.append(SalesItem(
