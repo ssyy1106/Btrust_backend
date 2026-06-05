@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Query, Depends, HTTPException, status
 from typing import List, Optional
-from datetime import date
+from datetime import date, timedelta
 from pydantic import BaseModel
 from sqlalchemy import text, bindparam
 from database import get_db_store_sqlserver_factory
@@ -8,11 +8,15 @@ from helper import verify_token
 from graphqlschema.schema import UserInformation
 import math
 from collections import defaultdict
+import calendar
 
 router = APIRouter(prefix="/report/sales", tags=["Sales Report"])
 
-class DailySales(BaseModel):
-    date: str
+class SalesDataPoint(BaseModel):
+    date: Optional[str] = None
+    month: Optional[str] = None
+    week_start: Optional[str] = None
+    week_end: Optional[str] = None
     qty: float
     amount: float
     weight: float
@@ -21,13 +25,18 @@ class SalesItem(BaseModel):
     upc: str
     name_en: Optional[str]
     name_cn: Optional[str]
-    daily_sales: List[DailySales]
+    daily_sales: Optional[List[SalesDataPoint]] = None
+    week_sales: Optional[List[SalesDataPoint]] = None
+    month_sales: Optional[List[SalesDataPoint]] = None
     total_qty: float
     total_amount: float
     total_weight: float
 
 class DailySummary(BaseModel):
-    date: str
+    date: Optional[str] = None
+    month: Optional[str] = None
+    week_start: Optional[str] = None
+    week_end: Optional[str] = None
     total_qty: float
     total_amount: float
     total_weight: float
@@ -38,13 +47,16 @@ class PaginatedSalesResponse(BaseModel):
     page_size: int
     total_pages: int
     items: List[SalesItem]
-    daily_summaries: List[DailySummary]
+    daily_summaries: Optional[List[DailySummary]] = None
+    week_summaries: Optional[List[DailySummary]] = None
+    month_summaries: Optional[List[DailySummary]] = None
 
-@router.get("/items", response_model=PaginatedSalesResponse)
+@router.get("/items", response_model=PaginatedSalesResponse, response_model_exclude_none=True)
 async def get_sales_items(
     store: str = Query(..., description="门店代码"),
     start_date: date = Query(..., description="开始日期 (YYYY-MM-DD)"),
     end_date: date = Query(..., description="结束日期 (YYYY-MM-DD)"),
+    mode: str = Query("D", pattern="^[DWM]$", description="统计维度: D-日, W-周, M-月"),
     department: Optional[List[str]] = Query(None, description="部门 ID 列表"),
     subdepartment: Optional[List[str]] = Query(None, description="子部门 ID 列表"),
     barcode: Optional[str] = Query(None, description="条码模糊查询"),
@@ -61,6 +73,33 @@ async def get_sales_items(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You don't have permission to access this store."
         )
+
+    # 1.5 准备统计周期
+    periods = []
+    if mode == 'D':
+        curr = start_date
+        while curr <= end_date:
+            periods.append((curr, curr))
+            curr += timedelta(days=1)
+    elif mode == 'W':
+        # MT: 周四(3)开始。其它: 周五(4)开始。
+        target_start_weekday = 3 if store == 'MT' else 4
+        target_end_weekday = (target_start_weekday - 1 + 7) % 7
+        curr = start_date
+        while curr <= end_date:
+            days_until_end = (target_end_weekday - curr.weekday() + 7) % 7
+            p_end = curr + timedelta(days=days_until_end)
+            p_end = min(p_end, end_date)
+            periods.append((curr, p_end))
+            curr = p_end + timedelta(days=1)
+    elif mode == 'M':
+        curr = start_date
+        while curr <= end_date:
+            _, last_day = calendar.monthrange(curr.year, curr.month)
+            p_end = date(curr.year, curr.month, last_day)
+            p_end = min(p_end, end_date)
+            periods.append((curr, p_end))
+            curr = p_end + timedelta(days=1)
 
     # 2. 准备 SQL 查询条件
     # 默认 R.F1034=3 表示每日报表类型
@@ -142,15 +181,30 @@ async def get_sales_items(
         if subdepartment: summary_query = summary_query.bindparams(bindparam("subdepts", expanding=True))
 
         summary_res = await db.execute(summary_query, params)
-        daily_summaries = [
-            DailySummary(
-                date=str(row.sale_date),
-                total_qty=float(row.total_qty or 0),
-                total_amount=float(row.total_amount or 0),
-                total_weight=float(row.total_weight or 0)
-            )
-            for row in summary_res.all()
-        ]
+        raw_summary_rows = summary_res.all()
+        daily_summaries = []
+        for p_start, p_end in periods:
+            p_qty, p_amount, p_weight = 0.0, 0.0, 0.0
+            for row in raw_summary_rows:
+                if p_start <= row.sale_date <= p_end:
+                    p_qty += float(row.total_qty or 0)
+                    p_amount += float(row.total_amount or 0)
+                    p_weight += float(row.total_weight or 0)
+
+            summary_data = {
+                "total_qty": p_qty,
+                "total_amount": p_amount,
+                "total_weight": p_weight
+            }
+            if mode == 'D':
+                summary_data["date"] = str(p_start)
+            elif mode == 'W':
+                summary_data["week_start"] = str(p_start)
+                summary_data["week_end"] = str(p_end)
+            elif mode == 'M':
+                summary_data["month"] = p_start.strftime("%Y-%m")
+                
+            daily_summaries.append(DailySummary(**summary_data))
 
         # 2) 分页获取 UPC 列表及其汇总数据
         items_query = text(f"""
@@ -209,30 +263,70 @@ async def get_sales_items(
                 "upcs": tuple(batch_upcs)
             })
             
-            for d in details_res.all():
-                details_map[d.upc].append(DailySales(
-                    date=str(d.sale_date),
-                    qty=float(d.qty or 0),
-                    amount=float(d.amount or 0),
-                    weight=float(d.weight or 0)
-                ))
+            batch_details = details_res.all()
+            items_daily_data = defaultdict(list)
+            for d in batch_details:
+                items_daily_data[d.upc].append(d)
+                
+            for u in batch_upcs:
+                u_daily = items_daily_data[u]
+                u_periods = []
+                for p_start, p_end in periods:
+                    p_qty, p_amount, p_weight = 0.0, 0.0, 0.0
+                    for d in u_daily:
+                        if p_start <= d.sale_date <= p_end:
+                            p_qty += float(d.qty or 0)
+                            p_amount += float(d.amount or 0)
+                            p_weight += float(d.weight or 0)
+
+                    data_point = {
+                        "qty": p_qty,
+                        "amount": p_amount,
+                        "weight": p_weight
+                    }
+                    if mode == 'D':
+                        data_point["date"] = str(p_start)
+                    elif mode == 'W':
+                        data_point["week_start"] = str(p_start)
+                        data_point["week_end"] = str(p_end)
+                    elif mode == 'M':
+                        data_point["month"] = p_start.strftime("%Y-%m")
+                        
+                    u_periods.append(SalesDataPoint(**data_point))
+                details_map[u] = u_periods
             
         for row in paged_rows:
-            items.append(SalesItem(
-                upc=row.upc,
-                name_en=row.name_en,
-                name_cn=row.name_cn,
-                daily_sales=details_map.get(row.upc, []),
-                total_qty=float(row.total_qty or 0),
-                total_amount=float(row.total_amount or 0),
-                total_weight=float(row.total_weight or 0)
-            ))
+            sales_data = details_map.get(row.upc, [])
+            item_params = {
+                "upc": row.upc,
+                "name_en": row.name_en,
+                "name_cn": row.name_cn,
+                "total_qty": float(row.total_qty or 0),
+                "total_amount": float(row.total_amount or 0),
+                "total_weight": float(row.total_weight or 0)
+            }
+            if mode == 'D':
+                item_params["daily_sales"] = sales_data
+            elif mode == 'W':
+                item_params["week_sales"] = sales_data
+            elif mode == 'M':
+                item_params["month_sales"] = sales_data
+            
+            items.append(SalesItem(**item_params))
 
-    return PaginatedSalesResponse(
-        total=total_items,
-        page=page,
-        page_size=page_size,
-        total_pages=math.ceil(total_items / page_size) if page_size > 0 else 0,
-        items=items,
-        daily_summaries=daily_summaries
-    )
+    # 根据模式动态设置返回的汇总字段名
+    response_data = {
+        "total": total_items,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": math.ceil(total_items / page_size) if page_size > 0 else 0,
+        "items": items,
+    }
+    if mode == 'D':
+        response_data["daily_summaries"] = daily_summaries
+    elif mode == 'W':
+        response_data["week_summaries"] = daily_summaries
+    elif mode == 'M':
+        response_data["month_summaries"] = daily_summaries
+
+    return PaginatedSalesResponse(**response_data)
