@@ -9,6 +9,9 @@ from graphqlschema.schema import UserInformation
 import math
 from collections import defaultdict
 import calendar
+from fastapi.responses import StreamingResponse
+import io
+import pandas as pd
 
 router = APIRouter(prefix="/report/sales", tags=["Sales Report"])
 
@@ -62,7 +65,7 @@ async def get_sales_items(
     barcode: Optional[str] = Query(None, description="条码模糊查询"),
     name: Optional[str] = Query(None, description="名称模糊查询"),
     page: int = Query(1, ge=1, description="页码"),
-    page_size: int = Query(50, ge=1, le=99999, description="每页数量"),
+    page_size: int = Query(50, ge=1, le=500, description="每页数量"),
     sort_by: str = Query("amount", regex="^(qty|amount|weight|upc)$", description="排序字段"),
     sort_dir: str = Query("desc", regex="^(asc|desc)$", description="排序方向"),
     user: UserInformation = Depends(verify_token)
@@ -330,3 +333,162 @@ async def get_sales_items(
         response_data["month_summaries"] = daily_summaries
 
     return PaginatedSalesResponse(**response_data)
+
+@router.get("/items/export")
+async def export_sales_items(
+    store: str = Query(..., description="门店代码"),
+    start_date: date = Query(..., description="开始日期 (YYYY-MM-DD)"),
+    end_date: date = Query(..., description="结束日期 (YYYY-MM-DD)"),
+    mode: str = Query("D", pattern="^[DWM]$", description="统计维度: D-日, W-周, M-月"),
+    department: Optional[List[str]] = Query(None, description="部门 ID 列表"),
+    subdepartment: Optional[List[str]] = Query(None, description="子部门 ID 列表"),
+    barcode: Optional[str] = Query(None, description="条码模糊查询"),
+    name: Optional[str] = Query(None, description="名称模糊查询"),
+    sort_by: str = Query("amount", regex="^(qty|amount|weight|upc)$", description="排序字段"),
+    sort_dir: str = Query("desc", regex="^(asc|desc)$", description="排序方向"),
+    user: UserInformation = Depends(verify_token)
+):
+    # 1. 权限校验：确保用户有权限访问该门店
+    if store not in user.store:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this store."
+        )
+
+    # 1.5 日期范围校验
+    if end_date < start_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Start date must be before or equal to end date."
+        )
+    if (end_date - start_date).days > 180:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The date range for export cannot exceed 180 days."
+        )
+
+    # 2. 准备 SQL 查询条件
+    # 采用 SQL 直接聚合的方式，减少 Python 端的计算压力
+    where_clauses = [
+        "R.F1034 = 3",
+        "R.F254 >= :start_date",
+        "R.F254 < DATEADD(day, 1, :end_date)"
+    ]
+    params = {
+        "start_date": start_date,
+        "end_date": end_date,
+        "store": store
+    }
+
+    if department:
+        where_clauses.append("S.F03 IN :depts")
+        params["depts"] = tuple(department)
+    if subdepartment:
+        where_clauses.append("S.F04 IN :subdepts")
+        params["subdepts"] = tuple(subdepartment)
+    if barcode:
+        where_clauses.append("R.F01 LIKE :barcode")
+        params["barcode"] = f"%{barcode}%"
+    if name:
+        where_clauses.append("(O.F29 LIKE :name OR O.F255 LIKE :name OR P.F2095 LIKE :name)")
+        params["name"] = f"%{name}%"
+
+    where_str = " AND ".join(where_clauses)
+
+    # 3. 构造 SQL：直接按 UPC 和 日期聚合
+    query = text(f"""
+        SELECT
+            LTRIM(RTRIM(R.F01)) AS upc,
+            MAX(LTRIM(RTRIM(O.F29))) AS name_en,
+            MAX(CASE 
+                WHEN :store = 'MT' THEN LTRIM(RTRIM(O.F255))
+                ELSE COALESCE(LTRIM(RTRIM(P.F2095)), LTRIM(RTRIM(O.F255)))
+            END) AS name_cn,
+            CAST(R.F254 AS DATE) AS sale_date,
+            SUM(R.F64) AS qty,
+            SUM(R.F65) AS amount,
+            SUM(R.F67) AS weight
+        FROM RPT_ITM_D R
+        LEFT JOIN OBJ_TAB O ON R.F01 = O.F01
+        LEFT JOIN POS_TAB P ON R.F01 = P.F01
+        LEFT JOIN SDP_TAB S ON P.F04 = S.F04
+        WHERE {where_str}
+        GROUP BY R.F01, CAST(R.F254 AS DATE)
+        ORDER BY upc, sale_date
+    """)
+
+    if department: query = query.bindparams(bindparam("depts", expanding=True))
+    if subdepartment: query = query.bindparams(bindparam("subdepts", expanding=True))
+
+    # 4. 获取统计周期标签映射 (用于将日期归类到周/月)
+    periods = []
+    if mode == 'D':
+        curr = start_date
+        while curr <= end_date:
+            periods.append((curr, curr))
+            curr += timedelta(days=1)
+    else:
+        if mode == 'W':
+            target_start_weekday = 3 if store == 'MT' else 4
+            target_end_weekday = (target_start_weekday - 1 + 7) % 7
+            curr = start_date
+            while curr <= end_date:
+                days_until_end = (target_end_weekday - curr.weekday() + 7) % 7
+                p_end = min(curr + timedelta(days=days_until_end), end_date)
+                periods.append((curr, p_end))
+                curr = p_end + timedelta(days=1)
+        elif mode == 'M':
+            curr = start_date
+            while curr <= end_date:
+                _, last_day = calendar.monthrange(curr.year, curr.month)
+                p_end = min(date(curr.year, curr.month, last_day), end_date)
+                periods.append((curr, p_end))
+                curr = p_end + timedelta(days=1)
+
+    date_to_label = {}
+    for p_start, p_end in periods:
+        if mode == 'D': label = str(p_start)
+        elif mode == 'W': label = f"{p_start} ~ {p_end}"
+        else: label = p_start.strftime("%Y-%m")
+        
+        d_curr = p_start
+        while d_curr <= p_end:
+            date_to_label[d_curr] = label
+            d_curr += timedelta(days=1)
+
+    async_session_factory = get_db_store_sqlserver_factory(store)
+    rows = []
+    async for db in async_session_factory():
+        res = await db.execute(query, params)
+        rows = res.all()
+        break
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="No sales data found for the selected criteria.")
+
+    # 5. 使用 Pandas 处理纵向明细
+    # UPC | Name EN | Name CN | Period | Qty | Amount | Weight
+    df = pd.DataFrame(rows, columns=['UPC', 'Name EN', 'Name CN', 'sale_date', 'Qty', 'Amount', 'Weight'])
+    df['Period'] = df['sale_date'].map(date_to_label)
+    
+    # 如果是周或月，则按 UPC 和 周期标签 进行二次聚合
+    if mode != 'D':
+        df = df.groupby(['UPC', 'Name EN', 'Name CN', 'Period'], as_index=False).agg({
+            'Qty': 'sum', 'Amount': 'sum', 'Weight': 'sum'
+        })
+    
+    # 移除 sale_date 并确保最终导出的列顺序
+    final_df = df[['UPC', 'Name EN', 'Name CN', 'Period', 'Qty', 'Amount', 'Weight']]
+
+    # 6. 生成 Excel 文件
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        final_df.to_excel(writer, index=False, sheet_name='Sales Details')
+    
+    output.seek(0)
+    filename = f"sales_report_{store}_{mode}_{start_date}_{end_date}.xlsx"
+    return StreamingResponse(
+        output,
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+    )
