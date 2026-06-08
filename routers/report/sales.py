@@ -9,6 +9,7 @@ from graphqlschema.schema import UserInformation
 import math
 from collections import defaultdict
 import calendar
+from dependencies.permission import PermissionChecker
 
 router = APIRouter(prefix="/report/sales", tags=["Sales Report"])
 
@@ -65,7 +66,8 @@ async def get_sales_items(
     page_size: int = Query(50, ge=1, le=500, description="每页数量"),
     sort_by: str = Query("amount", regex="^(qty|amount|weight|upc)$", description="排序字段"),
     sort_dir: str = Query("desc", regex="^(asc|desc)$", description="排序方向"),
-    user: UserInformation = Depends(verify_token)
+    user = Depends(PermissionChecker(required_roles=["salesreport:itemSalesByDept", "salesreport:view"]))
+    #user: UserInformation = Depends(verify_token)
 ):
     # 1. 权限校验：确保用户有权限访问该门店
     if store not in user.store:
@@ -343,7 +345,8 @@ async def export_sales_items(
     name: Optional[str] = Query(None, description="名称模糊查询"),
     sort_by: str = Query("amount", regex="^(qty|amount|weight|upc)$", description="排序字段"),
     sort_dir: str = Query("desc", regex="^(asc|desc)$", description="排序方向"),
-    user: UserInformation = Depends(verify_token)
+    user = Depends(PermissionChecker(required_roles=["salesreport:itemSalesByDept", "salesreport:view"]))
+    #user: UserInformation = Depends(verify_token)
 ):
     # 1. 权限校验：确保用户有权限访问该门店
     if store not in user.store:
