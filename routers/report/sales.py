@@ -9,9 +9,6 @@ from graphqlschema.schema import UserInformation
 import math
 from collections import defaultdict
 import calendar
-from fastapi.responses import StreamingResponse
-import io
-import pandas as pd
 
 router = APIRouter(prefix="/report/sales", tags=["Sales Report"])
 
@@ -334,7 +331,7 @@ async def get_sales_items(
 
     return PaginatedSalesResponse(**response_data)
 
-@router.get("/items/export")
+@router.get("/items/export", response_model=PaginatedSalesResponse, response_model_exclude_none=True)
 async def export_sales_items(
     store: str = Query(..., description="门店代码"),
     start_date: date = Query(..., description="开始日期 (YYYY-MM-DD)"),
@@ -466,29 +463,84 @@ async def export_sales_items(
     if not rows:
         raise HTTPException(status_code=404, detail="No sales data found for the selected criteria.")
 
-    # 5. 使用 Pandas 处理纵向明细
-    # UPC | Name EN | Name CN | Period | Qty | Amount | Weight
-    df = pd.DataFrame(rows, columns=['UPC', 'Name EN', 'Name CN', 'sale_date', 'Qty', 'Amount', 'Weight'])
-    df['Period'] = df['sale_date'].map(date_to_label)
+    # 5. 数据转换：将扁平 SQL 行转换为嵌套的 SalesItem 结构
+    # 使用字典按 UPC 聚合
+    items_agg = {} # upc -> { info, total, periods: { label: {q, a, w} } }
+    summary_agg = defaultdict(lambda: {"qty": 0.0, "amount": 0.0, "weight": 0.0})
     
-    # 如果是周或月，则按 UPC 和 周期标签 进行二次聚合
-    if mode != 'D':
-        df = df.groupby(['UPC', 'Name EN', 'Name CN', 'Period'], as_index=False).agg({
-            'Qty': 'sum', 'Amount': 'sum', 'Weight': 'sum'
-        })
-    
-    # 移除 sale_date 并确保最终导出的列顺序
-    final_df = df[['UPC', 'Name EN', 'Name CN', 'Period', 'Qty', 'Amount', 'Weight']]
+    # 预准备 Period 标签的元数据（用于构建 SalesDataPoint）
+    label_info = {}
+    for p_start, p_end in periods:
+        if mode == 'D': 
+            l = str(p_start)
+            label_info[l] = {"date": l}
+        elif mode == 'W': 
+            l = f"{p_start} ~ {p_end}"
+            label_info[l] = {"week_start": str(p_start), "week_end": str(p_end)}
+        else: 
+            l = p_start.strftime("%Y-%m")
+            label_info[l] = {"month": l}
 
-    # 6. 生成 Excel 文件
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        final_df.to_excel(writer, index=False, sheet_name='Sales Details')
-    
-    output.seek(0)
-    filename = f"sales_report_{store}_{mode}_{start_date}_{end_date}.xlsx"
-    return StreamingResponse(
-        output,
-        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
-    )
+    for row in rows:
+        u = row.upc
+        label = date_to_label.get(row.sale_date)
+        if not label: continue
+        
+        q, a, w = float(row.qty or 0), float(row.amount or 0), float(row.weight or 0)
+        
+        # 累加全局合计
+        summary_agg[label]["qty"] += q
+        summary_agg[label]["amount"] += a
+        summary_agg[label]["weight"] += w
+        
+        # 累加商品数据
+        if u not in items_agg:
+            items_agg[u] = {
+                "upc": u, "name_en": row.name_en, "name_cn": row.name_cn,
+                "total_qty": 0.0, "total_amount": 0.0, "total_weight": 0.0,
+                "period_vals": defaultdict(lambda: {"qty": 0.0, "amount": 0.0, "weight": 0.0})
+            }
+        
+        items_agg[u]["total_qty"] += q
+        items_agg[u]["total_amount"] += a
+        items_agg[u]["total_weight"] += w
+        items_agg[u]["period_vals"][label]["qty"] += q
+        items_agg[u]["period_vals"][label]["amount"] += a
+        items_agg[u]["period_vals"][label]["weight"] += w
+
+    # 转换为 SalesItem 列表
+    items_list = []
+    for u, data in items_agg.items():
+        sales_data = []
+        for p_start, p_end in periods:
+            l = date_to_label[p_start]
+            v = data["period_vals"].get(l, {"qty": 0.0, "amount": 0.0, "weight": 0.0})
+            sales_data.append(SalesDataPoint(**{**v, **label_info[l]}))
+        
+        item_params = {
+            "upc": u, "name_en": data["name_en"], "name_cn": data["name_cn"],
+            "total_qty": data["total_qty"], "total_amount": data["total_amount"], "total_weight": data["total_weight"],
+            f"{'daily' if mode == 'D' else 'week' if mode == 'W' else 'month'}_sales": sales_data
+        }
+        items_list.append(SalesItem(**item_params))
+
+    # 排序处理
+    reverse = sort_dir == "desc"
+    sort_attr = {"qty": "total_qty", "amount": "total_amount", "weight": "total_weight", "upc": "upc"}.get(sort_by, "total_amount")
+    items_list.sort(key=lambda x: getattr(x, sort_attr), reverse=reverse)
+
+    # 构造合计列表
+    summaries = [DailySummary(total_qty=summary_agg[l]["qty"], total_amount=summary_agg[l]["amount"], total_weight=summary_agg[l]["weight"], **label_info[l]) 
+                 for l in label_info.keys()]
+
+    total_count = len(items_list)
+    response_data = {
+        "total": total_count,
+        "page": 1,
+        "page_size": total_count,
+        "total_pages": 1,
+        "items": items_list,
+        f"{'daily' if mode == 'D' else 'week' if mode == 'W' else 'month'}_summaries": summaries
+    }
+
+    return PaginatedSalesResponse(**response_data)
