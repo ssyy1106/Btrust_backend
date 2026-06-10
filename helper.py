@@ -538,7 +538,7 @@ def get_user_db(userid) -> UserInformation:
                                         return True, result
                             return False, None
 
-                        if target_dept_name == 'Btrust':
+                        if target_dept_name == 'Btrust' or 'organization:user:stores' in authorize:
                             # Btrust department has access to all stores and all mapped sales departments
                             for s_item in mappings:
                                 s_name = s_item.get('name')
