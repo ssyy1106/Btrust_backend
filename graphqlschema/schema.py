@@ -242,7 +242,7 @@ class UserInformation:
     username: str
     department: str
     store: typing.List[str]
-    lastvisit: str
+    lastvisit:  Optional[str] = None
     authorize: typing.List[str] 
     store_department: typing.List[StoreDepartment]
 
