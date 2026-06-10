@@ -404,7 +404,7 @@ def getAllDepartmentIds() -> dict:
             return res
 
 @functools.cache
-def getStoreName(id: str) -> str:
+def getStoreName(id: str, all_store = False) -> str:
     stores = {"Terra": "TE", "B1": "MS", "B2": "NY", "Montreal": "MT", "BVW": "RH"}
     with getShiftDB() as conn:
         with conn.cursor() as cursor:
@@ -412,7 +412,7 @@ def getStoreName(id: str) -> str:
             cursor.execute("select departmentName from sysdepartment where id = ?", id)
             name = cursor.fetchone()
             if name:
-                if name[0] == 'Btrust':
+                if name[0] == 'Btrust' or all_store:
                     return ['MS', 'NY', 'TE', 'MT', 'RH']
                 if name[0] in stores:
                     return [stores[name[0]]]
@@ -581,7 +581,7 @@ def get_user_db(userid) -> UserInformation:
                     username=row[0], 
                     lastvisit=row[3], 
                     department=row[2], 
-                    store=getStoreName(getStoreWithId(row[4])), 
+                    store=getStoreName(getStoreWithId(row[4]), 'organization:user:stores' in authorize), 
                     authorize=authorize,
                     store_department=store_department
                 )
