@@ -184,6 +184,7 @@ class TodaySummary:
     totalamountbeforetax: float
     totalamountaftertax: float
     transactions: int
+    lastUpdateDate: datetime.date
 
 @strawberry.type
 class TodaySubDepartmentDetail:

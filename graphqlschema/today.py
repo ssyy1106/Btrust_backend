@@ -43,7 +43,8 @@ def getTodayData(param: TodaySearchParameter) -> TodayData:
             dic = get_department_details(cursor)
             dic_cashier = get_cashier_details(cursor, store_str)
             totalamountbeforetax, totalamountaftertax, totalTransactions = 0, 0, 0
-            sql = f"select store, count(1) as transactions, sum(amount_before_tax) as amount_before_tax, sum(amount_after_tax) as amount_after_tax from transaction where date = '{datetime.datetime.today().strftime('%Y-%m-%d')}'"
+            last_update_date = None
+            sql = f"select store, count(1) as transactions, sum(amount_before_tax) as amount_before_tax, sum(amount_after_tax) as amount_after_tax, max(transaction_end_time) as transaction_end_time from transaction where date = '{datetime.datetime.today().strftime('%Y-%m-%d')}'"
             sql += " and store in " + store_str
             sql += " group by store"
             try:
@@ -51,6 +52,7 @@ def getTodayData(param: TodaySearchParameter) -> TodayData:
                 rows = cursor.fetchall()
                 details = []
                 for row in rows:
+                    last_update_date = row[4]
                     transactions_store, store = row[1], row[0]
                     amount_before_tax_store, amount_after_tax_store = row[2], row[3]
                     totalamountbeforetax += amount_before_tax_store
@@ -89,7 +91,7 @@ def getTodayData(param: TodaySearchParameter) -> TodayData:
                 end = datetime.datetime.now()
                 print(f"today data run time: {end-start} param: {param}")
                 log_and_save('INFO', f"get_today_data end time: {end-start}")
-                return TodayData(summary = TodaySummary(totalamountbeforetax=totalamountbeforetax, totalamountaftertax=totalamountaftertax, transactions=totalTransactions), details=details, topproduct = products)
+                return TodayData(summary = TodaySummary(lastUpdateDate=last_update_date, totalamountbeforetax=totalamountbeforetax, totalamountaftertax=totalamountaftertax, transactions=totalTransactions), details=details, topproduct = products)
             except Exception as e:
                 print(e)
             return TodayData()
