@@ -17,6 +17,7 @@ from dependencies.permission import PermissionChecker
 from database import get_db_odoo, get_db_store_sqlserver_factory, get_db_stock
 from models.product import ProductProduct, ProductTemplate, ProductCategory, StockQuant, ObjTab, CatTab, PriceTab, UMETab, PosTab, SdpTab, DeptTab
 from models.stock import ProductSnapshot, InstorePriceSession, InstorePriceItem, InstorePriceApprovalLog
+from models.label_template import LabelTemplate
 from models.pickup import SaleOrder, SaleOrderLine
 from schemas.product import ProductListResponse, ProductCategoryResponse
 from helper import getOdooAccount, to_utc_naive, getDB, verify_token, getStoreMapping
@@ -41,6 +42,14 @@ INSTOREPRICE_SORT_FIELDS = {
     "status": InstorePriceItem.status,
     "upc": InstorePriceItem.upc,
     "price": InstorePriceItem.new_price,
+}
+
+INSTOREPRICE_LOG_SORT_FIELDS = {
+    "action_time": InstorePriceApprovalLog.action_time,
+    "action_by": InstorePriceApprovalLog.action_by,
+    "upc": InstorePriceApprovalLog.upc,
+    "action": InstorePriceApprovalLog.action,
+    "session_id": InstorePriceApprovalLog.session_id,
 }
 
 def get_image_url(barcode: str) -> str | None:
@@ -430,6 +439,31 @@ class InstorePriceApprovalRequest(BaseModel):
     session_ids: List[UUID]
     status: str  # 'approve' or 'reject'
 
+@router.get("/labelprint/search")
+async def search_label_templates(
+    db: AsyncSession = Depends(get_db_stock)
+):
+    stmt = select(LabelTemplate).order_by(LabelTemplate.id.asc())
+    result = await db.execute(stmt)
+    templates = result.scalars().all()
+
+    return [
+        {
+            "id": template.id,
+            "code": template.code,
+            "name": template.name,
+            "description": template.description,
+            "category": template.category,
+            "version": template.version,
+            "is_system": template.is_system,
+            "created_by": template.created_by,
+            "template_json": template.template_json,
+            "created_at": template.created_at,
+            "updated_at": template.updated_at,
+        }
+        for template in templates
+    ]
+
 @router.get("/search/{barcode}")
 async def search_product_with_details(
     barcode: str,
@@ -543,6 +577,7 @@ async def approve_instore_price_requests(
     body: InstorePriceApprovalRequest,
     store: str = Query(..., description="Store code"),
     db_stock: AsyncSession = Depends(get_db_stock),
+    db_sqlserver: AsyncSession = Depends(get_db_from_store),
     user: UserInformation = Depends(verify_token)
 ):
     if store not in user.store:
@@ -610,6 +645,22 @@ async def approve_instore_price_requests(
     current_user_name = user.realname or user.username
 
     for item in items:
+        if body.status == 'approve':
+            # 更新 SQL Server 里的价格表 PRICEACT_TAB
+            update_price_query = text("""
+                UPDATE PRICE_TAB
+                SET F30 = :new_price,
+                    F140 = :package_price,
+                    F142 = :package_qty
+                WHERE F113 = 'INSTORE' AND F01 = :upc
+            """)
+            await db_sqlserver.execute(update_price_query, {
+                "new_price": item.new_price,
+                "package_price": item.package_price,
+                "package_qty": item.package_qty,
+                "upc": item.upc
+            })
+
         # 2. 将数据记录到审批日志表
         log_entry = InstorePriceApprovalLog(
             item_id=item.id,
@@ -639,6 +690,8 @@ async def approve_instore_price_requests(
         # 如果需要保留日志，请确保数据库中的该约束不会在删除 item 时删掉 log。
         await db_stock.delete(item)
 
+    if body.status == 'approve':
+        await db_sqlserver.commit()
     await db_stock.commit()
 
     return {
@@ -952,6 +1005,109 @@ async def search_instore_price_items(
             "reviewed_at": reviewed_at.isoformat() if reviewed_at else None,
             "submitted_at": instore_session.create_time.isoformat() if instore_session.create_time else None,
             "submitted_by": instore_session.creator_id,
+        })
+
+    pages = (total + page_size - 1) // page_size if total else 0
+    return {
+        "Items": items,
+        "pagination": {
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "pages": pages,
+        }
+    }
+
+@router.get("/instoreprice/log/search")
+async def search_instore_price_logs(
+    store: str = Query(..., description="Store code"),
+    session_id: Optional[UUID] = Query(None),
+    upc: Optional[str] = Query(None),
+    action: Optional[str] = Query(None),
+    date: Optional[date] = Query(None, description="Action date"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=200),
+    sort_by: str = Query("action_time"),
+    sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
+    db_stock: AsyncSession = Depends(get_db_stock),
+    user: UserInformation = Depends(verify_token)
+):
+    if store not in user.store:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this store."
+        )
+
+    sort_column = INSTOREPRICE_LOG_SORT_FIELDS.get(sort_by)
+    if sort_column is None:
+        raise HTTPException(status_code=400, detail=f"Unsupported sort_by: {sort_by}")
+
+    conditions = []
+
+    if session_id:
+        conditions.append(InstorePriceApprovalLog.session_id == session_id)
+    if upc:
+        conditions.append(InstorePriceApprovalLog.upc.ilike(f"%{upc}%"))
+    if action:
+        conditions.append(InstorePriceApprovalLog.action == action)
+    if date:
+        conditions.append(func.date(InstorePriceApprovalLog.action_time) == date)
+
+    # 关联 ProductSnapshot 以获取商品详情，并确保数据属于指定 store
+    base_stmt = (
+        select(InstorePriceApprovalLog, ProductSnapshot)
+        .join(
+            ProductSnapshot,
+            and_(
+                ProductSnapshot.barcode == InstorePriceApprovalLog.upc,
+                ProductSnapshot.store == store
+            )
+        )
+        .where(*conditions)
+    )
+
+    count_stmt = (
+        select(func.count())
+        .select_from(InstorePriceApprovalLog)
+        .join(
+            ProductSnapshot,
+            and_(
+                ProductSnapshot.barcode == InstorePriceApprovalLog.upc,
+                ProductSnapshot.store == store
+            )
+        )
+        .where(*conditions)
+    )
+
+    order_clause = sort_column.asc() if sort_dir == "asc" else sort_column.desc()
+    stmt = (
+        base_stmt
+        .order_by(order_clause, InstorePriceApprovalLog.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+
+    total_result = await db_stock.execute(count_stmt)
+    total = total_result.scalar() or 0
+
+    result = await db_stock.execute(stmt)
+    rows = result.all()
+
+    items = []
+    for log, snapshot in rows:
+        items.append({
+            "id": log.id,
+            "session_id": str(log.session_id),
+            "upc": log.upc,
+            "action": log.action,
+            "action_by": log.action_by,
+            "action_time": log.action_time.isoformat() if log.action_time else None,
+            "snapshot_price": float(log.snapshot_price) if log.snapshot_price else None,
+            "snapshot_data": log.snapshot_data,
+            "name_en": snapshot.name_en,
+            "name_ch": snapshot.name_cn,
+            "department": snapshot.department,
+            "subdepartment": snapshot.subdepartment,
         })
 
     pages = (total + page_size - 1) // page_size if total else 0
