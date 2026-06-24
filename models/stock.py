@@ -143,4 +143,16 @@ class InstorePriceApprovalLog(Base_stock):
     snapshot_data = Column(JSON, nullable=False)
 
     item = relationship("InstorePriceItem")
+
+class InstorePricePrintLog(Base_stock):
+    __tablename__ = 'instoreprice_print_log'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    approval_log_id = Column(BigInteger, ForeignKey('instoreprice_approval_log.id', ondelete="CASCADE"), nullable=False)
+    label_id = Column(BigInteger, nullable=False)
+    printed_by = Column(String(50), nullable=True)
+    printed_time = Column(DateTime(timezone=False), default=utcnow, nullable=False)
+    print_count = Column(Integer, nullable=False, default=1)
+
+    approval_log = relationship("InstorePriceApprovalLog")
     

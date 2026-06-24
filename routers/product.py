@@ -11,18 +11,18 @@ from datetime import datetime, timedelta, date
 from uuid import UUID
 import asyncio
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from dependencies.permission import PermissionChecker
 from database import get_db_odoo, get_db_store_sqlserver_factory, get_db_stock
 from models.product import ProductProduct, ProductTemplate, ProductCategory, StockQuant, ObjTab, CatTab, PriceTab, UMETab, PosTab, SdpTab, DeptTab
-from models.stock import ProductSnapshot, InstorePriceSession, InstorePriceItem, InstorePriceApprovalLog
+from models.stock import ProductSnapshot, InstorePriceSession, InstorePriceItem, InstorePriceApprovalLog, InstorePricePrintLog
 from models.label_template import LabelTemplate
 from models.pickup import SaleOrder, SaleOrderLine
 from schemas.product import ProductListResponse, ProductCategoryResponse
 from helper import getOdooAccount, to_utc_naive, getDB, verify_token, getStoreMapping
 from graphqlschema.schema import UserInformation
-from label_print.template_loader import get_template_by_code
+from label_print.template_loader import get_template_by_id
 from label_print.pdf_engine import LabelPDFEngine
 
 router = APIRouter(prefix="/product", tags=["Product"])
@@ -432,8 +432,14 @@ class PrintProductRequest(BaseModel):
     print_count: int = 1
 
 class LabelPrintRequest(BaseModel):
-    template_id: str
+    template_id: int
     products: List[PrintProductRequest]
+
+class ApprovedLabelPrintRequest(BaseModel):
+    session_id: UUID
+    upc: str
+    label_type: int = Field(..., ge=1)
+    print_count: int = Field(1, ge=1)
 
 class InstorePriceApprovalRequest(BaseModel):
     session_ids: List[UUID]
@@ -700,64 +706,108 @@ async def approve_instore_price_requests(
         "action": body.status
     }
 
-@router.post("/labelprint/{barcode}")
+@router.post("/labelprint")
 async def label_print(
-    barcode: str,
     store: str = Query(..., description="门店代码"),
-    request_body: LabelPrintRequest = Body(...),
+    request_body: ApprovedLabelPrintRequest = Body(...),
     db: AsyncSession = Depends(get_db_stock),
     user: UserInformation = Depends(verify_token)
 ):
     """
-    打印商品标签。
-    从 product_snapshot 表读取商品布局信息。
+    打印已审批的商品标签。
+    只允许打印 instoreprice_approval_log 中 action=approve 且包含指定 label_type 的数据。
     """
-    # 1. 权限检查
     if store not in user.store:
         raise HTTPException(status_code=403, detail="No permission for this store")
 
-    # 2. 获取模板
-    template_json = await get_template_by_code(db, request_body.template_id)
+    upc = request_body.upc.zfill(14)
+
+    log_stmt = (
+        select(InstorePriceApprovalLog)
+        .where(
+            InstorePriceApprovalLog.session_id == request_body.session_id,
+            InstorePriceApprovalLog.upc == upc,
+            InstorePriceApprovalLog.action == "approve",
+        )
+        .order_by(InstorePriceApprovalLog.action_time.desc(), InstorePriceApprovalLog.id.desc())
+    )
+    log_result = await db.execute(log_stmt)
+    approval_logs = log_result.scalars().all()
+
+    matched_log = next(
+        (
+            log for log in approval_logs
+            if request_body.label_type in ((log.snapshot_data or {}).get("label_types") or [])
+        ),
+        None,
+    )
+    if not matched_log:
+        raise HTTPException(
+            status_code=404,
+            detail="No approved label print record found for the given session_id, upc, and label_type.",
+        )
+
+    template_json = await get_template_by_id(db, request_body.label_type)
     if not template_json:
         raise HTTPException(status_code=404, detail="Label template not found")
 
-    # 3. 批量查询商品快照信息
-    request_barcodes = [p.barcode.zfill(14) for p in request_body.products]
-    # 建立 barcode -> print_count 的映射，方便后续合并
-    count_map = {p.barcode.zfill(14): p.print_count for p in request_body.products}
-
-    stmt = select(ProductSnapshot).where(
-        ProductSnapshot.barcode.in_(request_barcodes),
+    snapshot_stmt = select(ProductSnapshot).where(
+        ProductSnapshot.barcode == upc,
         ProductSnapshot.store == store
     )
-    result = await db.execute(stmt)
-    snapshots = result.scalars().all()
+    snapshot_result = await db.execute(snapshot_stmt)
+    snapshot = snapshot_result.scalar_one_or_none()
 
-    if not snapshots:
+    if not snapshot:
         raise HTTPException(status_code=404, detail="No product information found in snapshot")
 
-    # 4. 组装打印数据
-    print_data = []
-    for p in snapshots:
-        item_dict = {
-            "barcode": p.barcode,
-            "name_cn": p.name_cn,
-            "name_en": p.name_en,
-            "unit_price": float(p.unit_price) if p.unit_price else 0.0,
-            "specification": p.specification,
-            "brand": p.brand,
-            "print_count": count_map.get(p.barcode, 1)
-        }
-        print_data.append(item_dict)
+    _ensure_product_sales_scope(
+        user,
+        store,
+        snapshot.department,
+        snapshot.subdepartment,
+    )
 
-    # 5. 生成 PDF
+    print_data = [{
+        "barcode": snapshot.barcode,
+        "name_cn": snapshot.name_cn,
+        "name_en": snapshot.name_en,
+        "unit_price": float(matched_log.snapshot_price) if matched_log.snapshot_price is not None else (float(snapshot.unit_price) if snapshot.unit_price else 0.0),
+        "specification": snapshot.specification,
+        "brand": snapshot.brand,
+        "print_count": request_body.print_count
+    }]
+
     engine = LabelPDFEngine(template_json)
     pdf_buffer = engine.generate(print_data)
+
+    current_user_name = user.realname or user.username
+    print_log_stmt = select(InstorePricePrintLog).where(
+        InstorePricePrintLog.approval_log_id == matched_log.id,
+        InstorePricePrintLog.label_id == request_body.label_type,
+    )
+    print_log_result = await db.execute(print_log_stmt)
+    print_log = print_log_result.scalar_one_or_none()
+
+    if print_log:
+        print_log.print_count += 1
+        print_log.printed_by = current_user_name
+        print_log.printed_time = datetime.now()
+    else:
+        db.add(InstorePricePrintLog(
+            approval_log_id=matched_log.id,
+            label_id=request_body.label_type,
+            printed_by=current_user_name,
+            printed_time=datetime.now(),
+            print_count=1,
+        ))
+
+    await db.commit()
 
     return StreamingResponse(
         pdf_buffer,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="label_{barcode}.pdf"'}
+        headers={"Content-Disposition": f'attachment; filename="label_{upc}.pdf"'}
     )
 
 @router.post("/instoreprice/{barcode}")
@@ -1093,8 +1143,31 @@ async def search_instore_price_logs(
     result = await db_stock.execute(stmt)
     rows = result.all()
 
+    approval_log_ids = [log.id for log, _ in rows]
+    print_log_map: dict[tuple[int, int], InstorePricePrintLog] = {}
+    if approval_log_ids:
+        print_log_stmt = select(InstorePricePrintLog).where(
+            InstorePricePrintLog.approval_log_id.in_(approval_log_ids)
+        )
+        print_log_result = await db_stock.execute(print_log_stmt)
+        print_logs = print_log_result.scalars().all()
+        print_log_map = {
+            (print_log.approval_log_id, int(print_log.label_id)): print_log
+            for print_log in print_logs
+        }
+
     items = []
     for log, snapshot in rows:
+        label_types = ((log.snapshot_data or {}).get("label_types") or [])
+        label_print_status = []
+        for label_type in label_types:
+            print_log = print_log_map.get((log.id, int(label_type)))
+            label_print_status.append({
+                "label_type": int(label_type),
+                "printed": print_log is not None,
+                "print_count": print_log.print_count if print_log else 0,
+            })
+
         items.append({
             "id": log.id,
             "session_id": str(log.session_id),
@@ -1104,6 +1177,7 @@ async def search_instore_price_logs(
             "action_time": log.action_time.isoformat() if log.action_time else None,
             "snapshot_price": float(log.snapshot_price) if log.snapshot_price else None,
             "snapshot_data": log.snapshot_data,
+            "label_print_status": label_print_status,
             "name_en": snapshot.name_en,
             "name_ch": snapshot.name_cn,
             "department": snapshot.department,
