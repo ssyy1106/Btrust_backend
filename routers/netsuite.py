@@ -362,7 +362,6 @@ async def bin_transfer(
     return {
         "success": True,
         "created": True,
-        "externalId": external_id,
         "subsidiary_id": subsidiary_id,
         "validated_quantity": quantity_available,
         "netsuite": result,
