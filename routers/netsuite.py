@@ -465,6 +465,7 @@ async def get_lot_inventory(
             i.displayname,
             i.upccode,
             i.itemtype,
+            i.custitem_es_itemsize,
             i.purchasedescription,
             i.unitstype,
             BUILTIN.DF(i.unitstype) AS unitstype_name,
