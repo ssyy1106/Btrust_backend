@@ -252,6 +252,8 @@ async def bin_transfer(
             i.itemid,
             ib.location,
             l.name AS location_name,
+            l.subsidiary AS subsidiary_id,
+            BUILTIN.DF(l.subsidiary) AS subsidiary_name,
             ib.binnumber AS bin_internal_id,
             b.binnumber AS binnumber,
             ib.inventorynumber,
@@ -279,9 +281,12 @@ async def bin_transfer(
         raise HTTPException(status_code=404, detail="No inventory found for the given item, from bin, and lot number.")
 
     location_ids = {str(item.get("location")) for item in balance_items if item.get("location") is not None}
+    subsidiary_ids = {str(item.get("subsidiary_id")) for item in balance_items if item.get("subsidiary_id") is not None}
     inventory_number_ids = {str(item.get("inventorynumber")) for item in balance_items if item.get("inventorynumber") is not None}
     if len(location_ids) != 1:
         raise HTTPException(status_code=400, detail="Expected inventory to resolve to exactly one location.")
+    if len(subsidiary_ids) != 1:
+        raise HTTPException(status_code=400, detail="Expected inventory to resolve to exactly one subsidiary.")
     if len(inventory_number_ids) != 1:
         raise HTTPException(status_code=400, detail="Expected lot_number to resolve to exactly one inventory number.")
 
@@ -293,6 +298,7 @@ async def bin_transfer(
         )
 
     from_location_id = next(iter(location_ids))
+    subsidiary_id = next(iter(subsidiary_ids))
     inventory_number_id = next(iter(inventory_number_ids))
 
     to_bin_payload = await _execute_suiteql(
@@ -325,6 +331,7 @@ async def bin_transfer(
 
     payload = {
         "externalId": external_id,
+        "subsidiary": {"id": subsidiary_id},
         "location": {"id": from_location_id},
         "memo": req.memo,
         "inventory": {
@@ -356,6 +363,7 @@ async def bin_transfer(
         "success": True,
         "created": True,
         "externalId": external_id,
+        "subsidiary_id": subsidiary_id,
         "validated_quantity": quantity_available,
         "netsuite": result,
     }
@@ -395,7 +403,7 @@ async def get_all_lots(
 @router.get("/bin")
 async def get_all_bins(
     q: str | None = Query(None, description="模糊搜索 binnumber 或 location_name"),
-    limit: int = Query(50, ge=1, le=500, description="每页条数，默认50，最大500"),
+    limit: int = Query(50, ge=1, le=9999, description="每页条数，默认50，最大9999"),
     offset: int = Query(0, ge=0, description="偏移量，用于分页"),
     _user: UserInformation = Depends(verify_token),
 ):
