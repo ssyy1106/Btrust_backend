@@ -209,8 +209,7 @@ def _require_internal_id(value: str, field_name: str) -> str:
 
 @router.post("/bin-transfer")
 async def bin_transfer(
-    req: BinTransferRequest,
-    _user: UserInformation = Depends(verify_token),
+    req: BinTransferRequest
 ):
     item_id = _require_internal_id(req.item_id, "item_id")
     from_bin_id = _require_internal_id(req.from_bin_id, "from_bin_id")
@@ -370,28 +369,44 @@ async def bin_transfer(
 
 @router.get("/lot")
 async def get_all_lots(
+    location_id: str | None = Query(None, description="按 location internal id 筛选"),
     limit: int = Query(50, ge=1, le=500, description="每页条数，默认50，最大500"),
-    offset: int = Query(0, ge=0, description="偏移量，用于分页"),
-    _user: UserInformation = Depends(verify_token),
+    offset: int = Query(0, ge=0, description="偏移量，用于分页")
 ):
     access_token = get_access_token()["access_token"]
+    normalized_location_id: str | None = None
+    if location_id is not None and location_id.strip():
+        normalized_location_id = _require_internal_id(location_id, "location_id")
 
-    count_payload = await _execute_suiteql(
-        "SELECT COUNT(*) AS total FROM inventorynumber",
-        access_token,
-    )
+    if normalized_location_id is None:
+        count_query = "SELECT COUNT(*) AS total FROM inventorynumber"
+        data_query = "SELECT * FROM inventorynumber ORDER BY id"
+    else:
+        count_query = f"""
+        SELECT COUNT(DISTINCT inv.id) AS total
+        FROM inventorynumber inv
+        JOIN inventorybalance ib
+            ON ib.inventorynumber = inv.id
+        WHERE ib.location = {normalized_location_id}
+        """
+        data_query = f"""
+        SELECT DISTINCT inv.*
+        FROM inventorynumber inv
+        JOIN inventorybalance ib
+            ON ib.inventorynumber = inv.id
+        WHERE ib.location = {normalized_location_id}
+        ORDER BY inv.id
+        """
+
+    count_payload = await _execute_suiteql(count_query, access_token)
     total_items = count_payload.get("items", [])
     total = int(total_items[0].get("total", 0)) if total_items else 0
 
-    payload = await _execute_suiteql(
-        "SELECT * FROM inventorynumber ORDER BY id",
-        access_token,
-        limit=limit,
-        offset=offset,
-    )
+    payload = await _execute_suiteql(data_query, access_token, limit=limit, offset=offset)
     items = payload.get("items", [])
 
     return {
+        "location_id": location_id,
         "total": total,
         "limit": limit,
         "offset": offset,
@@ -401,19 +416,25 @@ async def get_all_lots(
 
 @router.get("/bin")
 async def get_all_bins(
-    q: str | None = Query(None, description="模糊搜索 binnumber 或 location_name"),
+    binnumber: str | None = Query(None, description="模糊搜索 binnumber"),
+    location_name: str | None = Query(None, description="模糊搜索 location_name"),
+    location_id: str | None = Query(None, description="按 location internal id 筛选"),
     limit: int = Query(50, ge=1, le=9999, description="每页条数，默认50，最大9999"),
-    offset: int = Query(0, ge=0, description="偏移量，用于分页"),
-    _user: UserInformation = Depends(verify_token),
+    offset: int = Query(0, ge=0, description="偏移量，用于分页")
 ):
     access_token = get_access_token()["access_token"]
-    where_clause = ""
-    if q and q.strip():
-        escaped_q = _escape_suiteql_literal(q.strip())
-        where_clause = (
-            f"WHERE LOWER(b.binnumber) LIKE LOWER('%{escaped_q}%') "
-            f"OR LOWER(l.name) LIKE LOWER('%{escaped_q}%')"
-        )
+    filters: list[str] = []
+    if binnumber and binnumber.strip():
+        escaped_binnumber = _escape_suiteql_literal(binnumber.strip())
+        filters.append(f"LOWER(b.binnumber) LIKE LOWER('%{escaped_binnumber}%')")
+    if location_name and location_name.strip():
+        escaped_location_name = _escape_suiteql_literal(location_name.strip())
+        filters.append(f"LOWER(l.name) LIKE LOWER('%{escaped_location_name}%')")
+    if location_id is not None and location_id.strip():
+        normalized_location_id = _require_internal_id(location_id, "location_id")
+        filters.append(f"b.location = {normalized_location_id}")
+
+    where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
 
     count_payload = await _execute_suiteql(
         f"""
@@ -448,7 +469,39 @@ async def get_all_bins(
     items = payload.get("items", [])
 
     return {
-        "q": q,
+        "binnumber": binnumber,
+        "location_name": location_name,
+        "location_id": location_id,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": items,
+    }
+
+
+@router.get("/location")
+async def get_all_locations(
+    limit: int = Query(50, ge=1, le=500, description="得到所有location 最多一次500"),
+    offset: int = Query(0, ge=0, description="偏移量，用于分页")
+):
+    access_token = get_access_token()["access_token"]
+
+    count_payload = await _execute_suiteql(
+        "SELECT COUNT(*) AS total FROM location",
+        access_token,
+    )
+    total_items = count_payload.get("items", [])
+    total = int(total_items[0].get("total", 0)) if total_items else 0
+
+    payload = await _execute_suiteql(
+        "SELECT * FROM location ORDER BY id",
+        access_token,
+        limit=limit,
+        offset=offset,
+    )
+    items = payload.get("items", [])
+
+    return {
         "total": total,
         "limit": limit,
         "offset": offset,
@@ -459,11 +512,15 @@ async def get_all_bins(
 @router.get("/lot/{lot_number}")
 async def get_lot_inventory(
     lot_number: str,
-    _user: UserInformation = Depends(verify_token),
+    location_id: str | None = Query(None, description="按 location internal id 筛选")
 ):
     escaped_lot_number = _escape_suiteql_literal(lot_number.strip())
     if not escaped_lot_number:
         raise HTTPException(status_code=400, detail="lot_number cannot be empty.")
+    location_filter = ""
+    if location_id is not None and location_id.strip():
+        normalized_location_id = _require_internal_id(location_id, "location_id")
+        location_filter = f" AND ib.location = {normalized_location_id}"
 
     suiteql = f"""
         SELECT
@@ -501,6 +558,7 @@ async def get_lot_inventory(
         LEFT JOIN inventorynumber inv
             ON inv.id = ib.inventorynumber
         WHERE inv.inventorynumber = '{escaped_lot_number}'
+        {location_filter}
         ORDER BY i.itemid, l.name, b.binnumber
     """
 
@@ -509,6 +567,7 @@ async def get_lot_inventory(
     items = payload.get("items", [])
     return {
         "lot_number": lot_number,
+        "location_id": location_id,
         "count": len(items),
         "items": items,
     }
