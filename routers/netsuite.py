@@ -7,7 +7,7 @@ from typing import Any
 import certifi
 import httpx
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Header, status
 from pydantic import BaseModel, Field
 
 from helper import verify_token
@@ -15,8 +15,6 @@ from graphqlschema.schema import UserInformation
 from get_netsuite_token import get_access_token
 
 load_dotenv()
-
-router = APIRouter(prefix="/netsuite", tags=["NetSuite"])
 
 ACCOUNT_ID = os.getenv("NETSUITE_ACCOUNT_ID", "").strip()
 CLIENT_ID = os.getenv("NETSUITE_CLIENT_ID", "").strip()
@@ -26,6 +24,11 @@ SSL_CERT_FILE = os.getenv("SSL_CERT_FILE", "").strip()
 REQUESTS_CA_BUNDLE = os.getenv("REQUESTS_CA_BUNDLE", "").strip()
 CURL_CA_BUNDLE = os.getenv("CURL_CA_BUNDLE", "").strip()
 NETSUITE_CA_BUNDLE = os.getenv("NETSUITE_CA_BUNDLE", "").strip()
+API_KEYS = {
+    key.strip()
+    for key in os.getenv("API_KEYS", "").split(",")
+    if key.strip()
+}
 
 TOKEN_URL = (
     f"https://{ACCOUNT_ID}.suitetalk.api.netsuite.com"
@@ -38,6 +41,27 @@ SUITEQL_URL = (
 RECORD_URL = (
     f"https://{ACCOUNT_ID}.suitetalk.api.netsuite.com"
     "/services/rest/record/v1"
+)
+
+
+def verify_netsuite_api_key(x_api_key: str | None = Header(None)):
+    if not x_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing x-api-key header.",
+        )
+    if x_api_key not in API_KEYS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid x-api-key.",
+        )
+    return x_api_key
+
+
+router = APIRouter(
+    prefix="/netsuite",
+    tags=["NetSuite"],
+    dependencies=[Depends(verify_netsuite_api_key)],
 )
 
 
