@@ -21,7 +21,7 @@ from mygraphql import graphql_app
 from pydantic import BaseModel
 from helper import LoginShift, verify_token, create_jwt_token, verify_jwt_token, get_user_information, LoginWithAccessCode
 from graphqlschema.schema import UserInformation
-from routers import attachments, bos_api, cost, download, invoice, netsuite, pickup, product, stock, storepickup, storestock, supplier
+from routers import attachments, bos_api, cost, download, invoice, netsuite, pickup, product, stock, storepickup, storestock, supplier, transaction
 from routers.report import invoice as report_invoice
 from routers.report import labor as report_labor
 from routers.report import sales as report_sales
@@ -91,6 +91,7 @@ app.include_router(netsuite.router)
 app.include_router(download.router)
 app.include_router(storepickup.router)
 app.include_router(bos_api.router)
+app.include_router(transaction.router)
 app.include_router(report_invoice.router)
 app.include_router(report_labor.router)
 app.include_router(report_sales.router)
