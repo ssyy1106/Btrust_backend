@@ -79,6 +79,85 @@ def _escape_suiteql_literal(value: str) -> str:
     return value.replace("'", "''")
 
 
+def _parse_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+async def _load_unit_conversions(
+    items: list[dict[str, Any]],
+    access_token: str,
+) -> dict[str, dict[str, Any]]:
+    unit_ids = {
+        str(item.get(field)).strip()
+        for item in items
+        for field in ("stockunit", "saleunit", "purchaseunit")
+        if item.get(field) is not None and str(item.get(field)).strip()
+    }
+    if not unit_ids:
+        return {}
+
+    suiteql = f"""
+        SELECT
+            u.internalid AS unit_internal_id,
+            u.unitname AS unit_name,
+            u.abbreviation AS unit_abbreviation,
+            u.pluralabbreviation AS unit_plural_abbreviation,
+            u.conversionrate,
+            u.baseunit,
+            u.unitstype,
+            BUILTIN.DF(u.unitstype) AS unitstype_name
+        FROM UnitsTypeUom u
+        WHERE u.internalid IN ({", ".join(sorted(unit_ids))})
+    """
+    payload = await _execute_suiteql(suiteql, access_token)
+    return {
+        str(unit.get("unit_internal_id")): unit
+        for unit in payload.get("items", [])
+        if unit.get("unit_internal_id") is not None
+    }
+
+
+def _with_unit_quantities(
+    item: dict[str, Any],
+    unit_conversions: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    enriched_item = dict(item)
+    quantity_available = _parse_float(enriched_item.get("quantityavailable"))
+    quantity_on_hand = _parse_float(enriched_item.get("quantityonhand"))
+
+    for unit_field in ("purchaseunit", "saleunit", "stockunit"):
+        unit_id = enriched_item.get(unit_field)
+        if unit_id is None:
+            continue
+        conversion = unit_conversions.get(str(unit_id))
+        prefix = unit_field.replace("unit", "")
+        if not conversion:
+            enriched_item[f"{prefix}unit_conversionrate"] = None
+            enriched_item[f"quantityavailable_{prefix}units"] = None
+            enriched_item[f"quantityonhand_{prefix}units"] = None
+            continue
+
+        conversion_rate = _parse_float(conversion.get("conversionrate"))
+        enriched_item[f"{prefix}unit_config"] = conversion
+        enriched_item[f"{prefix}unit_conversionrate"] = conversion_rate
+        enriched_item[f"quantityavailable_{prefix}units"] = (
+            quantity_available / conversion_rate
+            if conversion_rate and quantity_available is not None
+            else None
+        )
+        enriched_item[f"quantityonhand_{prefix}units"] = (
+            quantity_on_hand / conversion_rate
+            if conversion_rate and quantity_on_hand is not None
+            else None
+        )
+    return enriched_item
+
+
 def _get_httpx_verify() -> str:
     return (
         NETSUITE_CA_BUNDLE
@@ -554,6 +633,7 @@ async def get_lot_inventory(
             i.upccode,
             i.itemtype,
             i.custitem_es_itemsize,
+            i.custitem_es_itempacking AS packing,
             i.purchasedescription,
             i.unitstype,
             BUILTIN.DF(i.unitstype) AS unitstype_name,
@@ -588,7 +668,12 @@ async def get_lot_inventory(
 
     access_token = get_access_token()["access_token"]
     payload = await _execute_suiteql(suiteql, access_token)
-    items = payload.get("items", [])
+    raw_items = payload.get("items", [])
+    try:
+        unit_conversions = await _load_unit_conversions(raw_items, access_token)
+    except HTTPException:
+        unit_conversions = {}
+    items = [_with_unit_quantities(item, unit_conversions) for item in raw_items]
     return {
         "lot_number": lot_number,
         "location_id": location_id,
