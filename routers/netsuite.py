@@ -1,6 +1,7 @@
 import os
 import ssl
 import sys
+import json
 from uuid import UUID
 from typing import Any
 
@@ -10,7 +11,7 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, status
 from pydantic import BaseModel, Field
 
-from helper import verify_token
+from helper import verify_token, log_and_save
 from graphqlschema.schema import UserInformation
 from get_netsuite_token import get_access_token
 
@@ -44,13 +45,24 @@ RECORD_URL = (
 )
 
 
+def _log_netsuite(level: str, event: str, **context: Any) -> None:
+    safe_context = {key: value for key, value in context.items() if value is not None}
+    if safe_context:
+        message = f"[netsuite] {event} | {json.dumps(safe_context, ensure_ascii=False, default=str)}"
+    else:
+        message = f"[netsuite] {event}"
+    log_and_save(level, message)
+
+
 def verify_netsuite_api_key(x_api_key: str | None = Header(None)):
     if not x_api_key:
+        _log_netsuite("WARNING", "missing_api_key")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing x-api-key header.",
         )
     if x_api_key not in API_KEYS:
+        _log_netsuite("WARNING", "invalid_api_key")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid x-api-key.",
@@ -208,6 +220,14 @@ async def _execute_suiteql(
     if offset is not None:
         params["offset"] = offset
 
+    _log_netsuite(
+        "INFO",
+        "suiteql_request",
+        limit=limit,
+        offset=offset,
+        query=" ".join(query.split()),
+    )
+
     try:
         async with httpx.AsyncClient(timeout=30, verify=verify) as client:
             response = await client.post(
@@ -217,17 +237,32 @@ async def _execute_suiteql(
                 json={"q": " ".join(query.split())},
             )
         response.raise_for_status()
+        payload = response.json()
+        _log_netsuite(
+            "INFO",
+            "suiteql_success",
+            status_code=response.status_code,
+            count=len(payload.get("items", [])) if isinstance(payload, dict) else None,
+            has_links=isinstance(payload, dict) and bool(payload.get("links")),
+        )
     except httpx.HTTPStatusError as exc:
         detail: Any
         try:
             detail = exc.response.json()
         except ValueError:
             detail = exc.response.text
+        _log_netsuite(
+            "ERROR",
+            "suiteql_http_error",
+            status_code=exc.response.status_code,
+            detail=detail,
+        )
         raise HTTPException(
             status_code=502,
             detail={"message": "NetSuite SuiteQL query failed.", "netsuite_error": detail},
         ) from exc
     except httpx.ConnectError as exc:
+        _log_netsuite("ERROR", "suiteql_connect_error", error=str(exc))
         raise HTTPException(
             status_code=502,
             detail={
@@ -237,9 +272,10 @@ async def _execute_suiteql(
             },
         ) from exc
     except httpx.HTTPError as exc:
+        _log_netsuite("ERROR", "suiteql_request_error", error=str(exc))
         raise HTTPException(status_code=502, detail=f"Failed to connect to NetSuite SuiteQL endpoint: {exc}") from exc
 
-    return response.json()
+    return payload
 
 
 async def _post_record(
@@ -253,6 +289,13 @@ async def _post_record(
         "Content-Type": "application/json",
     }
     verify = _get_httpx_verify()
+
+    _log_netsuite(
+        "INFO",
+        "record_create_request",
+        record_type=record_type,
+        payload=payload,
+    )
 
     try:
         async with httpx.AsyncClient(timeout=30, verify=verify) as client:
@@ -268,11 +311,24 @@ async def _post_record(
             detail = exc.response.json()
         except ValueError:
             detail = exc.response.text
+        _log_netsuite(
+            "ERROR",
+            "record_create_http_error",
+            record_type=record_type,
+            status_code=exc.response.status_code,
+            detail=detail,
+        )
         raise HTTPException(
             status_code=502,
             detail={"message": f"NetSuite {record_type} create failed.", "netsuite_error": detail},
         ) from exc
     except httpx.ConnectError as exc:
+        _log_netsuite(
+            "ERROR",
+            "record_create_connect_error",
+            record_type=record_type,
+            error=str(exc),
+        )
         raise HTTPException(
             status_code=502,
             detail={
@@ -282,6 +338,12 @@ async def _post_record(
             },
         ) from exc
     except httpx.HTTPError as exc:
+        _log_netsuite(
+            "ERROR",
+            "record_create_request_error",
+            record_type=record_type,
+            error=str(exc),
+        )
         raise HTTPException(status_code=502, detail=f"Failed to connect to NetSuite {record_type} endpoint: {exc}") from exc
 
     result: dict[str, Any] = {
@@ -293,6 +355,13 @@ async def _post_record(
             result["body"] = response.json()
         except ValueError:
             result["body"] = response.text
+    _log_netsuite(
+        "INFO",
+        "record_create_success",
+        record_type=record_type,
+        status_code=result.get("status_code"),
+        location=result.get("location"),
+    )
     return result
 
 
@@ -314,16 +383,35 @@ def _require_internal_id(value: str, field_name: str) -> str:
 async def bin_transfer(
     req: BinTransferRequest
 ):
+    _log_netsuite(
+        "INFO",
+        "bin_transfer_started",
+        item_id=req.item_id,
+        from_bin_id=req.from_bin_id,
+        to_bin_id=req.to_bin_id,
+        lot_number=req.lot_number,
+        quantity=req.quantity,
+        externalId=req.externalId,
+    )
     item_id = _require_internal_id(req.item_id, "item_id")
     from_bin_id = _require_internal_id(req.from_bin_id, "from_bin_id")
     to_bin_id = _require_internal_id(req.to_bin_id, "to_bin_id")
     lot_number = req.lot_number.strip()
     if not lot_number:
+        _log_netsuite("WARNING", "bin_transfer_empty_lot_number", externalId=req.externalId)
         raise HTTPException(status_code=400, detail="lot_number cannot be empty.")
     if from_bin_id == to_bin_id:
+        _log_netsuite(
+            "WARNING",
+            "bin_transfer_same_bin",
+            from_bin_id=from_bin_id,
+            to_bin_id=to_bin_id,
+            externalId=req.externalId,
+        )
         raise HTTPException(status_code=400, detail="from_bin_id and to_bin_id cannot be the same.")
 
     access_token = get_access_token()["access_token"]
+    _log_netsuite("INFO", "netsuite_access_token_acquired", action="bin_transfer")
     external_id = str(req.externalId)
     escaped_external_id = _escape_suiteql_literal(external_id)
     existing_payload = await _execute_suiteql(
@@ -338,6 +426,12 @@ async def bin_transfer(
     )
     existing_items = existing_payload.get("items", [])
     if existing_items:
+        _log_netsuite(
+            "INFO",
+            "bin_transfer_duplicate_external_id",
+            externalId=external_id,
+            existing_record=existing_items[0],
+        )
         return {
             "success": True,
             "created": False,
@@ -380,20 +474,50 @@ async def bin_transfer(
     )
     balance_items = balance_payload.get("items", [])
     if not balance_items:
+        _log_netsuite(
+            "WARNING",
+            "bin_transfer_inventory_not_found",
+            item_id=item_id,
+            from_bin_id=from_bin_id,
+            lot_number=lot_number,
+            externalId=external_id,
+        )
         raise HTTPException(status_code=404, detail="No inventory found for the given item, from bin, and lot number.")
 
     location_ids = {str(item.get("location")) for item in balance_items if item.get("location") is not None}
     subsidiary_ids = {str(item.get("subsidiary_id")) for item in balance_items if item.get("subsidiary_id") is not None}
     inventory_number_ids = {str(item.get("inventorynumber")) for item in balance_items if item.get("inventorynumber") is not None}
     if len(location_ids) != 1:
+        _log_netsuite("WARNING", "bin_transfer_multiple_locations", externalId=external_id, location_ids=list(location_ids))
         raise HTTPException(status_code=400, detail="Expected inventory to resolve to exactly one location.")
     if len(subsidiary_ids) != 1:
+        _log_netsuite("WARNING", "bin_transfer_multiple_subsidiaries", externalId=external_id, subsidiary_ids=list(subsidiary_ids))
         raise HTTPException(status_code=400, detail="Expected inventory to resolve to exactly one subsidiary.")
     if len(inventory_number_ids) != 1:
+        _log_netsuite(
+            "WARNING",
+            "bin_transfer_multiple_inventory_numbers",
+            externalId=external_id,
+            inventory_number_ids=list(inventory_number_ids),
+        )
         raise HTTPException(status_code=400, detail="Expected lot_number to resolve to exactly one inventory number.")
 
     quantity_available = sum(float(item.get("quantityavailable") or 0) for item in balance_items)
+    _log_netsuite(
+        "INFO",
+        "bin_transfer_inventory_validated",
+        externalId=external_id,
+        matched_rows=len(balance_items),
+        quantity_available=quantity_available,
+    )
     if req.quantity > quantity_available:
+        _log_netsuite(
+            "WARNING",
+            "bin_transfer_quantity_exceeded",
+            externalId=external_id,
+            requested_quantity=req.quantity,
+            available_quantity=quantity_available,
+        )
         raise HTTPException(
             status_code=400,
             detail=f"Quantity exceeds available quantity. requested={req.quantity}, available={quantity_available}",
@@ -420,12 +544,21 @@ async def bin_transfer(
     )
     to_bin_items = to_bin_payload.get("items", [])
     if not to_bin_items:
+        _log_netsuite("WARNING", "bin_transfer_to_bin_not_found", externalId=external_id, to_bin_id=to_bin_id)
         raise HTTPException(status_code=404, detail="to_bin_id not found.")
 
     to_bin_location_id = str(to_bin_items[0].get("location") or "")
     if not to_bin_location_id:
+        _log_netsuite("WARNING", "bin_transfer_to_bin_missing_location", externalId=external_id, to_bin_id=to_bin_id)
         raise HTTPException(status_code=400, detail="to_bin_id does not have a location.")
     if to_bin_location_id != from_location_id:
+        _log_netsuite(
+            "WARNING",
+            "bin_transfer_location_mismatch",
+            externalId=external_id,
+            from_location_id=from_location_id,
+            to_bin_location_id=to_bin_location_id,
+        )
         raise HTTPException(
             status_code=400,
             detail="from_bin_id and to_bin_id must belong to the same location for bin transfer.",
@@ -460,7 +593,23 @@ async def bin_transfer(
     if req.memo is None:
         payload.pop("memo")
 
+    _log_netsuite(
+        "INFO",
+        "bin_transfer_payload_ready",
+        externalId=external_id,
+        subsidiary_id=subsidiary_id,
+        from_location_id=from_location_id,
+        inventory_number_id=inventory_number_id,
+    )
     result = await _post_record("binTransfer", payload, access_token)
+    _log_netsuite(
+        "INFO",
+        "bin_transfer_completed",
+        externalId=external_id,
+        validated_quantity=quantity_available,
+        netsuite_status_code=result.get("status_code"),
+        netsuite_location=result.get("location"),
+    )
     return {
         "success": True,
         "created": True,
@@ -476,6 +625,7 @@ async def get_all_lots(
     limit: int = Query(50, ge=1, le=500, description="每页条数，默认50，最大500"),
     offset: int = Query(0, ge=0, description="偏移量，用于分页")
 ):
+    _log_netsuite("INFO", "get_all_lots_started", location_id=location_id, limit=limit, offset=offset)
     access_token = get_access_token()["access_token"]
     normalized_location_id: str | None = None
     if location_id is not None and location_id.strip():
@@ -508,6 +658,8 @@ async def get_all_lots(
     payload = await _execute_suiteql(data_query, access_token, limit=limit, offset=offset)
     items = payload.get("items", [])
 
+    _log_netsuite("INFO", "get_all_lots_completed", location_id=location_id, total=total, count=len(items))
+
     return {
         "location_id": location_id,
         "total": total,
@@ -525,6 +677,15 @@ async def get_all_bins(
     limit: int = Query(50, ge=1, le=9999, description="每页条数，默认50，最大9999"),
     offset: int = Query(0, ge=0, description="偏移量，用于分页")
 ):
+    _log_netsuite(
+        "INFO",
+        "get_all_bins_started",
+        binnumber=binnumber,
+        location_name=location_name,
+        location_id=location_id,
+        limit=limit,
+        offset=offset,
+    )
     access_token = get_access_token()["access_token"]
     filters: list[str] = []
     if binnumber and binnumber.strip():
@@ -571,6 +732,8 @@ async def get_all_bins(
     )
     items = payload.get("items", [])
 
+    _log_netsuite("INFO", "get_all_bins_completed", total=total, count=len(items), location_id=location_id)
+
     return {
         "binnumber": binnumber,
         "location_name": location_name,
@@ -587,6 +750,7 @@ async def get_all_locations(
     limit: int = Query(50, ge=1, le=500, description="得到所有location 最多一次500"),
     offset: int = Query(0, ge=0, description="偏移量，用于分页")
 ):
+    _log_netsuite("INFO", "get_all_locations_started", limit=limit, offset=offset)
     access_token = get_access_token()["access_token"]
 
     count_payload = await _execute_suiteql(
@@ -604,6 +768,8 @@ async def get_all_locations(
     )
     items = payload.get("items", [])
 
+    _log_netsuite("INFO", "get_all_locations_completed", total=total, count=len(items))
+
     return {
         "total": total,
         "limit": limit,
@@ -617,8 +783,10 @@ async def get_lot_inventory(
     lot_number: str,
     location_id: str | None = Query(None, description="按 location internal id 筛选")
 ):
+    _log_netsuite("INFO", "get_lot_inventory_started", lot_number=lot_number, location_id=location_id)
     escaped_lot_number = _escape_suiteql_literal(lot_number.strip())
     if not escaped_lot_number:
+        _log_netsuite("WARNING", "get_lot_inventory_empty_lot_number", location_id=location_id)
         raise HTTPException(status_code=400, detail="lot_number cannot be empty.")
     location_filter = ""
     if location_id is not None and location_id.strip():
@@ -672,8 +840,10 @@ async def get_lot_inventory(
     try:
         unit_conversions = await _load_unit_conversions(raw_items, access_token)
     except HTTPException:
+        _log_netsuite("WARNING", "get_lot_inventory_unit_conversion_failed", lot_number=lot_number, location_id=location_id)
         unit_conversions = {}
     items = [_with_unit_quantities(item, unit_conversions) for item in raw_items]
+    _log_netsuite("INFO", "get_lot_inventory_completed", lot_number=lot_number, location_id=location_id, count=len(items))
     return {
         "lot_number": lot_number,
         "location_id": location_id,
