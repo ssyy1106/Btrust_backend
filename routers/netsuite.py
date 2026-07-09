@@ -372,6 +372,17 @@ def _require_internal_id(value: str, field_name: str) -> str:
     return normalized
 
 
+def _build_item_lookup_filters(value: str) -> tuple[str, str]:
+    normalized = value.strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="item_id cannot be empty.")
+    if normalized.isdigit():
+        return (f"i.id = {normalized}", f"ib.item = {normalized}")
+
+    escaped_item_id = _escape_suiteql_literal(normalized)
+    return (f"i.itemid = '{escaped_item_id}'", f"i.itemid = '{escaped_item_id}'")
+
+
 # @router.get("/diagnostics")
 # async def get_netsuite_diagnostics(
 #     _user: UserInformation = Depends(verify_token),
@@ -454,6 +465,7 @@ async def bin_transfer(
             b.binnumber AS binnumber,
             ib.inventorynumber,
             inv.inventorynumber AS lot_number,
+            inv.expirationdate,
             ib.quantityonhand,
             ib.quantityavailable
         FROM inventorybalance ib
@@ -778,6 +790,122 @@ async def get_all_locations(
     }
 
 
+@router.get("/item/{item_id}")
+async def get_item_inventory(
+    item_id: str,
+    location_id: str | None = Query(None, description="按 location internal id 筛选")
+):
+    _log_netsuite("INFO", "get_item_inventory_started", item_id=item_id, location_id=location_id)
+    normalized_item_id = item_id.strip()
+    item_filter, lot_filter = _build_item_lookup_filters(item_id)
+
+    location_filter = ""
+    if location_id is not None and location_id.strip():
+        normalized_location_id = _require_internal_id(location_id, "location_id")
+        location_filter = f" AND ib.location = {normalized_location_id}"
+
+    access_token = get_access_token()["access_token"]
+
+    item_query = f"""
+        SELECT
+            i.id,
+            i.itemid,
+            i.displayname,
+            i.upccode,
+            i.itemtype,
+            i.custitem_es_itemsize,
+            i.custitem_es_itempacking AS packing,
+            i.purchasedescription,
+            i.unitstype,
+            BUILTIN.DF(i.unitstype) AS unitstype_name,
+            i.stockunit,
+            BUILTIN.DF(i.stockunit) AS stockunit_name,
+            i.saleunit,
+            BUILTIN.DF(i.saleunit) AS saleunit_name,
+            i.purchaseunit,
+            BUILTIN.DF(i.purchaseunit) AS purchaseunit_name,
+            i.isinactive
+        FROM item i
+        WHERE {item_filter}
+    """
+    item_payload = await _execute_suiteql(item_query, access_token, limit=1)
+    item_items = item_payload.get("items", [])
+    if not item_items:
+        _log_netsuite("WARNING", "get_item_inventory_item_not_found", item_id=normalized_item_id)
+        raise HTTPException(status_code=404, detail="item_id not found.")
+
+    item_info = item_items[0]
+    lot_query = f"""
+        SELECT
+            ib.item,
+            i.itemid,
+            i.displayname,
+            i.upccode,
+            i.itemtype,
+            i.custitem_es_itemsize,
+            i.custitem_es_itempacking AS packing,
+            i.purchasedescription,
+            i.unitstype,
+            BUILTIN.DF(i.unitstype) AS unitstype_name,
+            i.stockunit,
+            BUILTIN.DF(i.stockunit) AS stockunit_name,
+            i.saleunit,
+            BUILTIN.DF(i.saleunit) AS saleunit_name,
+            i.purchaseunit,
+            BUILTIN.DF(i.purchaseunit) AS purchaseunit_name,
+            i.isinactive,
+            ib.location,
+            l.name AS location_name,
+            ib.binnumber AS bin_internal_id,
+            b.binnumber AS binnumber,
+            ib.inventorynumber,
+            inv.inventorynumber AS lot_number,
+            inv.expirationdate,
+            ib.quantityonhand,
+            ib.quantityavailable
+        FROM inventorybalance ib
+        JOIN item i
+            ON i.id = ib.item
+        LEFT JOIN location l
+            ON l.id = ib.location
+        LEFT JOIN bin b
+            ON b.id = ib.binnumber
+        LEFT JOIN inventorynumber inv
+            ON inv.id = ib.inventorynumber
+        WHERE {lot_filter}
+        {location_filter}
+        ORDER BY inv.expirationdate, inv.inventorynumber, l.name, b.binnumber
+    """
+    lot_payload = await _execute_suiteql(lot_query, access_token)
+    raw_lots = lot_payload.get("items", [])
+    try:
+        unit_conversions = await _load_unit_conversions(raw_lots or [item_info], access_token)
+    except HTTPException:
+        _log_netsuite(
+            "WARNING",
+            "get_item_inventory_unit_conversion_failed",
+            item_id=normalized_item_id,
+            location_id=location_id,
+        )
+        unit_conversions = {}
+
+    item_info = _with_unit_quantities(item_info, unit_conversions)
+    lots = [_with_unit_quantities(item, unit_conversions) for item in raw_lots]
+    _log_netsuite(
+        "INFO",
+        "get_item_inventory_completed",
+        item_id=normalized_item_id,
+        location_id=location_id,
+        lot_count=len(lots),
+    )
+    return {
+        "item_id": normalized_item_id,
+        "location_id": location_id,
+        "item": item_info,
+        "lots": lots,
+    }
+
+
 @router.get("/lot/{lot_number}")
 async def get_lot_inventory(
     lot_number: str,
@@ -818,6 +946,7 @@ async def get_lot_inventory(
             b.binnumber AS binnumber,
             ib.inventorynumber,
             inv.inventorynumber AS lot_number,
+            inv.expirationdate,
             ib.quantityonhand,
             ib.quantityavailable
         FROM inventorybalance ib
