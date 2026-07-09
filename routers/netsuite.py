@@ -383,6 +383,49 @@ def _build_item_lookup_filters(value: str) -> tuple[str, str]:
     return (f"i.itemid = '{escaped_item_id}'", f"i.itemid = '{escaped_item_id}'")
 
 
+def _group_lots_with_bins(raw_lots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped_lots: dict[tuple[Any, Any, Any, Any], dict[str, Any]] = {}
+
+    for row in raw_lots:
+        lot_key = (
+            row.get("item"),
+            row.get("inventorynumber"),
+            row.get("location"),
+            row.get("expirationdate"),
+        )
+        quantity_on_hand = _parse_float(row.get("quantityonhand")) or 0.0
+        quantity_available = _parse_float(row.get("quantityavailable")) or 0.0
+
+        lot_entry = grouped_lots.get(lot_key)
+        if lot_entry is None:
+            lot_entry = {
+                "item": row.get("item"),
+                "location": row.get("location"),
+                "location_name": row.get("location_name"),
+                "inventorynumber": row.get("inventorynumber"),
+                "lot_number": row.get("lot_number"),
+                "expirationdate": row.get("expirationdate"),
+                "quantityonhand": quantity_on_hand,
+                "quantityavailable": quantity_available,
+                "bins": [],
+            }
+            grouped_lots[lot_key] = lot_entry
+        else:
+            lot_entry["quantityonhand"] += quantity_on_hand
+            lot_entry["quantityavailable"] += quantity_available
+
+        lot_entry["bins"].append(
+            {
+                "bin_internal_id": row.get("bin_internal_id"),
+                "binnumber": row.get("binnumber"),
+                "quantityonhand": row.get("quantityonhand"),
+                "quantityavailable": row.get("quantityavailable"),
+            }
+        )
+
+    return list(grouped_lots.values())
+
+
 # @router.get("/diagnostics")
 # async def get_netsuite_diagnostics(
 #     _user: UserInformation = Depends(verify_token),
@@ -838,22 +881,6 @@ async def get_item_inventory(
     lot_query = f"""
         SELECT
             ib.item,
-            i.itemid,
-            i.displayname,
-            i.upccode,
-            i.itemtype,
-            i.custitem_es_itemsize,
-            i.custitem_es_itempacking AS packing,
-            i.purchasedescription,
-            i.unitstype,
-            BUILTIN.DF(i.unitstype) AS unitstype_name,
-            i.stockunit,
-            BUILTIN.DF(i.stockunit) AS stockunit_name,
-            i.saleunit,
-            BUILTIN.DF(i.saleunit) AS saleunit_name,
-            i.purchaseunit,
-            BUILTIN.DF(i.purchaseunit) AS purchaseunit_name,
-            i.isinactive,
             ib.location,
             l.name AS location_name,
             ib.binnumber AS bin_internal_id,
@@ -879,7 +906,7 @@ async def get_item_inventory(
     lot_payload = await _execute_suiteql(lot_query, access_token)
     raw_lots = lot_payload.get("items", [])
     try:
-        unit_conversions = await _load_unit_conversions(raw_lots or [item_info], access_token)
+        unit_conversions = await _load_unit_conversions([item_info], access_token)
     except HTTPException:
         _log_netsuite(
             "WARNING",
@@ -890,7 +917,7 @@ async def get_item_inventory(
         unit_conversions = {}
 
     item_info = _with_unit_quantities(item_info, unit_conversions)
-    lots = [_with_unit_quantities(item, unit_conversions) for item in raw_lots]
+    lots = _group_lots_with_bins(raw_lots)
     _log_netsuite(
         "INFO",
         "get_item_inventory_completed",
