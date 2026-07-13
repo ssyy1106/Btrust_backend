@@ -45,6 +45,7 @@ from botocore.exceptions import ClientError
 
 
 router = APIRouter(prefix="/stock", tags=["Stock"])
+PRODUCT_SNAPSHOT_BATCH_SIZE = 500
 
 # 用于记录操作日志
 async def log_operation(db: AsyncSession, api_name: str, request_data, response_data):
@@ -60,6 +61,33 @@ async def log_operation(db: AsyncSession, api_name: str, request_data, response_
         await db.commit()
     except:
         pass  # 失败也不抛出
+
+
+async def _load_product_snapshots_in_batches(
+    db: AsyncSession,
+    items: List[StocktakeItem],
+    batch_size: int = PRODUCT_SNAPSHOT_BATCH_SIZE,
+) -> Dict[tuple, ProductSnapshot]:
+    pairs = list({
+        (item.barcode.zfill(14), item.store)
+        for item in items
+        if item.barcode and item.store
+    })
+    if not pairs:
+        return {}
+
+    snapshot_map: Dict[tuple, ProductSnapshot] = {}
+    for start in range(0, len(pairs), batch_size):
+        batch_pairs = pairs[start:start + batch_size]
+        snapshot_stmt = select(ProductSnapshot).where(
+            tuple_(ProductSnapshot.barcode, ProductSnapshot.store).in_(batch_pairs)
+        )
+        snapshot_result = await db.execute(snapshot_stmt)
+        snapshot_map.update({
+            (snapshot.barcode, snapshot.store): snapshot
+            for snapshot in snapshot_result.scalars().all()
+        })
+    return snapshot_map
 
 def _get_s3_client():
     endpoint_url = os.getenv("S3_ENDPOINT_URL", "http://localhost:9000")
@@ -449,49 +477,38 @@ async def search_stocktake_items_v2(
 
     items_list: List[StocktakeItemOutV2] = []
 
-    snapshot_map: Dict[tuple, ProductSnapshot] = {}
     items = [r[0] for r in rows]
-    if items:
-        pairs = {(item.barcode.zfill(14), item.store) for item in items if item.barcode and item.store}
-        if pairs:
-            snapshot_stmt = select(ProductSnapshot).where(
-                tuple_(ProductSnapshot.barcode, ProductSnapshot.store).in_(list(pairs))
-            )
-            snapshot_result = await db.execute(snapshot_stmt)
-            snapshot_map = {
-                (snapshot.barcode, snapshot.store): snapshot
-                for snapshot in snapshot_result.scalars().all()
-            }
+    snapshot_map = await _load_product_snapshots_in_batches(db, items)
 
-        for item in items:
-            barcode_padded = item.barcode.zfill(14)
-            snapshot = snapshot_map.get((barcode_padded, item.store))
-            items_list.append(
-                StocktakeItemOutV2.model_validate({
-                    "id": item.id,
-                    "session_id": item.session_id,
-                    "location": item.location,
-                    "barcode": barcode_padded,
-                    "barcode_original": item.barcode,
-                    "name_ch": snapshot.name_cn if snapshot else None,
-                    "name_en": snapshot.name_en if snapshot else None,
-                    "regular_price": snapshot.original_price if snapshot else None,
-                    "active_price": snapshot.unit_price if snapshot else None,
-                    "package_price": snapshot.pack_price if snapshot else None,
-                    "package_count": snapshot.pack_qty if snapshot else None,
-                    "tax": snapshot.tax if snapshot else None,
-                    "specification": snapshot.specification if snapshot else None,
-                    "unit_type": snapshot.unit_type if snapshot else None,
-                    "qty": item.qty,
-                    "time": item.time,
-                    "creator_id": item.creator_id,
-                    "modifier_id": item.modifier_id,
-                    "create_time": item.create_time,
-                    "update_time": item.update_time,
-                    "image_url": get_image_url(barcode_padded),
-                    "store": item.store
-                })
-            )
+    for item in items:
+        barcode_padded = item.barcode.zfill(14)
+        snapshot = snapshot_map.get((barcode_padded, item.store))
+        items_list.append(
+            StocktakeItemOutV2.model_validate({
+                "id": item.id,
+                "session_id": item.session_id,
+                "location": item.location,
+                "barcode": barcode_padded,
+                "barcode_original": item.barcode,
+                "name_ch": snapshot.name_cn if snapshot else None,
+                "name_en": snapshot.name_en if snapshot else None,
+                "regular_price": snapshot.original_price if snapshot else None,
+                "active_price": snapshot.unit_price if snapshot else None,
+                "package_price": snapshot.pack_price if snapshot else None,
+                "package_count": snapshot.pack_qty if snapshot else None,
+                "tax": snapshot.tax if snapshot else None,
+                "specification": snapshot.specification if snapshot else None,
+                "unit_type": snapshot.unit_type if snapshot else None,
+                "qty": item.qty,
+                "time": item.time,
+                "creator_id": item.creator_id,
+                "modifier_id": item.modifier_id,
+                "create_time": item.create_time,
+                "update_time": item.update_time,
+                "image_url": get_image_url(barcode_padded),
+                "store": item.store
+            })
+        )
 
     logout = {
         "status": "success",
@@ -752,19 +769,8 @@ async def get_stock_by_location_v2(
     rows = result.all()
 
     location_data = defaultdict(list)
-    snapshot_map: Dict[tuple, ProductSnapshot] = {}
     items = [r[0] for r in rows]
-    if items:
-        pairs = {(item.barcode.zfill(14), item.store) for item in items if item.barcode and item.store}
-        if pairs:
-            snapshot_stmt = select(ProductSnapshot).where(
-                tuple_(ProductSnapshot.barcode, ProductSnapshot.store).in_(list(pairs))
-            )
-            snapshot_result = await db.execute(snapshot_stmt)
-            snapshot_map = {
-                (snapshot.barcode, snapshot.store): snapshot
-                for snapshot in snapshot_result.scalars().all()
-            }
+    snapshot_map = await _load_product_snapshots_in_batches(db, items)
 
     for item in items:
         barcode_padded = item.barcode.zfill(14)
