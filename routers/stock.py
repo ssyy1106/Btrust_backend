@@ -10,7 +10,7 @@ from sqlalchemy import select, delete, and_, func, or_, tuple_
 from fastapi.responses import JSONResponse, FileResponse
 from datetime import datetime, timedelta
 from models.stock import OperateLog, StocktakeSession, StocktakeItem, ProductInfo, ProductSnapshot, Job
-from routers.product import get_image_url
+from routers.product import get_image_url, get_all_image_url
 from schemas.stock import (
     StocktakeSessionOut,
     StocktakeUpload,
@@ -42,10 +42,13 @@ import uuid
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
+import time
 
 
 router = APIRouter(prefix="/stock", tags=["Stock"])
 PRODUCT_SNAPSHOT_BATCH_SIZE = 500
+PRODUCT_SNAPSHOT_CACHE_TTL_SECONDS = 12 * 60 * 60
+_product_snapshot_cache: Dict[tuple, tuple[float, Optional[ProductSnapshot]]] = {}
 
 # 用于记录操作日志
 async def log_operation(db: AsyncSession, api_name: str, request_data, response_data):
@@ -76,17 +79,37 @@ async def _load_product_snapshots_in_batches(
     if not pairs:
         return {}
 
+    now = time.monotonic()
     snapshot_map: Dict[tuple, ProductSnapshot] = {}
-    for start in range(0, len(pairs), batch_size):
-        batch_pairs = pairs[start:start + batch_size]
+    pairs_to_fetch: List[tuple] = []
+
+    for pair in pairs:
+        cached_entry = _product_snapshot_cache.get(pair)
+        if cached_entry is None or cached_entry[0] <= now:
+            pairs_to_fetch.append(pair)
+            continue
+        cached_snapshot = cached_entry[1]
+        if cached_snapshot is not None:
+            snapshot_map[pair] = cached_snapshot
+
+    for start in range(0, len(pairs_to_fetch), batch_size):
+        batch_pairs = pairs_to_fetch[start:start + batch_size]
         snapshot_stmt = select(ProductSnapshot).where(
             tuple_(ProductSnapshot.barcode, ProductSnapshot.store).in_(batch_pairs)
         )
         snapshot_result = await db.execute(snapshot_stmt)
-        snapshot_map.update({
+        fetched_snapshot_map = {
             (snapshot.barcode, snapshot.store): snapshot
             for snapshot in snapshot_result.scalars().all()
-        })
+        }
+        expires_at = now + PRODUCT_SNAPSHOT_CACHE_TTL_SECONDS
+
+        for pair in batch_pairs:
+            snapshot = fetched_snapshot_map.get(pair)
+            _product_snapshot_cache[pair] = (expires_at, snapshot)
+            if snapshot is not None:
+                snapshot_map[pair] = snapshot
+
     return snapshot_map
 
 def _get_s3_client():
@@ -479,10 +502,17 @@ async def search_stocktake_items_v2(
 
     items = [r[0] for r in rows]
     snapshot_map = await _load_product_snapshots_in_batches(db, items)
+    image_url_map = get_all_image_url()
 
     for item in items:
+        barcode_raw = (item.barcode or "").strip()
         barcode_padded = item.barcode.zfill(14)
         snapshot = snapshot_map.get((barcode_padded, item.store))
+        image_url = (
+            image_url_map.get(barcode_padded)
+            or image_url_map.get(barcode_raw)
+            or get_image_url(barcode_padded)
+        )
         items_list.append(
             StocktakeItemOutV2.model_validate({
                 "id": item.id,
@@ -505,11 +535,10 @@ async def search_stocktake_items_v2(
                 "modifier_id": item.modifier_id,
                 "create_time": item.create_time,
                 "update_time": item.update_time,
-                "image_url": get_image_url(barcode_padded),
+                "image_url": image_url,
                 "store": item.store
             })
         )
-
     logout = {
         "status": "success",
         "page": page,
@@ -537,7 +566,6 @@ async def search_stocktake_items_v2(
         },
         logout
     )
-
     return StocktakeItemSummaryResponseV2(
         pickupItems=items_list,
         pagination=Pagination(
@@ -734,6 +762,15 @@ async def get_stock_by_location_v2(
     duplicate: bool = Query(False, description="true: return all rows; false: keep last upload per location+barcode"),
     db: AsyncSession = Depends(get_db_stock)
 ):
+    # start = time.perf_counter()
+    # last = start
+
+    # def timer(step: str):
+    #     nonlocal last
+    #     now = time.perf_counter()
+    #     print(f"[Timer] {step:<30} {now - last:.3f}s (Total: {now - start:.3f}s)")
+    #     last = now
+
     conditions = []
     if start_date:
         conditions.append(StocktakeItem.time >= start_date)
@@ -771,11 +808,17 @@ async def get_stock_by_location_v2(
     location_data = defaultdict(list)
     items = [r[0] for r in rows]
     snapshot_map = await _load_product_snapshots_in_batches(db, items)
+    image_url_map = get_all_image_url()
 
     for item in items:
+        barcode_raw = (item.barcode or "").strip()
         barcode_padded = item.barcode.zfill(14)
         snapshot = snapshot_map.get((barcode_padded, item.store))
-        image_url = get_image_url(barcode_padded)
+        image_url = (
+            image_url_map.get(barcode_padded)
+            or image_url_map.get(barcode_raw)
+            or get_image_url(barcode_padded)
+        )
         location_data[item.location].append({
             "session_id": str(item.session_id),
             "barcode": barcode_padded,
@@ -794,7 +837,12 @@ async def get_stock_by_location_v2(
             "image_url": image_url,
             "store": item.store
         })
-    logout = {"status": "success", "location_data": location_data}
+    #logout = {"status": "success", "location_data": location_data}
+    logout = {
+        "status": "success",
+        "location_count": len(location_data),
+        "items_count": len(items),
+    }
     await log_operation(
         db,
         "get /by-location/v2",

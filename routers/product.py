@@ -1,11 +1,12 @@
 import json
 import os
+import time
 from functools import lru_cache
 from fastapi import APIRouter, Query, Depends, HTTPException, Response, Request, status
 from fastapi import APIRouter, Query, Depends, HTTPException, Response, Request, status, Body
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func, or_, text, and_
-from typing import Optional, List
+from typing import Optional, List, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta, date
 from uuid import UUID
@@ -34,6 +35,9 @@ router = APIRouter(prefix="/product", tags=["Product"])
 # odoo_cookies = None
 
 NETWORK_IMAGE_DIR = r"\\172.16.30.8\image"
+IMAGE_URL_CACHE_TTL_SECONDS = 300
+_image_url_cache: Dict[str, str] = {}
+_image_url_cache_loaded_at: float | None = None
 
 INSTOREPRICE_SORT_FIELDS = {
     "submitted_date": InstorePriceSession.create_time,
@@ -52,12 +56,48 @@ INSTOREPRICE_LOG_SORT_FIELDS = {
     "session_id": InstorePriceApprovalLog.session_id,
 }
 
+def get_all_image_url() -> Dict[str, str]:
+    try:
+        global _image_url_cache
+        global _image_url_cache_loaded_at
+
+        now = time.monotonic()
+        if (
+            _image_url_cache_loaded_at is not None
+            and now - _image_url_cache_loaded_at < IMAGE_URL_CACHE_TTL_SECONDS
+        ):
+            return _image_url_cache
+
+        image_url_map: Dict[str, str] = {}
+        for entry in os.scandir(NETWORK_IMAGE_DIR):
+            if not entry.is_file() or not entry.name.lower().endswith(".png"):
+                continue
+            barcode = os.path.splitext(entry.name)[0].strip()
+            if not barcode:
+                continue
+            image_url = f"/product/image/{barcode}"
+            image_url_map[barcode] = image_url
+            barcode_no_zero = barcode.lstrip("0")
+            if barcode_no_zero:
+                image_url_map.setdefault(barcode_no_zero, image_url)
+            image_url_map.setdefault(barcode.zfill(14), image_url)
+        _image_url_cache = image_url_map
+        _image_url_cache_loaded_at = now
+        return _image_url_cache
+    except OSError:
+        return {}
+
+
 def get_image_url(barcode: str) -> str | None:
-    image_file_name = f"{barcode}.png"
-    image_file_name2 = f"{barcode.strip()}.png"
-    image_path = os.path.join(NETWORK_IMAGE_DIR, image_file_name)
-    image_path2 = os.path.join(NETWORK_IMAGE_DIR, image_file_name2)
-    return f"/product/image/{barcode}" if os.path.exists(image_path) else f"/product/image/{barcode.strip()}" if os.path.exists(image_path2) else None
+    image_url_map = get_all_image_url()
+    barcode_clean = barcode.strip()
+    if not barcode_clean:
+        return None
+    return (
+        image_url_map.get(barcode_clean)
+        or image_url_map.get(barcode_clean.lstrip("0"))
+        or image_url_map.get(barcode_clean.zfill(14))
+    )
 
 def normalize_end_date(end_date: datetime):
     """把结束日期的时间补到当天 23:59:59"""
