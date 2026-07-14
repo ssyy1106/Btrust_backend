@@ -372,15 +372,30 @@ def _require_internal_id(value: str, field_name: str) -> str:
     return normalized
 
 
-def _build_item_lookup_filters(value: str) -> tuple[str, str]:
+def _build_item_lookup_filter(value: str, *, case_sensitive: bool) -> str:
     normalized = value.strip()
     if not normalized:
         raise HTTPException(status_code=400, detail="item_id cannot be empty.")
     if normalized.isdigit():
-        return (f"i.id = {normalized}", f"ib.item = {normalized}")
+        return f"i.id = {normalized}"
 
     escaped_item_id = _escape_suiteql_literal(normalized)
-    return (f"i.itemid = '{escaped_item_id}'", f"i.itemid = '{escaped_item_id}'")
+    if case_sensitive:
+        return f"i.itemid = '{escaped_item_id}'"
+    return f"LOWER(i.itemid) = LOWER('{escaped_item_id}')"
+
+
+def _select_matching_item(
+    items: list[dict[str, Any]],
+    requested_item_id: str,
+) -> dict[str, Any] | None:
+    if not items:
+        return None
+
+    for item in items:
+        if str(item.get("itemid") or "").strip() == requested_item_id:
+            return item
+    return items[0]
 
 
 def _group_lots_with_bins(raw_lots: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -836,11 +851,18 @@ async def get_all_locations(
 @router.get("/item/{item_id}")
 async def get_item_inventory(
     item_id: str,
-    location_id: str | None = Query(None, description="按 location internal id 筛选")
+    location_id: str | None = Query(None, description="按 location internal id 筛选"),
+    case_sensitive: bool = Query(False, description="是否区分 item_id 大小写，默认 false"),
 ):
-    _log_netsuite("INFO", "get_item_inventory_started", item_id=item_id, location_id=location_id)
+    _log_netsuite(
+        "INFO",
+        "get_item_inventory_started",
+        item_id=item_id,
+        location_id=location_id,
+        case_sensitive=case_sensitive,
+    )
     normalized_item_id = item_id.strip()
-    item_filter, lot_filter = _build_item_lookup_filters(item_id)
+    item_filter = _build_item_lookup_filter(item_id, case_sensitive=case_sensitive)
 
     location_filter = ""
     if location_id is not None and location_id.strip():
@@ -870,14 +892,29 @@ async def get_item_inventory(
             i.isinactive
         FROM item i
         WHERE {item_filter}
+        ORDER BY i.id
     """
-    item_payload = await _execute_suiteql(item_query, access_token, limit=1)
+    item_payload = await _execute_suiteql(item_query, access_token)
     item_items = item_payload.get("items", [])
     if not item_items:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Item '{normalized_item_id}' not found."
+        )
+    item_info = (
+        item_items[0]
+        if case_sensitive or normalized_item_id.isdigit()
+        else _select_matching_item(item_items, normalized_item_id)
+    )
+    if not item_info:
         _log_netsuite("WARNING", "get_item_inventory_item_not_found", item_id=normalized_item_id)
         raise HTTPException(status_code=404, detail="item_id not found.")
 
-    item_info = item_items[0]
+    resolved_item_id = str(item_info.get("id") or "").strip()
+    if not resolved_item_id:
+        _log_netsuite("ERROR", "get_item_inventory_missing_internal_id", item=item_info)
+        raise HTTPException(status_code=502, detail="Resolved NetSuite item is missing internal ID.")
+
     lot_query = f"""
         SELECT
             ib.item,
@@ -899,7 +936,7 @@ async def get_item_inventory(
             ON b.id = ib.binnumber
         LEFT JOIN inventorynumber inv
             ON inv.id = ib.inventorynumber
-        WHERE {lot_filter}
+        WHERE ib.item = {resolved_item_id}
         {location_filter}
         ORDER BY inv.expirationdate, inv.inventorynumber, l.name, b.binnumber
     """
@@ -913,6 +950,7 @@ async def get_item_inventory(
             "get_item_inventory_unit_conversion_failed",
             item_id=normalized_item_id,
             location_id=location_id,
+            case_sensitive=case_sensitive,
         )
         unit_conversions = {}
 
@@ -923,11 +961,15 @@ async def get_item_inventory(
         "get_item_inventory_completed",
         item_id=normalized_item_id,
         location_id=location_id,
+        case_sensitive=case_sensitive,
+        resolved_item_internal_id=resolved_item_id,
+        resolved_itemid=item_info.get("itemid"),
         lot_count=len(lots),
     )
     return {
         "item_id": normalized_item_id,
         "location_id": location_id,
+        "case_sensitive": case_sensitive,
         "item": item_info,
         "lots": lots,
     }

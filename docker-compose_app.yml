@@ -27,7 +27,7 @@ services:
       POSTGRES_PASSWORD: Btrust123
       POSTGRES_DB: stock
     ports:
-      - "5438:5432"  # 外部访问用 5438，容器内部仍用 5432
+      - "127.0.0.1:5438:5432"  # 外部访问用 5438，容器内部仍用 5432
     networks:
       - backend
     healthcheck:   # ✅ 加上 PostgreSQL 健康检查

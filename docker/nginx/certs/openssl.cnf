@@ -1,0 +1,22 @@
+[req]
+default_bits = 2048
+prompt = no
+default_md = sha256
+distinguished_name = dn
+x509_extensions = v3_req
+
+[dn]
+C = CA
+ST = Ontario
+L = Oakville
+O = Midland Food
+OU = IT
+CN = app.midlandfood.ca
+
+[v3_req]
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = app.midlandfood.ca
+IP.1 = 10.16.10.66
+
