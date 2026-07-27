@@ -201,7 +201,7 @@ async def list_invoices(
     #isdraft: Optional[bool] = Query(None, description="是否是草稿"),
      # 分页参数
     page: int = Query(1, ge=1, description="页码"),
-    page_size: int = Query(20, ge=1, le=100, description="每页条数"),
+    page_size: int = Query(20, ge=1, le=999999, description="每页条数"),
     # 排序参数（字段名+方向）
     sort_by: Optional[str] = Query(None, description="排序字段"),
     sort_dir: Literal["asc", "desc"] = Query("asc", description="排序方向"),
