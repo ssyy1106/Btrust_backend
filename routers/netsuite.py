@@ -441,6 +441,49 @@ def _group_lots_with_bins(raw_lots: list[dict[str, Any]]) -> list[dict[str, Any]
     return list(grouped_lots.values())
 
 
+def _group_bin_inventory_by_item(raw_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped_items: dict[tuple[Any, Any], dict[str, Any]] = {}
+
+    for row in raw_items:
+        item_key = (row.get("item"), row.get("location"))
+        item_entry = grouped_items.get(item_key)
+        if item_entry is None:
+            item_entry = {
+                "item": {
+                    "id": row.get("item"),
+                    "itemid": row.get("itemid"),
+                    "displayname": row.get("displayname"),
+                    "upccode": row.get("upccode"),
+                    "itemtype": row.get("itemtype"),
+                    "custitem_es_itemsize": row.get("custitem_es_itemsize"),
+                    "packing": row.get("packing"),
+                    "purchasedescription": row.get("purchasedescription"),
+                    "unitstype": row.get("unitstype"),
+                    "unitstype_name": row.get("unitstype_name"),
+                    "stockunit": row.get("stockunit"),
+                    "stockunit_name": row.get("stockunit_name"),
+                    "saleunit": row.get("saleunit"),
+                    "saleunit_name": row.get("saleunit_name"),
+                    "purchaseunit": row.get("purchaseunit"),
+                    "purchaseunit_name": row.get("purchaseunit_name"),
+                    "isinactive": row.get("isinactive"),
+                },
+                "location": row.get("location"),
+                "location_name": row.get("location_name"),
+                "bin_internal_id": row.get("bin_internal_id"),
+                "binnumber": row.get("binnumber"),
+                "lots": [],
+            }
+            grouped_items[item_key] = item_entry
+
+        item_entry["lots"].append(row)
+
+    for item_entry in grouped_items.values():
+        item_entry["lots"] = _group_lots_with_bins(item_entry["lots"])
+
+    return list(grouped_items.values())
+
+
 # @router.get("/diagnostics")
 # async def get_netsuite_diagnostics(
 #     _user: UserInformation = Depends(verify_token),
@@ -972,6 +1015,131 @@ async def get_item_inventory(
         "case_sensitive": case_sensitive,
         "item": item_info,
         "lots": lots,
+    }
+
+
+@router.get("/item/bin/{bin_number}")
+async def get_bin_items_inventory(
+    bin_number: str,
+    location_id: str = Query(..., description="location internal id"),
+    item_id: str | None = Query(None, description="可选，item internal id 或 itemid"),
+    lot_number: str | None = Query(None, description="可选，lot number"),
+    case_sensitive: bool = Query(False, description="item_id 为 itemid 时是否区分大小写，默认 false"),
+):
+    _log_netsuite(
+        "INFO",
+        "get_bin_items_inventory_started",
+        bin_number=bin_number,
+        location_id=location_id,
+        item_id=item_id,
+        lot_number=lot_number,
+        case_sensitive=case_sensitive,
+    )
+
+    normalized_bin_number = bin_number.strip()
+    if not normalized_bin_number:
+        raise HTTPException(status_code=400, detail="bin_number cannot be empty.")
+
+    normalized_location_id = _require_internal_id(location_id, "location_id")
+    escaped_bin_number = _escape_suiteql_literal(normalized_bin_number)
+
+    filters = [
+        f"ib.location = {normalized_location_id}",
+        f"b.binnumber = '{escaped_bin_number}'",
+    ]
+
+    normalized_item_id = None
+    if item_id is not None and item_id.strip():
+        normalized_item_id = item_id.strip()
+        filters.append(_build_item_lookup_filter(normalized_item_id, case_sensitive=case_sensitive))
+
+    normalized_lot_number = None
+    if lot_number is not None and lot_number.strip():
+        normalized_lot_number = lot_number.strip()
+        escaped_lot_number = _escape_suiteql_literal(normalized_lot_number)
+        filters.append(f"inv.inventorynumber = '{escaped_lot_number}'")
+
+    where_clause = " AND ".join(filters)
+    access_token = get_access_token()["access_token"]
+
+    suiteql = f"""
+        SELECT
+            ib.item,
+            i.itemid,
+            i.displayname,
+            i.upccode,
+            i.itemtype,
+            i.custitem_es_itemsize,
+            i.custitem_es_itempacking AS packing,
+            i.purchasedescription,
+            i.unitstype,
+            BUILTIN.DF(i.unitstype) AS unitstype_name,
+            i.stockunit,
+            BUILTIN.DF(i.stockunit) AS stockunit_name,
+            i.saleunit,
+            BUILTIN.DF(i.saleunit) AS saleunit_name,
+            i.purchaseunit,
+            BUILTIN.DF(i.purchaseunit) AS purchaseunit_name,
+            i.isinactive,
+            ib.location,
+            l.name AS location_name,
+            ib.binnumber AS bin_internal_id,
+            b.binnumber AS binnumber,
+            ib.inventorynumber,
+            inv.inventorynumber AS lot_number,
+            inv.expirationdate,
+            ib.quantityonhand,
+            ib.quantityavailable
+        FROM inventorybalance ib
+        JOIN item i
+            ON i.id = ib.item
+        LEFT JOIN location l
+            ON l.id = ib.location
+        LEFT JOIN bin b
+            ON b.id = ib.binnumber
+        LEFT JOIN inventorynumber inv
+            ON inv.id = ib.inventorynumber
+        WHERE {where_clause}
+        ORDER BY i.itemid, inv.expirationdate, inv.inventorynumber
+    """
+
+    payload = await _execute_suiteql(suiteql, access_token)
+    raw_items = payload.get("items", [])
+
+    try:
+        unit_conversions = await _load_unit_conversions(raw_items, access_token)
+    except HTTPException:
+        _log_netsuite(
+            "WARNING",
+            "get_bin_items_inventory_unit_conversion_failed",
+            bin_number=normalized_bin_number,
+            location_id=normalized_location_id,
+            item_id=normalized_item_id,
+            lot_number=normalized_lot_number,
+        )
+        unit_conversions = {}
+
+    enriched_items = [_with_unit_quantities(item, unit_conversions) for item in raw_items]
+    items = _group_bin_inventory_by_item(enriched_items)
+
+    _log_netsuite(
+        "INFO",
+        "get_bin_items_inventory_completed",
+        bin_number=normalized_bin_number,
+        location_id=normalized_location_id,
+        item_id=normalized_item_id,
+        lot_number=normalized_lot_number,
+        item_count=len(items),
+        row_count=len(raw_items),
+    )
+    return {
+        "bin_number": normalized_bin_number,
+        "location_id": normalized_location_id,
+        "item_id": normalized_item_id,
+        "lot_number": normalized_lot_number,
+        "case_sensitive": case_sensitive,
+        "count": len(items),
+        "items": items,
     }
 
 
