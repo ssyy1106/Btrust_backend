@@ -1021,7 +1021,7 @@ async def get_item_inventory(
 @router.get("/item/bin/{bin_number}")
 async def get_bin_items_inventory(
     bin_number: str,
-    location_id: str = Query(..., description="location internal id"),
+    location_id: str | None = Query(None, description="可选，location internal id；不传则查询所有 location"),
     item_id: str | None = Query(None, description="可选，item internal id 或 itemid"),
     lot_number: str | None = Query(None, description="可选，lot number"),
     case_sensitive: bool = Query(False, description="item_id 为 itemid 时是否区分大小写，默认 false"),
@@ -1040,13 +1040,16 @@ async def get_bin_items_inventory(
     if not normalized_bin_number:
         raise HTTPException(status_code=400, detail="bin_number cannot be empty.")
 
-    normalized_location_id = _require_internal_id(location_id, "location_id")
+    normalized_location_id = None
+    if location_id is not None and location_id.strip():
+        normalized_location_id = _require_internal_id(location_id, "location_id")
     escaped_bin_number = _escape_suiteql_literal(normalized_bin_number)
 
     filters = [
-        f"ib.location = {normalized_location_id}",
         f"b.binnumber = '{escaped_bin_number}'",
     ]
+    if normalized_location_id is not None:
+        filters.append(f"ib.location = {normalized_location_id}")
 
     normalized_item_id = None
     if item_id is not None and item_id.strip():
