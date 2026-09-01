@@ -787,8 +787,9 @@ async def get_all_bins(
     binnumber: str | None = Query(None, description="模糊搜索 binnumber"),
     location_name: str | None = Query(None, description="模糊搜索 location_name"),
     location_id: str | None = Query(None, description="按 location internal id 筛选"),
+    active: bool = Query(True, description="是否只查询 active bin，默认 true"),
     limit: int = Query(50, ge=1, le=9999, description="每页条数，默认50，最大9999"),
-    offset: int = Query(0, ge=0, description="偏移量，用于分页")
+    offset: int = Query(0, ge=0, description="偏移量，用于分页"),
 ):
     _log_netsuite(
         "INFO",
@@ -796,22 +797,40 @@ async def get_all_bins(
         binnumber=binnumber,
         location_name=location_name,
         location_id=location_id,
+        active=active,
         limit=limit,
         offset=offset,
     )
+
     access_token = get_access_token()["access_token"]
-    filters: list[str] = []
+
+    # NetSuite:
+    # isinactive = 'F' -> Active
+    # isinactive = 'T' -> Inactive
+    filters: list[str] = [
+        "b.isinactive = 'F'" if active else "b.isinactive = 'T'"
+    ]
+
     if binnumber and binnumber.strip():
         escaped_binnumber = _escape_suiteql_literal(binnumber.strip())
-        filters.append(f"LOWER(b.binnumber) LIKE LOWER('%{escaped_binnumber}%')")
+        filters.append(
+            f"LOWER(b.binnumber) LIKE LOWER('%{escaped_binnumber}%')"
+        )
+
     if location_name and location_name.strip():
         escaped_location_name = _escape_suiteql_literal(location_name.strip())
-        filters.append(f"LOWER(l.name) LIKE LOWER('%{escaped_location_name}%')")
+        filters.append(
+            f"LOWER(l.name) LIKE LOWER('%{escaped_location_name}%')"
+        )
+
     if location_id is not None and location_id.strip():
-        normalized_location_id = _require_internal_id(location_id, "location_id")
+        normalized_location_id = _require_internal_id(
+            location_id,
+            "location_id",
+        )
         filters.append(f"b.location = {normalized_location_id}")
 
-    where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+    where_clause = f"WHERE {' AND '.join(filters)}"
 
     count_payload = await _execute_suiteql(
         f"""
@@ -823,6 +842,7 @@ async def get_all_bins(
         """,
         access_token,
     )
+
     total_items = count_payload.get("items", [])
     total = int(total_items[0].get("total", 0)) if total_items else 0
 
@@ -832,7 +852,8 @@ async def get_all_bins(
             b.id,
             b.binnumber AS binnumber,
             b.location,
-            l.name AS location_name
+            l.name AS location_name,
+            b.isinactive
         FROM bin b
         LEFT JOIN location l
             ON l.id = b.location
@@ -843,14 +864,23 @@ async def get_all_bins(
         limit=limit,
         offset=offset,
     )
+
     items = payload.get("items", [])
 
-    _log_netsuite("INFO", "get_all_bins_completed", total=total, count=len(items), location_id=location_id)
+    _log_netsuite(
+        "INFO",
+        "get_all_bins_completed",
+        total=total,
+        count=len(items),
+        location_id=location_id,
+        active=active,
+    )
 
     return {
         "binnumber": binnumber,
         "location_name": location_name,
         "location_id": location_id,
+        "active": active,
         "total": total,
         "limit": limit,
         "offset": offset,
