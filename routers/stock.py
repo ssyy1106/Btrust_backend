@@ -391,7 +391,7 @@ async def search_stocktake_items_v2(
     db: AsyncSession = Depends(get_db_stock)
 ):
     session_conditions = []
-    item_conditions = [StocktakeItem.qty == 0]
+    item_conditions = []
 
     if session_id:
         session_conditions.append(StocktakeItem.session_id == session_id)
