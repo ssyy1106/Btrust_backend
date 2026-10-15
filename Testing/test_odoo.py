@@ -1,13 +1,19 @@
 import xmlrpc.client
 import ssl
 
-url = "https://172.16.30.23"
-db = "BT"
-username = "peng.wang@btrust.ca"
-password = "Soj57738"
+from pathlib import Path
+import sys
 
-# 测试环境自签名证书
-context = ssl._create_unverified_context()
+# Allow both `python Testing/test_*.py` and module execution.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from order_sync.config import get_config
+
+settings = get_config()['odoo_order_sync']
+url = settings['url'].rstrip('/')
+db = settings['db']
+username = settings['username']
+password = settings['password']
+context = ssl.create_default_context() if settings.getboolean('verify_ssl') else ssl._create_unverified_context()
 
 # ============================================================
 # 1. Login

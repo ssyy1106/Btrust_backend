@@ -6,15 +6,19 @@ import json
 # Configuration
 # ============================================================
 
-BASE_URL = "https://hanabtrust:50000/b1s/v1"
+from pathlib import Path
+import sys
 
-#COMPANY_DB = "SBO_BTRUST_LIVE"
-COMPANY_DB = "UPDATEROW_TEST_BTRUST"
-USERNAME = "manager"
-PASSWORD = "258258"
+# Allow both `python Testing/test_*.py` and module execution.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from order_sync.config import get_config
 
-# 测试环境如果使用 self-signed certificate
-VERIFY_SSL = False
+settings = get_config()['sap_order_sync']
+BASE_URL = settings['base_url'].rstrip('/')
+COMPANY_DB = settings['company_db']
+USERNAME = settings['username']
+PASSWORD = settings['password']
+VERIFY_SSL = settings.getboolean('verify_ssl')
 
 if not VERIFY_SSL:
     urllib3.disable_warnings(
@@ -71,7 +75,7 @@ def get_business_partners():
 
     params = {
         "$select": "CardCode,CardName,CardType",
-        "$top": 5
+        "$top": 500
     }
 
     response = session.get(
@@ -147,7 +151,8 @@ def get_orders():
             "CardCode,"
             "CardName,"
             "DocumentStatus,"
-            "DocTotal"
+            "DocTotal,"
+            "NumAtCard"
         ),
         "$orderby": "DocEntry desc",
         "$top": 5
