@@ -1,0 +1,11 @@
+C100001
+C100002
+C100003
+C100035
+C100050
+
+Odoo Company ID	公司名称	SAP CardCode
+7	Btrust Mississauga	C100001
+8	Btrust North York	C100002
+9	Btrust Montreal	C100035
+10	Btrust Terra	C100003

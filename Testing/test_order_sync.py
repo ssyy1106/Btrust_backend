@@ -25,9 +25,55 @@ def test_exactly_two_registered_periodic_tasks():
 
 def test_today_is_local_day_and_handles_dst():
     domain = today_domain(datetime(2026, 11, 1, 16, tzinfo=timezone.utc))
-    assert domain == [["state", "=", "sale"],
+    assert domain == [["move_type", "=", "out_invoice"],
+                      ["state", "in", ["draft", "posted"]],
                       ["write_date", ">=", "2026-11-01 04:00:00"],
                       ["write_date", "<", "2026-11-02 05:00:00"]]
+
+
+def test_invoice_poll_resolves_orders_and_deduplicates_across_pages(monkeypatch):
+    monkeypatch.setattr("order_sync.odoo.get_config", lambda: {
+        "celery_order_sync": type("Settings", (dict,), {"getint": lambda s, k: 2})(
+            timezone="America/Toronto")})
+    client = OdooClient.__new__(OdooClient)
+    client.execute = Mock(side_effect=[
+        [{"id": 10, "invoice_line_ids": [100, 101]},
+         {"id": 11, "invoice_line_ids": [102]}],
+        [{"sale_line_ids": [200, 201]}, {"sale_line_ids": []}, {"sale_line_ids": [200]}],
+        [{"order_id": [1, "SO1"]}, {"order_id": [2, "SO2"]}],
+        [{"id": 1, "name": "SO1"}, {"id": 2, "name": "SO2"}],
+        [{"id": 12, "invoice_line_ids": [103]}],
+        [{"sale_line_ids": [200, 202]}],
+        [{"order_id": [1, "SO1"]}, {"order_id": [3, "SO3"]}],
+        [{"id": 3, "name": "SO3"}],
+        [],
+    ])
+    assert list(client.iter_today_orders()) == [
+        {"id": 1, "name": "SO1"}, {"id": 2, "name": "SO2"}, {"id": 3, "name": "SO3"}]
+    calls = client.execute.call_args_list
+    assert calls[0].args[:2] == ("account.move", "search_read")
+    assert calls[0].kwargs["limit"] == 2
+    assert calls[1].args == ("account.move.line", "read", [[100, 101, 102]])
+    assert calls[2].args == ("sale.order.line", "read", [[200, 201]])
+    assert calls[3].args == ("sale.order", "search_read",
+                            [[["id", "in", [1, 2]], ["state", "=", "sale"]]])
+    assert calls[4].args[2][0][-1] == ["id", ">", 11]
+    assert calls[7].args[2] == [[["id", "in", [3]], ["state", "=", "sale"]]]
+    assert calls[8].args[2][0][-1] == ["id", ">", 12]
+
+
+@pytest.mark.parametrize("responses", [
+    [[{"id": 1, "invoice_line_ids": []}], []],
+    [[{"id": 1, "invoice_line_ids": [10]}], [{"sale_line_ids": []}], []],
+    [[{"id": 1, "invoice_line_ids": [10]}], [{"sale_line_ids": [20]}],
+     [{"order_id": False}], []],
+    [[{"id": 1, "invoice_line_ids": [10]}], [{"sale_line_ids": [20]}],
+     [{"order_id": [30, "Unconfirmed"]}], [], []],
+])
+def test_invoice_poll_skips_unlinked_or_unconfirmed_orders(responses):
+    client = OdooClient.__new__(OdooClient)
+    client.execute = Mock(side_effect=responses)
+    assert list(client.iter_today_orders()) == []
 
 
 @pytest.mark.parametrize("post_started,attempt,expected", [(False, 1, "retry"),
@@ -105,17 +151,22 @@ def test_publish_db_failure_does_not_reset_already_sent_event(monkeypatch):
     finish.assert_called_once_with(event)
 
 
-def test_mapping_builds_lines_and_skips_sections(monkeypatch):
-    settings = {"odoo_partner_cardcode_field": "sap_code",
-                "odoo_product_itemcode_field": "default_code",
+@pytest.mark.parametrize("partner_id,company_id,card_code", [
+    (52, 7, "C100001"), (8, 8, "C100002"),
+    (90, 9, "C100035"), (88, 9, "C100035"), (10, 10, "C100003"),
+])
+def test_mapping_builds_lines_and_skips_sections(monkeypatch, partner_id, company_id, card_code):
+    settings = {"odoo_product_itemcode_field": "default_code",
                 "external_key_field": "NumAtCard", "warehouse_code": "01"}
     monkeypatch.setattr("order_sync.odoo.get_config", lambda: {
-        "sap_order_sync": settings, "celery_order_sync": {"timezone": "America/Toronto"}})
+        "sap_order_sync": settings, "celery_order_sync": {"timezone": "America/Toronto"},
+        "sap_customer_mapping": {"7": "C100001", "8": "C100002",
+                                 "9": "C100035", "10": "C100003"}})
     client = OdooClient.__new__(OdooClient)
     client.read_one = Mock(side_effect=[
-        {"name": "S00107", "state": "sale", "partner_id": [3, "Customer"],
+        {"name": "S00107", "state": "sale", "partner_id": [partner_id, "Customer"],
          "order_line": [5, 6], "date_order": "2026-10-14 12:00:00", "warehouse_id": [1, "WH"]},
-        {"sap_code": "C001"},
+        {"commercial_partner_id": [company_id, "Company"]},
     ])
     client.execute = Mock(side_effect=[
         [{"id": 5, "display_type": "line_section", "product_id": False},
@@ -124,10 +175,35 @@ def test_mapping_builds_lines_and_skips_sections(monkeypatch):
         [{"id": 7, "default_code": "ITEM7"}],
     ])
     payload = client.build_sap_payload(order())
-    assert payload["CardCode"] == "C001"
+    assert payload["CardCode"] == card_code
+    assert client.read_one.call_args.args == (
+        "res.partner", partner_id, ["commercial_partner_id"])
     assert payload["NumAtCard"] == "ODOO-BT-107"
     assert payload["DocumentLines"] == [{"ItemCode": "ITEM7", "Quantity": 2,
         "UnitPrice": 3.5, "DiscountPercent": 10, "WarehouseCode": "01"}]
+
+
+@pytest.mark.parametrize("mapping,commercial_partner", [
+    ({"9": "C100035"}, [99, "Unknown company"]),
+    ({"9": "  "}, [9, "Montreal"]),
+    (None, [9, "Montreal"]),
+    ({"9": "C100035"}, False),
+])
+def test_missing_customer_mapping_stops_payload_before_lines(monkeypatch, mapping, commercial_partner):
+    config = {"sap_order_sync": {"odoo_product_itemcode_field": "default_code",
+                                  "external_key_field": "NumAtCard"}}
+    if mapping is not None:
+        config["sap_customer_mapping"] = mapping
+    monkeypatch.setattr("order_sync.odoo.get_config", lambda: config)
+    client = OdooClient.__new__(OdooClient)
+    client.read_one = Mock(side_effect=[
+        {"state": "sale", "partner_id": [90, "Customer"]},
+        {"commercial_partner_id": commercial_partner},
+    ])
+    client.execute = Mock()
+    with pytest.raises(ValueError, match="commercial_partner_id|No SAP CardCode mapping"):
+        client.build_sap_payload(order())
+    client.execute.assert_not_called()
 
 
 @pytest.mark.parametrize("field", ["NumAtCard", "U_OdooOrderKey"])

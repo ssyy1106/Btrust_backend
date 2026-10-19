@@ -15,8 +15,6 @@
 
 ```ini
 [sap_order_sync]
-; res.partner 上保存 SAP CardCode 的实际字段名
-odoo_partner_cardcode_field =
 ; product.product 上保存 SAP ItemCode 的实际字段名
 odoo_product_itemcode_field =
 ; SAP Orders standard field storing the synchronization external key (e.g. ODOO-BT-107)
@@ -25,11 +23,22 @@ external_key_field = NumAtCard
 odoo_warehouse_code_field =
 ; 可选：未配置仓库字段时使用固定 SAP 仓库编码
 warehouse_code =
+
+[sap_customer_mapping]
+; res.partner.commercial_partner_id = SAP CardCode
+7 = C100001
+8 = C100002
+9 = C100035
+10 = C100003
 ```
+
+客户映射依次为 Mississauga、North York、Montreal、Terra。程序从订单 `partner_id` 读取 `res.partner.commercial_partner_id`，使用该商业实体 ID 查 `[sap_customer_mapping]`，子联系人使用所属公司的 CardCode；不使用订单内部 `company_id` 或销售员。新增门店只需增加 `ID = CardCode` 并重启 Worker。缺少商业实体或映射为空、未配置时，订单进入 review，不创建 SAP 订单。不再需要 `odoo_partner_cardcode_field` 或 Odoo 客户自定义字段。
 
 商品行使用 Odoo 数量、UnitPrice、DiscountPercent。当前基础实现要求商品计量单位、币种、税务及客户商业规则在两端匹配；如两端不同，需要补充对应映射。缺少配置、字段或编码时记录 review，不创建 SAP 订单。外部键的查询检查不等于 SAP 服务端唯一约束。
 
-Odoo 默认筛选 `state = sale` 且 `write_date` 在 America/Toronto 当天范围内，按 ID 分页。时间范围转换为 UTC，包含当天才确认的旧订单。可将 odoo_date_field 改为 create_date 或 date_order。重复读取不新增事件、不更新已入库订单；因此本版同步首次创建，不同步后续订单修改。数据库按之前的两张表只保存订单引用，Worker 从 Odoo 重新读取完整订单，不保存快照。
+Odoo 扫描 `account.move` 中 `move_type = out_invoice`、`state in (draft, posted)` 且 `write_date` 在配置时区（默认 America/Toronto）当天范围内的客户发票，按发票 ID 分页。时间范围转换为 UTC，不再按销售订单的时间筛选。通过 `invoice_line_ids → account.move.line.sale_line_ids → sale.order.line.order_id` 找到关联的销售订单，仅将 `state = sale` 的订单入库；没有销售订单关联的发票跳过。一张发票可关联多个订单，多张发票关联同一订单时去重。重复读取不新增事件、不更新已入库订单；因此本版同步首次创建，不同步后续订单修改。数据库按之前的两张表只保存订单引用，Worker 从 Odoo 重新读取完整订单，不保存快照。
+
+每次轮询重新扫描当天更新的发票，没有持久化增量游标或跨天补偿。若发票在前一天更新、订单直到次日才满足条件且发票没有再次更新，或服务停机跨过当天，需另行补扫。
 
 配置更新后重启 Worker 和 Beat。密码中的 `%` 按项目现有约定写成 `%%`。
 
@@ -59,7 +68,7 @@ Worker 原子认领 pending 或到期 retry，增加 attempt_count，通过 SAP 
 ## 验证
 
 ```powershell
-python -m pytest Testing/test_order_sync.py -q
+python -m pytest Testing/o_test_order_sync.py -q
 ```
 
 这些测试模拟外部系统，不调用 SAP 创建订单。原来的 Testing/test_sap.py 和 Testing/test_odoo.py 也已改为从同一 config.ini 读取连接配置。
