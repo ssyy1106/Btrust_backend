@@ -2,7 +2,7 @@ name: Python CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
   test:
@@ -19,9 +19,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements/base.txt
-          pip install -r requirements/dev.txt
+          python -m pip install -r requirements/base.txt
+          python -m pip install -r requirements/dev.txt
 
       - name: Run tests
+        env:
+          APP_CONFIG_FILE: Testing/config.test.ini
         run: |
-          python -m pytest --asyncio-mode=auto
+          python -m pytest --asyncio-mode=auto -v
