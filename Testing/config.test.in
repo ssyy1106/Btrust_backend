@@ -1,0 +1,196 @@
+[Hana]
+address = hanabtrust
+port = 30015
+user = SBOADMIN
+password = Btwsx76!
+; schema = UPDATEROW_TEST_BTRUST
+schema = SBO_BTRUST_LIVE
+[POsqlserver]
+name = btrust
+host = WEBAPP\SQLEXPRESS
+password = admin@btrust
+database = WarehousePO
+[Current]
+begin = 0
+end = 0
+[Warning]
+begin = -1
+end = -1
+[Danger]
+begin = -100000
+end = -7
+[duration]
+second = 30
+[Week]
+weekBegin = -6
+weekEnd = 0
+[ExpiredInterval]
+intervals = 1,2,3
+[ExpiredKinds]
+kinds = grocery,frozen
+[ExpiredKind]
+grocery = 133,135
+frozen = 134
+[postgresql]
+username = saleor
+host = 172.16.30.8
+port = 5432
+password = saleor
+database = Sales_DB
+[postgresql-stage]
+username = postgres
+host = localhost
+port = 5432
+password = Btrust123
+database = postgres
+[HOsqlserver]
+name = schedulejob
+host = WEBAPP
+password = ddME5YA06
+database = STORESQLHO
+[stores]
+store = MS,NY,TE,MT,RH
+store_hr = B1,B2,Terra,Montreal,BVW
+description=Mississauga,North York,Terra,Montreal,Richmond Hill
+[store]
+store=TE
+sqlserver=ODBC Driver 17 for SQL Server
+[Storesqlserver]
+name = sa,sa,sa,sa,sa
+host = 172.16.10.212\LOGI,172.16.10.212\LOGI,172.16.10.212\LOGI,172.16.10.212\LOGI,172.16.10.212\LOGI
+password = Globe%%40911,Globe%%40911,Globe%%40911,Globe%%40911,Globe%%40911
+database = LogiDB,LogiDB,LogiDB,LogiDB,LogiDB
+[Shiftsqlserver2]
+name = sa
+host = 172.16.30.57
+password = 123456
+database = ShiftSchedule
+[Shiftsqlserver]
+name = sa
+host = localhost,59969
+password = Btrust123
+database = ShiftSchedule
+[Payment]
+type = Debit,Visa,Master,Cash,WeChat,Snap,AliPay,Union,Credit,nan
+[postgresqlinvoice]
+username = saleor
+host = 172.16.30.8
+port = 5432
+password = saleor
+database = invoice
+[postgresqlinvoice-notprod]
+username = postgres
+host = localhost
+port = 5432
+password = Btrust123
+database = invoice
+[postgresqlcost]
+username = postgres
+host = localhost
+port = 5432
+password = Btrust123
+database = postgres
+[postgresqlstock]
+username = postgres
+host = localhost
+port = 5432
+password = Btrust123
+database = stock
+[postgresqlstock-product]
+username = saleor
+host = 172.16.30.8
+port = 5432
+password = saleor
+database = stock
+[postgresqlodoo-stage]
+username = postgres
+host = 172.16.10.67
+port = 5432
+password = saleor
+database = btrust-pilot
+[postgresqlodoo]
+username = openpg
+host = 172.16.30.6
+port = 5432
+password = Itbtrust2291!
+database = btrust
+[postgresqlstorestock]
+username = postgres
+host = localhost
+port = 5432
+password = Btrust123
+database = storestock
+[postgresqlstorestock-product]
+username = saleor
+host = 172.16.30.8
+port = 5432
+password = saleor
+database = storestock
+[odooaccount]
+host=https://172.16.10.67
+username=peng.wang@btrust.ca
+password=Soj57738;
+db=btrust-pilot
+[Coupon]
+upc = 960000000216, 960000000217, 960000000218
+[SaleEmail]
+email = pengwang825@gmail.com,peng.wang@btrust.ca
+bcc = peng.wang@btrust.ca
+subdepartment = 401
+store = RH
+filename = BBQ
+[AWS]
+sender = Btrust IT <peng.wang@btrust.ca>
+region = us-west-1
+access_key_id = dummy_test_access_key
+secret_access_key = dummy_test_secret_key
+
+; Odoo XML-RPC connection for order synchronization
+[odoo_order_sync]
+url = https://172.16.30.23
+db = BT
+username = peng.wang@btrust.ca
+password = Soj57738
+verify_ssl = false
+timeout_seconds = 30
+
+; SAP Business One Service Layer (same TEST database as Testing/test_sap.py)
+[sap_order_sync]
+base_url = https://hanabtrust:50000/b1s/v1
+company_db = UPDATEROW_TEST_BTRUST
+username = manager
+password = 258258
+verify_ssl = false
+timeout_seconds = 30
+; Store the synchronization external key in the standard SAP NumAtCard field.
+external_key_field = NumAtCard
+; Actual Odoo product field containing SAP ItemCode.
+odoo_product_itemcode_field = default_code
+; Optional: Odoo stock.warehouse field containing SAP WarehouseCode.
+odoo_warehouse_code_field =
+; Optional fixed SAP warehouse (used only when no warehouse mapping field is set).
+warehouse_code = Main
+
+[sap_customer_mapping]
+; Key = res.partner.commercial_partner_id, value = SAP CardCode.
+; Btrust Mississauga
+7 = C100001
+; Btrust North York
+8 = C100002
+; Btrust Montreal
+9 = C100035
+; Btrust Terra
+10 = C100003
+
+[celery_order_sync]
+; Replace with your RabbitMQ credentials/vhost if different.
+broker_url = amqp://guest:guest@localhost:5672//
+queue = order_sync
+timezone = America/Toronto
+broker_timeout_seconds = 10
+poll_interval_seconds = 60
+publish_interval_seconds = 10
+odoo_page_size = 100
+publish_batch_size = 100
+; Scan account.move.write_date for today in the timezone above, converted to UTC.
+max_attempts = 5

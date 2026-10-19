@@ -24,6 +24,6 @@ jobs:
 
       - name: Run tests
         env:
-          APP_CONFIG_FILE: Testing/config.test.ini
+          APP_CONFIG_FILE: Testing/config.test.in
         run: |
           python -m pytest --asyncio-mode=auto -v
