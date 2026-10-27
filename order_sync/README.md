@@ -15,6 +15,11 @@
 
 ```ini
 [sap_order_sync]
+; DocDate 和 DocDueDate 同时使用 today（今天）、order_date（Odoo 订单日期）
+; 或固定日期，例如 document_date_source = 2023-10-02。
+; today/order_date 按 [celery_order_sync] timezone 转换，固定日期直接使用。
+; 修改后重启 Worker；无效日期会使订单进入 review，不创建 SAP 订单。
+document_date_source = today
 ; product.product 上保存 SAP ItemCode 的实际字段名
 odoo_product_itemcode_field =
 ; SAP Orders standard field storing the synchronization external key (e.g. ODOO-BT-107)
@@ -47,7 +52,8 @@ Odoo 扫描 `account.move` 中 `move_type = out_invoice`、`state in (draft, pos
 在项目根目录打开两个终端：
 
 ```powershell
-python -m celery -A celery_app:celery_app worker --loglevel=INFO --pool=solo
+#python -m celery -A celery_app:celery_app worker --loglevel=INFO --pool=solo
+celery -A celery_app worker --loglevel=info --pool=solo --without-mingle --without-gossip
 python -m celery -A celery_app:celery_app beat --loglevel=INFO
 ```
 

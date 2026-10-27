@@ -32,6 +32,29 @@ def today_domain(now=None):
     ]
 
 
+def sap_document_date(date_order, settings, now=None):
+    source = settings.get("document_date_source", "order_date").strip().lower()
+    tz = ZoneInfo(get_config()["celery_order_sync"]["timezone"])
+    if source == "today":
+        date_value = now or datetime.now(timezone.utc)
+    elif source == "order_date":
+        date_value = datetime.strptime(date_order, "%Y-%m-%d %H:%M:%S").replace(
+            tzinfo=timezone.utc
+        )
+    else:
+        try:
+            fixed_date = datetime.strptime(source, "%Y-%m-%d").date().isoformat()
+            if fixed_date != source:
+                raise ValueError("Expected YYYY-MM-DD")
+        except ValueError:
+            raise ValueError(
+                "SAP document_date_source must be today, order_date, "
+                "or a valid date in YYYY-MM-DD format (e.g. 2023-10-02)"
+            ) from None
+        return fixed_date
+    return date_value.astimezone(tz).date().isoformat()
+
+
 class OdooClient:
     def __init__(self):
         self.settings = get_config()["odoo_order_sync"]
@@ -113,6 +136,7 @@ class OdooClient:
         return records[0]
 
     def build_sap_payload(self, sync_order):
+        print(f"DEBUG: Building SAP payload for Odoo order {sync_order['odoo_order_id']}")
         settings = get_config()["sap_order_sync"]
         product_field = settings["odoo_product_itemcode_field"].strip()
         external_field = settings["external_key_field"].strip()
@@ -162,9 +186,20 @@ class OdooClient:
         for line in lines:
             if line["display_type"]:
                 continue
-            item_code = codes.get(line["product_id"][0]) if line["product_id"] else None
+            product_id = line["product_id"][0] if line["product_id"] else None
+            item_code = codes.get(product_id)
+            if item_code == "Delivery_007":
+                continue
+
             if not isinstance(item_code, str) or not item_code.strip():
-                raise ValueError(f"Odoo line {line['id']} has no SAP ItemCode mapping")
+                raise ValueError(
+                    f"Odoo line {line['id']}, "
+                    f"product_id={product_id}, "
+                    f"product_name={line.get('product_id')}, "
+                    f"field={product_field}, "
+                    f"value={item_code!r}: "
+                    "missing SAP ItemCode mapping"
+                )
             if line["product_uom_qty"] <= 0:
                 raise ValueError(f"Odoo line {line['id']} quantity must be positive")
             sap_line = {"ItemCode": item_code.strip(), "Quantity": line["product_uom_qty"],
@@ -174,9 +209,14 @@ class OdooClient:
             document_lines.append(sap_line)
         if not document_lines:
             raise ValueError("Odoo order has no product lines")
-        doc_date = datetime.strptime(order["date_order"], "%Y-%m-%d %H:%M:%S").replace(
-            tzinfo=timezone.utc
-        ).astimezone(ZoneInfo(get_config()["celery_order_sync"]["timezone"])).date().isoformat()
+        doc_date = sap_document_date(order["date_order"], settings)
+        print(f"DEBUG: SAP payload for Odoo order {order['id']} (name={order['name']}): "
+              f"CardCode={card_code.strip()}, NumAtCard={order['name']}, "
+              f"DocDate={doc_date}, DocDueDate={doc_date}, "
+              f"{external_field}={sync_order['sap_external_key']}, "
+              f"DocumentLines={document_lines}")
+        
         return {"CardCode": card_code.strip(), "NumAtCard": order["name"],
-                "DocDate": doc_date, external_field: sync_order["sap_external_key"],
+                "DocDate": doc_date, "DocDueDate": doc_date,
+                external_field: sync_order["sap_external_key"],
                 "DocumentLines": document_lines}

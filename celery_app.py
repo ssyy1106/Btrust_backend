@@ -31,5 +31,6 @@ celery_app.conf.update(
     task_queues=(Queue(queue, Exchange(queue, durable=True), routing_key=queue, durable=True),),
     timezone=settings["timezone"],
     enable_utc=True,
+    worker_enable_remote_control=False,
     beat_schedule=get_beat_schedule(),
 )

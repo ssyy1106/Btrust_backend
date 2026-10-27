@@ -76,21 +76,29 @@ def sync_order_to_sap(order_sync_id):
     odoo = None
     post_started = False
     result = None
+    stage = "validate_config"
     try:
         if order["odoo_db"] != get_config()["odoo_order_sync"]["db"]:
             raise ValueError("Order Odoo database differs from current configuration")
+        stage = "sap_init"
         sap = SapClient()
+        stage = "sap.login"
         sap.login()
+        stage = "sap.find_order"
         result = sap.find_order(order["sap_external_key"])
         if result is None:
+            stage = "odoo_init"
             odoo = OdooClient()
+            stage = "odoo.build_sap_payload"
             payload = odoo.build_sap_payload(order)
             post_started = True
+            stage = "sap.create_order"
             result = sap.create_order(payload)
     except Exception as exc:
         status = failure_status(order, exc, post_started)
-        db.finish_order(order, status, error=f"{type(exc).__name__}: {exc}")
-        logger.warning("Order %s moved to %s (%s)", order_sync_id, status, type(exc).__name__)
+        error = f"stage={stage}; {type(exc).__name__}: {exc}"
+        db.finish_order(order, status, error=error)
+        logger.warning("Order %s moved to %s: %s", order_sync_id, status, error, exc_info=True)
         return {"status": status, "order_sync_id": order_sync_id}
     finally:
         if odoo is not None:

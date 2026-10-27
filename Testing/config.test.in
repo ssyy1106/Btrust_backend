@@ -156,6 +156,9 @@ timeout_seconds = 30
 
 ; SAP Business One Service Layer (same TEST database as Testing/test_sap.py)
 [sap_order_sync]
+; SAP DocDate and DocDueDate: today, order_date, or a fixed YYYY-MM-DD date (e.g. 2023-10-02).
+; today/order_date use celery_order_sync.timezone; a fixed date is used as entered.
+document_date_source = today
 base_url = https://hanabtrust:50000/b1s/v1
 company_db = UPDATEROW_TEST_BTRUST
 username = manager
