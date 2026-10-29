@@ -1,117 +1,131 @@
-
 import datetime
-from helper import getDB, getPaymentTypes, getStoreStr, getPaymentTypeStr
-from graphqlschema.schema import DatePaymentData, DatePaymentSummary, DatePaymentDetail, DatePaymentSearchParameter, MonthPaymentSearchParameter, MonthPaymentData, MonthPaymentSummary, MonthPaymentDetail
+from contextlib import aclosing
+from decimal import Decimal
+
+from sqlalchemy import text
+
+from database import get_db_store_sqlserver_factory
+from helper import getPaymentTypes, getStore, getPaymentTypeStr
+from graphqlschema.schema import (
+    DatePaymentData, DatePaymentSummary, DatePaymentDetail,
+    DatePaymentSearchParameter, MonthPaymentSearchParameter,
+    MonthPaymentData, MonthPaymentSummary, MonthPaymentDetail,
+)
+
 
 def check_store_payment(stores, paymentType) -> bool:
-    if len(stores) == 1 and stores[0] not in ['NY', 'MS', 'MT', 'TE', 'RH', 'ALL']:
+    if not stores or not paymentType:
         return False
-    if len(stores) > 1 and not all(store in ['NY', 'MS', 'MT', 'TE', 'RH'] for store in stores):
+    if stores != ['ALL'] and not all(store in getStore() for store in stores):
         return False
-    if len(paymentType) == 1 and paymentType[0] not in ['ALL'] + getPaymentTypes():
-        return False
-    if len(paymentType) > 1 and not all(pm in getPaymentTypes() for pm in paymentType):
+    if paymentType != ['ALL'] and not all(pm in getPaymentTypes() for pm in paymentType):
         return False
     return True
 
+
 def check_payment_date(param: DatePaymentSearchParameter) -> bool:
-    from_date, to_date = param.FromDate, param.ToDate
-    stores, paymentType = param.Store, param.PaymentType
-    if from_date > to_date:
+    if param.FromDate > param.ToDate:
         return False
-    return check_store_payment(stores, paymentType)
+    return check_store_payment(param.Store, param.PaymentType)
 
-def getPaymentDateData(param: DatePaymentSearchParameter) -> DatePaymentData:
-    from_date, to_date = param.FromDate, param.ToDate
-    stores = getStoreStr(param.Store)
-    all_type_flag, paymentType = getPaymentTypeStr(param.PaymentType)
-    table = 'day_payment_aggregate'
-    with getDB() as conn:
-        with conn.cursor() as cursor:
-            try:
-                details = []
-                # get all sale then sub below sales to get other sale
-                if all_type_flag:
-                    sql = f"select day, store, sum(amount_before_tax) as amount_before_tax, sum(amount_after_tax) as amount_after_tax, sum(transactions) as transactions from {table} where day between '{from_date}' and '{to_date}'"
-                    sql += " and store in " + stores
-                    sql += " group by store, day"
-                    cursor.execute(sql)
-                    store_total = cursor.fetchall()
-                    dic = {}
-                    for r in store_total:
-                        dic[(r[0], r[1])] = DatePaymentDetail(amountbeforetax = r[2], amountaftertax = r[3], transactions=r[4], paymenttype='other', store=r[1], date = datetime.datetime.strptime(r[0], '%Y-%m-%d'))
-
-                for payment in paymentType:
-                    sql = f"select '{payment}' as payment_type, day, store, sum(amount_before_tax) as amount_before_tax, sum(amount_after_tax) as amount_after_tax, sum(transactions) as transactions from {table} where day between '{from_date}' and '{to_date}' and starts_with(payment_type, '{payment}')"
-                    sql += " and store in " + stores
-                    sql += " group by store, day"
-                    cursor.execute(sql)
-                    rows = cursor.fetchall()
-                    for row in rows:
-                        detail = DatePaymentDetail(amountbeforetax = row[3], amountaftertax = row[4], date = datetime.datetime.strptime(row[1], '%Y-%m-%d'), store=row[2], paymenttype=row[0], transactions=row[5])
-                        # total_amount_after_tax += row[4]
-                        # total_amount_before_tax += row[3]
-                        details.append(detail)
-                        if all_type_flag and (row[1], row[2]) in dic:
-                            dic[(row[1], row[2])].amountbeforetax -= detail.amountbeforetax
-                            dic[(row[1], row[2])].amountaftertax -= detail.amountaftertax
-                            dic[(row[1], row[2])].transactions -= detail.transactions
-                if all_type_flag:
-                    details.extend(dic.values())
-                total_amount_before_tax = sum(d.amountbeforetax for d in details)
-                total_amount_after_tax = sum(d.amountaftertax for d in details)
-                
-                return DatePaymentData(summary = DatePaymentSummary(items=len(details), totalamountbeforetax=total_amount_before_tax, totalamountaftertax=total_amount_after_tax), details=details)
-            except Exception as e:
-                print(e)
-                return DatePaymentData()
 
 def check_payment_month(param: MonthPaymentSearchParameter) -> bool:
-    from_month, to_month = param.FromMonth, param.ToMonth
-    stores, paymentType = param.Store, param.PaymentType
+    try:
+        from_month = datetime.datetime.strptime(param.FromMonth, '%Y-%m')
+        to_month = datetime.datetime.strptime(param.ToMonth, '%Y-%m')
+    except (TypeError, ValueError):
+        return False
     if from_month > to_month:
         return False
-    return check_store_payment(stores, paymentType)
+    return check_store_payment(param.Store, param.PaymentType)
 
-def getPaymentMonthData(param: MonthPaymentSearchParameter) -> MonthPaymentData:
-    from_month, to_month = param.FromMonth, param.ToMonth
-    stores = getStoreStr(param.Store)
-    all_type_flag, paymentType = getPaymentTypeStr(param.PaymentType)
-    table = 'month_payment_aggregate'
-    with getDB() as conn:
-        with conn.cursor() as cursor:
-            try:
-                details = []
-                dic = {}
-                # get all sale then sub below sales to get other sale
-                if all_type_flag:
-                    sql = f"select month, store, sum(amount_before_tax) as amount_before_tax, sum(amount_after_tax) as amount_after_tax, sum(transactions) as transactions from {table} where month between '{from_month}' and '{to_month}'"
-                    sql += " and store in " + stores
-                    sql += " group by store, month"
-                    cursor.execute(sql)
-                    store_total = cursor.fetchall()
-                    for r in store_total:
-                        dic[(r[0], r[1])] = MonthPaymentDetail(amountbeforetax = r[2], amountaftertax = r[3], transactions=r[4], paymenttype='other', store=r[1], month = r[0])
-                for payment in paymentType:
-                    sql = f"select '{payment}' as payment_type, month, store, sum(amount_before_tax) as amount_before_tax, sum(amount_after_tax) as amount_after_tax, sum(transactions) as transactions from {table} where month between '{from_month}' and '{to_month}' and starts_with(payment_type, '{payment}')"
-                    sql += " and store in " + stores
-                    sql += " group by store, month"
-                    cursor.execute(sql)
-                    rows = cursor.fetchall()
-                    for row in rows:
-                        detail = MonthPaymentDetail(amountbeforetax = row[3], amountaftertax = row[4], month = row[1], store=row[2], paymenttype=row[0], transactions=row[5])
-                        # total_amount_after_tax += row[4]
-                        # total_amount_before_tax += row[3]
-                        details.append(detail)
-                        if all_type_flag and (row[1], row[2]) in dic:
-                            dic[(row[1], row[2])].amountbeforetax -= detail.amountbeforetax
-                            dic[(row[1], row[2])].amountaftertax -= detail.amountaftertax
-                            dic[(row[1], row[2])].transactions -= detail.transactions
-                if all_type_flag:
-                    details.extend(dic.values())
-                total_amount_before_tax = sum(d.amountbeforetax for d in details)
-                total_amount_after_tax = sum(d.amountaftertax for d in details)
-                return MonthPaymentData(summary = MonthPaymentSummary(items=len(details), totalamountbeforetax=total_amount_before_tax, totalamountaftertax=total_amount_after_tax), details=details)
-            except Exception as e:
-                print(e)
-                return MonthPaymentData()
+
+def _payment_type(raw_type, configured_types):
+    name = (raw_type or '').strip()
+    if name.casefold().startswith('drwr '):
+        name = name[5:].strip()
+    elif name.casefold().startswith('dwr '):
+        name = name[4:].strip()
+    # Match configured names anywhere in the description, preferring
+    # the most specific configured name so each amount is counted once.
+    for payment in sorted(configured_types, key=len, reverse=True):
+        if payment.casefold() in name.casefold():
+            return payment
+    return 'other'
+
+
+async def _get_payment_amounts(stores, payment_types, from_date, to_date, monthly=False):
+    selected_stores = getStore() if stores == ['ALL'] else stores
+    all_types, selected_types = getPaymentTypeStr(payment_types)
+    configured_types = getPaymentTypes()
+    period = 'CONVERT(char(7), f.F254, 120)' if monthly else 'CAST(f.F254 AS date)'
+    query = text(f"""
+        SELECT {period} AS period, t.F1039 AS paymenttype,
+               SUM(f.F65) AS amount
+        FROM dbo.RPT_FIN f
+        LEFT JOIN dbo.TLZ_TAB t ON f.F1034 = t.F1034
+        WHERE f.F1031 = 'D'
+          AND f.F1034 BETWEEN 1200 AND 1299
+          AND f.F254 >= :from_date AND f.F254 < :to_date
+        GROUP BY {period}, t.F1039
+        ORDER BY period, t.F1039
+    """)
+    amounts = {}
+    for store in dict.fromkeys(selected_stores):
+        dependency = get_db_store_sqlserver_factory(store)
+        async with aclosing(dependency()) as sessions:
+            async for db in sessions:
+                result = await db.execute(query, {'from_date': from_date, 'to_date': to_date})
+                for period_value, raw_type, amount in result.all():
+                    payment = _payment_type(raw_type, configured_types)
+                    if all_types:
+                        amounts.setdefault((period_value, store, 'other'), Decimal(0))
+                    elif payment not in selected_types:
+                        continue
+                    key = (period_value, store, payment)
+                    amounts[key] = amounts.get(key, Decimal(0)) + (amount or Decimal(0))
+    return amounts
+
+
+async def getPaymentDateData(param: DatePaymentSearchParameter) -> DatePaymentData:
+    amounts = await _get_payment_amounts(
+        param.Store, param.PaymentType, param.FromDate,
+        param.ToDate + datetime.timedelta(days=1),
+    )
+    details = [
+        DatePaymentDetail(
+            amountbeforetax=float(amount), amountaftertax=float(amount),
+            transactions=0, paymenttype=payment, store=store, date=period,
+        )
+        for (period, store, payment), amount in sorted(amounts.items())
+    ]
+    total = float(sum(amounts.values()))
+    return DatePaymentData(
+        summary=DatePaymentSummary(
+            items=len(details), totalamountbeforetax=total, totalamountaftertax=total,
+        ),
+        details=details,
+    )
+
+
+async def getPaymentMonthData(param: MonthPaymentSearchParameter) -> MonthPaymentData:
+    from_date = datetime.datetime.strptime(param.FromMonth, '%Y-%m').date()
+    last_month = datetime.datetime.strptime(param.ToMonth, '%Y-%m').date()
+    to_date = (last_month.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
+    amounts = await _get_payment_amounts(
+        param.Store, param.PaymentType, from_date, to_date, monthly=True,
+    )
+    details = [
+        MonthPaymentDetail(
+            amountbeforetax=float(amount), amountaftertax=float(amount),
+            transactions=0, paymenttype=payment, store=store, month=period,
+        )
+        for (period, store, payment), amount in sorted(amounts.items())
+    ]
+    total = float(sum(amounts.values()))
+    return MonthPaymentData(
+        summary=MonthPaymentSummary(
+            items=len(details), totalamountbeforetax=total, totalamountaftertax=total,
+        ),
+        details=details,
+    )

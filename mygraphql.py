@@ -86,20 +86,20 @@ def get_top_product_data(param: TopProductSearchParameter) -> Products:
 def get_payment_type_data() -> PaymentType:
     return PaymentType(typename = getPaymentTypes())
 
-def get_date_payment_data(param: DatePaymentSearchParameter) -> DatePaymentData:
+async def get_date_payment_data(param: DatePaymentSearchParameter) -> DatePaymentData:
     if not check_payment_date(param):
         raise Exception("Parameters wrong")
-    return getPaymentDateData(param)
+    return await getPaymentDateData(param)
 
 def get_date_hour_data(param: DateHourSearchParameter) -> DateHourData:
     if not check_hour_date(param):
         raise Exception("Parameters wrong")
     return getHourDateData(param)
 
-def get_month_payment_data(param: MonthPaymentSearchParameter) -> MonthPaymentData:
+async def get_month_payment_data(param: MonthPaymentSearchParameter) -> MonthPaymentData:
     if not check_payment_month(param):
         raise Exception("Parameters wrong")
-    return getPaymentMonthData(param)
+    return await getPaymentMonthData(param)
 
 def get_today_data(param: TodaySearchParameter) -> TodayData:
     if not check_today(param):
