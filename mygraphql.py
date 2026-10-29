@@ -56,7 +56,7 @@ def get_date_data(param: DateSearchParameter) -> DateData:
         raise Exception("Parameters wrong")
     return getDateData(param)
 
-def get_month_data(param: MonthSearchParameter, info) -> MonthData:
+def get_month_data(param: MonthSearchParameter, info: strawberry.Info) -> MonthData:
     if not check_month(param):
         raise Exception("Parameters wrong")
     # if info.context.user.store == "Btrust":
